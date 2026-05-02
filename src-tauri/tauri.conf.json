@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Satisfactory : Remodeller",
+  "productName": "Satisfactory Remodeller",
   "version": "1.0.0",
   "identifier": "com.victorlegall.satisfactory-remodeller",
   "build": {

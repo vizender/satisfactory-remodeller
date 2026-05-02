@@ -27,9 +27,9 @@ Une fois que vous avez obtenu les installateurs (Actions, Release, ou build loca
 
 ### macOS
 
-1. Téléchargez le fichier **`.dmg`** (ex. `Satisfactory : Remodeller_*_universal.dmg` ou équivalent selon l’architecture).
+1. Téléchargez le fichier **`.dmg`** (nom du fichier typique : `Satisfactory Remodeller_*` — sans « : » dans le nom, contrainte des installateurs).
 2. Ouvrez le DMG (double-clic).
-3. Glissez **Satisfactory : Remodeller** dans le dossier **Applications**.
+3. Glissez **Satisfactory Remodeller.app** dans le dossier **Applications** (le titre de la fenêtre de l’app peut toujours afficher « Satisfactory : Remodeller »).
 4. Lancez l’app depuis **Applications** ou Spotlight — **aucun terminal requis**.
 
 > Si Gatekeeper bloque l’app la première fois : **Réglages système → Confidentialité et sécurité** → autoriser, ou clic droit → **Ouvrir**.
