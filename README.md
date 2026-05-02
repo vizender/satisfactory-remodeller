@@ -6,9 +6,24 @@ Application desktop (**Tauri 2 + React + Vite + TypeScript**) pour planifier des
 
 ---
 
+## Pourquoi il n’y a pas de `.dmg` ni de `.exe` dans ce dépôt ?
+
+Les installateurs **ne sont pas versionnés dans Git** : ce seraient des fichiers lourds, spécifiques à chaque OS, et ils changent à chaque release. Le dépôt contient uniquement le **code source**.
+
+Pour récupérer un **DMG** (macOS) ou un **installateur .exe** (Windows) :
+
+1. **GitHub Actions** — onglet [**Actions**](https://github.com/vizender/satisfactory-remodeller/actions) du dépôt : ouvrez le workflow **Desktop installers**, bouton **Run workflow** (ou déclenché automatiquement sur un tag `v*`). Quand le job est vert, section **Artifacts** en bas de la page du run : téléchargez le zip **Satisfactory-Remodeller_macOS** ou **Satisfactory-Remodeller_Windows** (contient le `.dmg` ou le `.exe`).  
+   *Les artefacts Actions ont une durée de rétention limitée sur GitHub (souvent ~90 jours selon le plan).*
+
+2. **Releases** — pour une version stable, créez une [**Release**](https://github.com/vizender/satisfactory-remodeller/releases) et **joignez** les mêmes fichiers (construits en CI ou en local), afin qu’ils restent disponibles sans limite de temps.
+
+3. **Build locale** — voir `npm run build:desktop` ci-dessous ; les fichiers apparaissent dans `src-tauri/target/release/bundle/` (`dmg/`, `nsis/`, etc.).
+
+---
+
 ## Installation sans ligne de commande (Mac & Windows)
 
-Une fois les installateurs publiés (section **Releases** du dépôt GitHub) :
+Une fois que vous avez obtenu les installateurs (Actions, Release, ou build locale) :
 
 ### macOS
 
@@ -25,9 +40,7 @@ Une fois les installateurs publiés (section **Releases** du dépôt GitHub) :
 2. Double-cliquez pour lancer l’assistant d’installation.
 3. À la fin, lancez l’app depuis le menu Démarrer ou le raccourci bureau — **pas besoin de PowerShell ou CMD**.
 
-Les artefacts exacts se trouvent sous :
-
-`src-tauri/target/release/bundle/` après un build local (chemins typiques : sous-dossiers `dmg/`, `nsis/`).
+Après une **build locale**, les fichiers se trouvent sous `src-tauri/target/release/bundle/` (dossiers typiques `dmg/`, `nsis/`).
 
 ---
 
@@ -93,34 +106,8 @@ Les bibliothèques tierces (React, Tauri, etc.) sont soumises à **leurs** licen
 
 ---
 
-## Créer le dépôt GitHub et pousser le code
+## Publier une release (résumé)
 
-Sans **`remote`**, `git push` échoue. Procédure recommandée avec **[GitHub CLI](https://cli.github.com/)** (`gh`) :
-
-1. **Une fois** — installer et se connecter :
-   ```bash
-   brew install gh          # si besoin
-   gh auth login            # GitHub.com → HTTPS → navigateur ou token
-   ```
-2. Depuis la racine du projet :
-   ```bash
-   chmod +x scripts/create-github-repo.sh
-   ./scripts/create-github-repo.sh
-   ```
-   Cela crée un dépôt public **`satisfactory-remodeller`** sur votre compte, configure **`origin`** et lance le **push** de la branche courante (`main`).
-
-   Autre nom de dépôt : `./scripts/create-github-repo.sh mon-autre-nom`.
-
-**Sans `gh`** : sur [github.com/new](https://github.com/new), créez un dépôt **vide** (sans README ni .gitignore), puis :
-```bash
-git remote add origin https://github.com/VOTRE_USER/VOTRE_DEPOT.git
-git push -u origin main
-```
-
----
-
-## Publier des binaires (résumé)
-
-1. Sur **macOS** : `npm run build:desktop` → déposer le `.dmg` (et éventuellement le `.app`) dans une **Release** GitHub.
-2. Sur **Windows** : même commande → déposer le `.exe` NSIS.
-3. Décrire dans la release la version, la checksum optionnelle, et le lien vers ce README pour la licence.
+1. Construire les installateurs : **CI** (workflow **Desktop installers**) ou **`npm run build:desktop`** sur chaque OS cible.
+2. Joindre le `.dmg` et le `.exe` à une **Release** GitHub pour les garder accessibles longtemps.
+3. Décrire la version, une checksum optionnelle, et renvoyer à ce README pour la licence.

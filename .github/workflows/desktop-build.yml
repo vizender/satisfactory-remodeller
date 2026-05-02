@@ -1,0 +1,77 @@
+# Produit les installateurs .dmg (macOS) et .exe NSIS (Windows).
+# Les fichiers ne sont pas dans le dépôt Git : téléchargez-les depuis l’onglet Actions → workflow réussi → Artifacts.
+
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build Tauri (macOS)
+        run: npm run build:desktop
+
+      - name: List bundle output
+        run: find src-tauri/target/release/bundle -type f 2>/dev/null || true
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Satisfactory-Remodeller_macOS
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build Tauri (Windows)
+        run: npm run build:desktop
+
+      - name: List bundle output
+        shell: bash
+        run: find src-tauri/target/release/bundle -type f 2>/dev/null || true
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Satisfactory-Remodeller_Windows
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
