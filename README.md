@@ -93,6 +93,32 @@ Les bibliothèques tierces (React, Tauri, etc.) sont soumises à **leurs** licen
 
 ---
 
+## Créer le dépôt GitHub et pousser le code
+
+Sans **`remote`**, `git push` échoue. Procédure recommandée avec **[GitHub CLI](https://cli.github.com/)** (`gh`) :
+
+1. **Une fois** — installer et se connecter :
+   ```bash
+   brew install gh          # si besoin
+   gh auth login            # GitHub.com → HTTPS → navigateur ou token
+   ```
+2. Depuis la racine du projet :
+   ```bash
+   chmod +x scripts/create-github-repo.sh
+   ./scripts/create-github-repo.sh
+   ```
+   Cela crée un dépôt public **`satisfactory-remodeller`** sur votre compte, configure **`origin`** et lance le **push** de la branche courante (`main`).
+
+   Autre nom de dépôt : `./scripts/create-github-repo.sh mon-autre-nom`.
+
+**Sans `gh`** : sur [github.com/new](https://github.com/new), créez un dépôt **vide** (sans README ni .gitignore), puis :
+```bash
+git remote add origin https://github.com/VOTRE_USER/VOTRE_DEPOT.git
+git push -u origin main
+```
+
+---
+
 ## Publier des binaires (résumé)
 
 1. Sur **macOS** : `npm run build:desktop` → déposer le `.dmg` (et éventuellement le `.app`) dans une **Release** GitHub.
