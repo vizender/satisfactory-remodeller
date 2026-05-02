@@ -30,7 +30,7 @@ import { ItemPortNode } from "@/components/ItemPortNode";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
-import { useFlowSolveResult } from "@/context/FlowSolveContext";
+import { useFlowSolveResult } from "@/hooks/useFlowSolve";
 import type { RecipeFilter } from "@/lib/recipeFilters";
 import {
   applyConnectionPreviewToNodes,
@@ -39,7 +39,10 @@ import {
 } from "@/lib/nodeDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import { CLOCK_DEFAULT, clampClockPercent } from "@/lib/clockSpeed";
-import { useDocumentStore } from "@/store/useDocumentStore";
+import {
+  hasEdgeBetweenPorts,
+  useDocumentStore,
+} from "@/store/useDocumentStore";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 
 const nodeTypes: NodeTypes = {
@@ -216,7 +219,7 @@ function FlowCanvasInner() {
   );
 
   const isValidConnection = useCallback((edgeOrConn: Connection | Edge) => {
-    const list = useDocumentStore.getState().nodes;
+    const { nodes: list, edges } = useDocumentStore.getState();
     const src = list.find((n) => n.id === edgeOrConn.source);
     const tgt = list.find((n) => n.id === edgeOrConn.target);
     if (!src || !tgt || src.type !== "itemPort" || tgt.type !== "itemPort") {
@@ -225,7 +228,15 @@ function FlowCanvasInner() {
     const sd = src.data as ItemPortData;
     const td = tgt.data as ItemPortData;
     if (sd.kind !== "out" || td.kind !== "in") return false;
-    return sd.itemId === td.itemId;
+    if (sd.itemId !== td.itemId) return false;
+    if (
+      edgeOrConn.source &&
+      edgeOrConn.target &&
+      hasEdgeBetweenPorts(edges, edgeOrConn.source, edgeOrConn.target)
+    ) {
+      return false;
+    }
+    return true;
   }, []);
 
   useEffect(() => {

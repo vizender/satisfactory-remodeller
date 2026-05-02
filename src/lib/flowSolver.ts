@@ -79,6 +79,77 @@ function machineHasForcedRate(
 }
 
 /**
+ * Besoin nominal attribué à une arête vers une entrée : une seule entrée → débit cible entier ;
+ * fusion (plusieurs arêtes vers le même port) → répartition pondérée par débit nominal **sortie** amont.
+ */
+function allocatedDemandOnEdge(
+  e: Edge,
+  effectiveRate: Record<string, number>,
+  realEdges: Edge[],
+  base: Map<string, number>,
+): number {
+  const tgt = e.target;
+  const totalNeed = effectiveRate[tgt] ?? 0;
+  const incoming = realEdges.filter((x) => x.target === tgt);
+  if (incoming.length <= 1) return totalNeed;
+  const weights = incoming.map((x) => Math.max(base.get(x.source) ?? 0, EPS));
+  const sumW = weights.reduce((a, b) => a + b, 0);
+  const idx = incoming.findIndex((x) => x.id === e.id);
+  if (idx < 0 || sumW <= EPS) return totalNeed / incoming.length;
+  return totalNeed * (weights[idx]! / sumW);
+}
+
+const SCALE_UP_ITERS = 64;
+
+/**
+ * Monte les multiplicateurs **sans port forcé** pour que chaque sortie couvre la somme des besoins
+ * nominaux en aval (splits et merges), par point fixe sur `m`.
+ */
+function scaleMachinesToMeetOutgoingDemand(
+  m: Record<string, number>,
+  machines: string[],
+  nodes: Node[],
+  portsOfMachine: Map<string, string[]>,
+  realEdges: Edge[],
+  base: Map<string, number>,
+  machineOf: Map<string, string>,
+  forcedPortRates: Record<string, number | undefined>,
+): void {
+  for (let iter = 0; iter < SCALE_UP_ITERS; iter++) {
+    const effectiveRate: Record<string, number> = {};
+    for (const pid of base.keys()) {
+      const mid = machineOf.get(pid);
+      const b = base.get(pid) ?? 0;
+      effectiveRate[pid] = mid ? (m[mid] ?? 1) * b : b;
+    }
+
+    let changed = false;
+    for (const mid of machines) {
+      if (machineHasForcedRate(mid, portsOfMachine, forcedPortRates)) continue;
+      let needM = m[mid] ?? 1;
+      for (const pid of portsOfMachine.get(mid) ?? []) {
+        const node = nodes.find((n) => n.id === pid && n.type === "itemPort");
+        if (!node) continue;
+        if ((node.data as ItemPortData).kind !== "out") continue;
+        const outs = realEdges.filter((e) => e.source === pid);
+        if (outs.length === 0) continue;
+        let demand = 0;
+        for (const e of outs) {
+          demand += allocatedDemandOnEdge(e, effectiveRate, realEdges, base);
+        }
+        const bp = base.get(pid) ?? 0;
+        if (bp > EPS) needM = Math.max(needM, demand / bp);
+      }
+      if (needM > (m[mid] ?? 1) + EPS) {
+        m[mid] = needM;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+/**
  * Composantes : arêtes item (ma → mb) + machines isolées.
  */
 function componentsOf(
@@ -151,7 +222,9 @@ function rebalanceDeficitDownstream(
       const supply = effectiveRate[src] ?? 0;
       if (supply <= EPS) continue;
 
-      const needs = es.map((ed) => effectiveRate[ed.target] ?? 0);
+      const needs = es.map((ed) =>
+        allocatedDemandOnEdge(ed, effectiveRate, realEdges, base),
+      );
       const sumNeed = needs.reduce((a, b) => a + b, 0);
       if (sumNeed <= EPS) continue;
 
@@ -294,6 +367,17 @@ export function solveFlow(
     if (Number.isNaN(m[mid])) m[mid] = 1;
   }
 
+  scaleMachinesToMeetOutgoingDemand(
+    m,
+    machines,
+    nodes,
+    portsOfMachine,
+    realEdges,
+    base,
+    machineOf,
+    forcedPortRates,
+  );
+
   rebalanceDeficitDownstream(
     m,
     realEdges,
@@ -318,15 +402,17 @@ export function solveFlow(
     bySource.get(e.source)!.push(e);
   }
 
-  /** 1) Calcul des flux par arête (répartition sorties multiples). */
+  /** 1) Calcul des flux par arête (répartition sorties multiples, merges cohérents). */
   for (const [src, es] of bySource) {
     const supply = effectiveRate[src] ?? 0;
-    const needs = es.map((ed) => effectiveRate[ed.target] ?? 0);
-    const sumNeed = needs.reduce((a, b) => a + b, 0);
+    const needsAlloc = es.map((ed) =>
+      allocatedDemandOnEdge(ed, effectiveRate, realEdges, base),
+    );
+    const sumNeed = needsAlloc.reduce((a, b) => a + b, 0);
 
     if (es.length === 1) {
       const ed = es[0];
-      const need = needs[0] ?? 0;
+      const need = needsAlloc[0] ?? 0;
       const f = Math.min(supply, need);
       edgeFlow[ed.id] = f;
     } else if (es.length > 1) {
@@ -337,10 +423,9 @@ export function solveFlow(
         });
       } else {
         es.forEach((ed, i) => {
-          const need = needs[i] ?? 0;
+          const need = needsAlloc[i] ?? 0;
           const prop = (need / sumNeed) * supply;
-          const f = Math.min(prop, need);
-          edgeFlow[ed.id] = f;
+          edgeFlow[ed.id] = Math.min(prop, need);
         });
       }
     }
@@ -349,7 +434,7 @@ export function solveFlow(
   for (const e of realEdges) {
     if (edgeFlow[e.id] !== undefined) continue;
     const supply = effectiveRate[e.source] ?? 0;
-    const need = effectiveRate[e.target] ?? 0;
+    const need = allocatedDemandOnEdge(e, effectiveRate, realEdges, base);
     edgeFlow[e.id] = Math.min(supply, need);
   }
 

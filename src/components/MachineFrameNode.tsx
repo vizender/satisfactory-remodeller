@@ -29,13 +29,13 @@ export function MachineFrameNode(props: NodeProps) {
   const { effectiveRate, machineMultiplier } = useFlowSolve();
   const m = machineMultiplier[id] ?? 1;
   /**
-   * Nombre de machines au régime nominal (100 %) pour le même débit qu’une seule
-   * machine à l’horloge choisie — **sans** le facteur `m` du solveur (sinon m × horloge ≈ 1).
+   * Copies « pleine cadence équivalente » : multiplicateur du solveur (débit imposé par le graphe)
+   * × facteur 100/horloge (chaque bâtiment à C % équivaut à C/100 machine à 100 % pour ce débit).
    */
   const nombreMachinesPourDebit = useMemo(() => {
     if (clockPct <= 0) return null;
-    return 100 / clockPct;
-  }, [clockPct]);
+    return m * (100 / clockPct);
+  }, [m, clockPct]);
 
   const powerMw = useMemo(() => {
     if (!machineClassId) return null;

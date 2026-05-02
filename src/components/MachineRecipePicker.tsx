@@ -10,6 +10,7 @@ import {
   groupRecipesByMachine,
   formatMachineGroupLabel,
   listCraftMachineGroupKeys,
+  recipeMatchesSearchQuery,
 } from "@/lib/recipeFilters";
 import type { RecipeIndexEntry } from "@/types/satisfactory";
 import { formatItemClassId } from "@/types/graph";
@@ -71,12 +72,7 @@ export function MachineRecipePicker({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return afterAltFilter;
-    return afterAltFilter.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.className.toLowerCase().includes(q) ||
-        r.recipeKey.toLowerCase().includes(q),
-    );
+    return afterAltFilter.filter((r) => recipeMatchesSearchQuery(r, q));
   }, [afterAltFilter, search]);
 
   const grouped = useMemo(
@@ -296,6 +292,7 @@ export function MachineRecipePicker({
                     <ul className="space-y-0.5">
                       {list.map((r) => {
                         const previewItemId = recipeRepresentativeItemId(r);
+                        const extraProducts = r.products.slice(1);
                         return (
                           <li key={r.recipeKey}>
                             <button
@@ -324,6 +321,23 @@ export function MachineRecipePicker({
                                 {r.alternate ? (
                                   <span className="ml-2 text-[10px] text-amber-400/90">
                                     alt
+                                  </span>
+                                ) : null}
+                                {extraProducts.length > 0 ? (
+                                  <span className="mt-1 flex flex-col gap-0.5">
+                                    {extraProducts.map((p) => (
+                                      <span
+                                        key={p.item}
+                                        className="flex items-center gap-1.5 text-[10px] leading-tight text-[var(--muted)]"
+                                      >
+                                        <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_img]:h-3 [&_img]:w-3">
+                                          <ItemIconSlot itemId={p.item} />
+                                        </span>
+                                        <span className="min-w-0 truncate">
+                                          {formatItemClassId(p.item)}
+                                        </span>
+                                      </span>
+                                    ))}
                                   </span>
                                 ) : null}
                               </span>

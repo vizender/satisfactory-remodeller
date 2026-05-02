@@ -113,6 +113,22 @@ export const SYNTHETIC_RECIPES: RecipeIndexEntry[] = [
     [],
     [{ item: "Desc_SAM_C", amount: 1 }],
   ),
+  /** 120 m³/min à 100 % : crafts 60/min × 2 unités par craft. */
+  mk(
+    "Synthetic_WaterExtractor_Water_C",
+    "Water Extractor — Water (120 m³/min)",
+    "Desc_WaterPump_C",
+    [],
+    [{ item: "Desc_Water_C", amount: 2 }],
+  ),
+  /** 120 m³/min pétrole brut @ 100 % — même logique que l’extracteur d’eau. */
+  mk(
+    "Synthetic_OilExtractor_LiquidOil_C",
+    "Oil Extractor — Crude Oil (120 m³/min)",
+    "Desc_OilPump_C",
+    [],
+    [{ item: "Desc_LiquidOil_C", amount: 2 }],
+  ),
   mk(
     "Synthetic_GeneratorCoal_Consume_C",
     "Coal-Powered Generator — burn coal (60/min)",

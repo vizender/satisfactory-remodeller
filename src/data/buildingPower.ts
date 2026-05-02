@@ -22,6 +22,10 @@ export const CONSUMER_NOMINAL_MW_BY_BUILDING: ConsumerNominalMwByBuilding = {
   Desc_MinerMk1_C: 5,
   Desc_MinerMk2_C: 15,
   Desc_MinerMk3_C: 45,
+  /** Water Extractor — 20 MW @ 100 % (wiki Satisfactory). */
+  Desc_WaterPump_C: 20,
+  /** Oil Extractor — 40 MW @ 100 % (wiki Satisfactory). */
+  Desc_OilPump_C: 40,
   Desc_OilRefinery_C: 30,
   Desc_SmelterMk1_C: 4,
   Desc_Packager_C: 10,

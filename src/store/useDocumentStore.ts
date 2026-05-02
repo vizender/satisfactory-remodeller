@@ -5,7 +5,6 @@ import {
 } from "@xyflow/react";
 import { create } from "zustand";
 import {
-  buildGraphFromBlueprints,
   buildMachineNodes,
   machineBlueprintFromFrame,
   normalizePortSlotPermutation,
@@ -17,45 +16,8 @@ import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 
-const machineBlueprints = [
-  {
-    id: "m1",
-    position: { x: 40, y: 40 },
-    label: "Smelter",
-    recipeKey: "Recipe_IngotIron_C",
-  },
-  {
-    id: "m2",
-    position: { x: 560, y: 40 },
-    label: "Constructor",
-    recipeKey: "Recipe_IronPlate_C",
-  },
-  {
-    id: "m3",
-    position: { x: 40, y: 400 },
-    label: "Assembler",
-    recipeKey: "Recipe_CircuitBoard_C",
-  },
-  {
-    id: "m4",
-    position: { x: 560, y: 400 },
-    label: "Blender",
-    recipeKey: "Recipe_RocketFuel_C",
-  },
-];
-
-const initialNodes: Node[] = buildGraphFromBlueprints(machineBlueprints);
-
-const initialEdges: Edge[] = [
-  {
-    id: "e-m1-m2-ingot",
-    source: "m1-out-0",
-    target: "m2-in-0",
-    sourceHandle: "item",
-    targetHandle: "item",
-    data: { itemId: "Desc_IronIngot_C" },
-  },
-];
+const initialNodes: Node[] = [];
+const initialEdges: Edge[] = [];
 
 export interface DocumentState {
   nodes: Node[];
@@ -161,6 +123,17 @@ function makeItemEdge(source: string, target: string, itemId: string): Edge {
   };
 }
 
+/** Une seule liaison matière entre deux ports donnés (évite doublons / glitch visuel). */
+export function hasEdgeBetweenPorts(
+  edges: Edge[],
+  sourcePortId: string,
+  targetPortId: string,
+): boolean {
+  return edges.some(
+    (e) => e.source === sourcePortId && e.target === targetPortId,
+  );
+}
+
 export const useDocumentStore = create<DocumentState>((set, get) => ({
   nodes: initialNodes,
   edges: initialEdges,
@@ -196,6 +169,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (sd.kind !== "out" || td.kind !== "in" || sd.itemId !== td.itemId) {
       return;
     }
+    const ps = connection.source;
+    const pt = connection.target;
+    if (!ps || !pt || hasEdgeBetweenPorts(get().edges, ps, pt)) {
+      return;
+    }
     const id = `e-${connection.source}-${connection.target}-${crypto.randomUUID().slice(0, 8)}`;
     const edge: Edge = {
       id,
@@ -229,7 +207,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return { forcedPortRates: next };
     }),
   addResolvedEdge: (edge) =>
-    set((s) => ({ edges: [...s.edges, edge] })),
+    set((s) =>
+      hasEdgeBetweenPorts(s.edges, edge.source, edge.target)
+        ? s
+        : { edges: [...s.edges, edge] },
+    ),
   addMachine: (recipeKey, flowPosition, options) => {
     const recipe = findRecipeByKey(recipeKey);
     const id = nextMachineFrameId(get().nodes);
@@ -250,12 +232,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const itemId = od.itemId;
         if (od.kind === "out") {
           const targetIn = findItemPortIdOnMachine(built, id, "in", itemId);
-          if (targetIn) {
+          if (
+            targetIn &&
+            !hasEdgeBetweenPorts(get().edges, linkId, targetIn)
+          ) {
             extraEdges.push(makeItemEdge(linkId, targetIn, itemId));
           }
         } else {
           const sourceOut = findItemPortIdOnMachine(built, id, "out", itemId);
-          if (sourceOut) {
+          if (
+            sourceOut &&
+            !hasEdgeBetweenPorts(get().edges, sourceOut, linkId)
+          ) {
             extraEdges.push(makeItemEdge(sourceOut, linkId, itemId));
           }
         }

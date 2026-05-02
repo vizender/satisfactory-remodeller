@@ -1,10 +1,12 @@
 import recipeIndex from "@/generated/recipeIndex.json";
 import type { RecipeIndex, RecipeIndexEntry } from "@/types/satisfactory";
+import { formatItemClassId } from "@/types/graph";
 
 const index = recipeIndex as RecipeIndex;
 
 /** Noms d’affichage préférés (l’id jeu `Desc_*_C` reste inchangé pour les flux / icônes). */
 const MACHINE_GROUP_LABEL_OVERRIDES: Record<string, string> = {
+  Desc_WaterPump_C: "Water Extractor",
   Desc_OilRefinery_C: "Oil Refinery",
   Desc_HadronCollider_C: "Particle Accelerator",
   Desc_GeneratorBiomass_Automated_C: "Biomass Burner",
@@ -100,6 +102,31 @@ export function filterRecipes(f: RecipeFilter): RecipeIndexEntry[] {
   else if (f.mode === "produces") list = recipesProducingItem(f.itemId);
   else list = recipesConsumingItem(f.itemId);
   return withoutPlacementRecipes(list);
+}
+
+/** Recherche texte : nom de recette, clés, libellés de tous les produits et ingrédients. */
+export function recipeMatchesSearchQuery(
+  r: RecipeIndexEntry,
+  queryLower: string,
+): boolean {
+  if (
+    r.name.toLowerCase().includes(queryLower) ||
+    r.className.toLowerCase().includes(queryLower) ||
+    r.recipeKey.toLowerCase().includes(queryLower)
+  ) {
+    return true;
+  }
+  for (const p of r.products) {
+    if (formatItemClassId(p.item).toLowerCase().includes(queryLower)) {
+      return true;
+    }
+  }
+  for (const i of r.ingredients) {
+    if (formatItemClassId(i.item).toLowerCase().includes(queryLower)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Tri puis groupement par `machineGroupKey`, sous-listes triées par nom. */
