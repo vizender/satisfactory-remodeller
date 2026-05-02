@@ -24,6 +24,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "vizender",
+    "copyright": "Copyright © 2026 vizender",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "shortDescription": "Planificateur de chaînes de production façon Satisfactory.",
+    "longDescription": "Satisfactory : Remodeller — graphe de production, débits, horloges et bilan énergie. Logiciel open source (MIT) par vizender ; Satisfactory est une marque déposée par Coffee Stain Studios AB.",
+    "category": "DeveloperTool",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

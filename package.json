@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Satisfactory : Remodeller — planificateur d’usines (Tauri + React)",
+  "author": "vizender",
+  "license": "MIT",
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite",
@@ -14,6 +16,7 @@
     "prebuild": "npm run gen:recipes",
     "predev": "npm run gen:recipes",
     "build": "tsc && vite build",
+    "build:desktop": "tauri build",
     "preview": "vite preview",
     "tauri": "tauri"
   },
