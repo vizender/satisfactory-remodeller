@@ -1,0 +1,389 @@
+import type { Connection, Edge, EdgeChange, Node, NodeChange } from "@xyflow/react";
+import {
+  applyEdgeChanges,
+  applyNodeChanges,
+} from "@xyflow/react";
+import { create } from "zustand";
+import {
+  buildGraphFromBlueprints,
+  buildMachineNodes,
+  machineBlueprintFromFrame,
+  normalizePortSlotPermutation,
+  type MachineBlueprint,
+} from "@/lib/buildMachineGraph";
+import type { ReorderDragSession } from "@/lib/nodeDisplayDecorators";
+import { clampClockPercent } from "@/lib/clockSpeed";
+import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
+import { findRecipeByKey } from "@/lib/recipeLookup";
+import type { ItemPortData, MachineFrameData } from "@/types/graph";
+
+const machineBlueprints = [
+  {
+    id: "m1",
+    position: { x: 40, y: 40 },
+    label: "Smelter",
+    recipeKey: "Recipe_IngotIron_C",
+  },
+  {
+    id: "m2",
+    position: { x: 560, y: 40 },
+    label: "Constructor",
+    recipeKey: "Recipe_IronPlate_C",
+  },
+  {
+    id: "m3",
+    position: { x: 40, y: 400 },
+    label: "Assembler",
+    recipeKey: "Recipe_CircuitBoard_C",
+  },
+  {
+    id: "m4",
+    position: { x: 560, y: 400 },
+    label: "Blender",
+    recipeKey: "Recipe_RocketFuel_C",
+  },
+];
+
+const initialNodes: Node[] = buildGraphFromBlueprints(machineBlueprints);
+
+const initialEdges: Edge[] = [
+  {
+    id: "e-m1-m2-ingot",
+    source: "m1-out-0",
+    target: "m2-in-0",
+    sourceHandle: "item",
+    targetHandle: "item",
+    data: { itemId: "Desc_IronIngot_C" },
+  },
+];
+
+export interface DocumentState {
+  nodes: Node[];
+  edges: Edge[];
+  /** Débit /min forcé par id de port (undefined = nomina recette). */
+  forcedPortRates: Record<string, number | undefined>;
+  solverReady: boolean;
+  setSolverReady: (v: boolean) => void;
+  onNodesChange: (changes: NodeChange[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onConnect: (connection: Connection) => void;
+  removeEdgeById: (edgeId: string) => void;
+  setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
+  /** Retire tous les overrides sur les ports d’une machine (cadre). */
+  clearForcedOnMachine: (machineFrameId: string) => void;
+  addResolvedEdge: (edge: Edge) => void;
+  /**
+   * Nouvelle machine à `flowPosition`.
+   * Si `linkOriginPortId` est le port depuis lequel on a lâché la connexion / le drag,
+   * on crée une arête vers l’entrée ou la sortie correspondante sur la nouvelle machine.
+   */
+  addMachine: (
+    recipeKey: string,
+    flowPosition: { x: number; y: number },
+    options?: { linkOriginPortId?: string },
+  ) => void;
+  /** Supprime le cadre, les ports et toutes les arêtes attachées. */
+  removeMachine: (machineFrameId: string) => void;
+  /** Remplace la recette et retire les liaisons / forçages devenus invalides. */
+  setMachineRecipe: (machineFrameId: string, recipeKey: string) => void;
+  /** Surclock 0–250 % (défaut 100). */
+  setMachineClockPercent: (machineFrameId: string, clockPercent: number) => void;
+  /** Repositionne un nœud (ex. aperçu vertical lors du réordonnancement des ports). */
+  setNodePosition: (
+    nodeId: string,
+    position: { x: number; y: number },
+  ) => void;
+  /** Plusieurs positions en une mise à jour (aperçu swap / reset des ports). */
+  setNodePositions: (
+    updates: { id: string; position: { x: number; y: number } }[],
+  ) => void;
+  /** Session active de réordonnancement vertical (classes CSS de transition). */
+  reorderDragSession: ReorderDragSession | null;
+  setReorderDragSession: (session: ReorderDragSession | null) => void;
+  /**
+   * Échange les créneaux verticaux de deux ports (même côté) pour réduire les croisements.
+   * Les ids de ports (`…-in-i` / `…-out-i`) restent alignés sur l’index recette.
+   */
+  swapMachinePortSlots: (
+    machineFrameId: string,
+    kind: "in" | "out",
+    recipeIndex: number,
+    targetSlotIndex: number,
+  ) => void;
+}
+
+function portIdsForMachine(
+  nodes: Node[],
+  machineId: string,
+): string[] {
+  return nodes
+    .filter(
+      (n) =>
+        n.type === "itemPort" &&
+        n.parentId === machineId,
+    )
+    .map((n) => n.id);
+}
+
+function nextMachineFrameId(nodes: Node[]): string {
+  let max = 0;
+  for (const n of nodes) {
+    if (n.type !== "machineFrame") continue;
+    const m = /^m(\d+)$/.exec(n.id);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `m${max + 1}`;
+}
+
+function findItemPortIdOnMachine(
+  nodes: Node[],
+  machineFrameId: string,
+  kind: "in" | "out",
+  itemId: string,
+): string | null {
+  for (const n of nodes) {
+    if (n.type !== "itemPort" || n.parentId !== machineFrameId) continue;
+    const d = n.data as ItemPortData;
+    if (d.kind === kind && d.itemId === itemId) return n.id;
+  }
+  return null;
+}
+
+function makeItemEdge(source: string, target: string, itemId: string): Edge {
+  const id = `e-${source}-${target}-${crypto.randomUUID().slice(0, 8)}`;
+  return {
+    id,
+    source,
+    target,
+    sourceHandle: "item",
+    targetHandle: "item",
+    data: { itemId },
+  };
+}
+
+export const useDocumentStore = create<DocumentState>((set, get) => ({
+  nodes: initialNodes,
+  edges: initialEdges,
+  forcedPortRates: {},
+  solverReady: false,
+  reorderDragSession: null,
+  setReorderDragSession: (session) => set({ reorderDragSession: session }),
+  setSolverReady: (solverReady) => set({ solverReady }),
+  onNodesChange: (changes) => {
+    set({
+      nodes: applyNodeChanges(changes, get().nodes),
+    });
+  },
+  onEdgesChange: (changes) => {
+    set({
+      edges: applyEdgeChanges(changes, get().edges),
+    });
+  },
+  onConnect: (connection) => {
+    const nodes = get().nodes;
+    const src = nodes.find((n) => n.id === connection.source);
+    const tgt = nodes.find((n) => n.id === connection.target);
+    if (
+      !src ||
+      !tgt ||
+      src.type !== "itemPort" ||
+      tgt.type !== "itemPort"
+    ) {
+      return;
+    }
+    const sd = src.data as ItemPortData;
+    const td = tgt.data as ItemPortData;
+    if (sd.kind !== "out" || td.kind !== "in" || sd.itemId !== td.itemId) {
+      return;
+    }
+    const id = `e-${connection.source}-${connection.target}-${crypto.randomUUID().slice(0, 8)}`;
+    const edge: Edge = {
+      id,
+      source: connection.source,
+      target: connection.target,
+      sourceHandle: connection.sourceHandle ?? "item",
+      targetHandle: connection.targetHandle ?? "item",
+      data: { itemId: sd.itemId },
+    };
+    set({ edges: [...get().edges, edge] });
+  },
+  removeEdgeById: (edgeId) =>
+    set({ edges: get().edges.filter((e) => e.id !== edgeId) }),
+  setForcedPortRate: (portId, ratePerMin) =>
+    set((s) => {
+      const next = { ...s.forcedPortRates };
+      if (ratePerMin === undefined || Number.isNaN(ratePerMin)) {
+        delete next[portId];
+      } else {
+        next[portId] = ratePerMin;
+      }
+      return { forcedPortRates: next };
+    }),
+  clearForcedOnMachine: (machineFrameId) =>
+    set((s) => {
+      const ids = new Set(portIdsForMachine(s.nodes, machineFrameId));
+      const next = { ...s.forcedPortRates };
+      for (const k of Object.keys(next)) {
+        if (ids.has(k)) delete next[k];
+      }
+      return { forcedPortRates: next };
+    }),
+  addResolvedEdge: (edge) =>
+    set((s) => ({ edges: [...s.edges, edge] })),
+  addMachine: (recipeKey, flowPosition, options) => {
+    const recipe = findRecipeByKey(recipeKey);
+    const id = nextMachineFrameId(get().nodes);
+    const label = defaultMachineInstanceLabel(recipe ?? undefined, id);
+    const bp: MachineBlueprint = {
+      id,
+      position: flowPosition,
+      label,
+      recipeKey,
+    };
+    const built = buildMachineNodes(bp);
+    const linkId = options?.linkOriginPortId;
+    let extraEdges: Edge[] = [];
+    if (linkId) {
+      const origin = get().nodes.find((n) => n.id === linkId);
+      if (origin?.type === "itemPort") {
+        const od = origin.data as ItemPortData;
+        const itemId = od.itemId;
+        if (od.kind === "out") {
+          const targetIn = findItemPortIdOnMachine(built, id, "in", itemId);
+          if (targetIn) {
+            extraEdges.push(makeItemEdge(linkId, targetIn, itemId));
+          }
+        } else {
+          const sourceOut = findItemPortIdOnMachine(built, id, "out", itemId);
+          if (sourceOut) {
+            extraEdges.push(makeItemEdge(sourceOut, linkId, itemId));
+          }
+        }
+      }
+    }
+    set((s) => ({
+      nodes: [...s.nodes, ...built],
+      edges: extraEdges.length ? [...s.edges, ...extraEdges] : s.edges,
+    }));
+  },
+  removeMachine: (machineFrameId) => {
+    const portIds = new Set(portIdsForMachine(get().nodes, machineFrameId));
+    set((s) => {
+      const nodes = s.nodes.filter(
+        (n) => n.id !== machineFrameId && n.parentId !== machineFrameId,
+      );
+      const edges = s.edges.filter(
+        (e) => !portIds.has(e.source) && !portIds.has(e.target),
+      );
+      const forcedPortRates = { ...s.forcedPortRates };
+      for (const pid of portIds) delete forcedPortRates[pid];
+      return { nodes, edges, forcedPortRates };
+    });
+  },
+  setMachineRecipe: (machineFrameId, recipeKey) => {
+    const s = get();
+    const frame = s.nodes.find(
+      (n) => n.id === machineFrameId && n.type === "machineFrame",
+    );
+    if (!frame) return;
+    const portIds = new Set(portIdsForMachine(s.nodes, machineFrameId));
+    const recipe = findRecipeByKey(recipeKey);
+    const prevLabel = (frame.data as MachineFrameData).label;
+    const label =
+      typeof prevLabel === "string" && prevLabel.length > 0
+        ? prevLabel
+        : defaultMachineInstanceLabel(recipe ?? undefined, machineFrameId);
+    const prevClock = (frame.data as MachineFrameData).clockPercent;
+    const bp: MachineBlueprint = {
+      id: machineFrameId,
+      position: { ...frame.position },
+      label,
+      recipeKey,
+      clockPercent: typeof prevClock === "number" ? prevClock : undefined,
+    };
+    const built = buildMachineNodes(bp);
+    const others = s.nodes.filter(
+      (n) => n.id !== machineFrameId && n.parentId !== machineFrameId,
+    );
+    const edges = s.edges.filter(
+      (e) => !portIds.has(e.source) && !portIds.has(e.target),
+    );
+    const forcedPortRates = { ...s.forcedPortRates };
+    for (const pid of portIds) delete forcedPortRates[pid];
+    set({
+      nodes: [...others, ...built],
+      edges,
+      forcedPortRates,
+    });
+  },
+  setMachineClockPercent: (machineFrameId, clockPercent) => {
+    const v = clampClockPercent(clockPercent);
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id !== machineFrameId || n.type !== "machineFrame") return n;
+        const d = n.data as MachineFrameData;
+        return {
+          ...n,
+          data: { ...d, clockPercent: v } satisfies MachineFrameData,
+        };
+      }),
+    }));
+  },
+  setNodePosition: (nodeId, position) =>
+    set((s) => ({
+      nodes: s.nodes.map((n) =>
+        n.id === nodeId ? { ...n, position: { ...position } } : n,
+      ),
+    })),
+  setNodePositions: (updates) => {
+    if (updates.length === 0) return;
+    set((s) => {
+      const m = new Map(
+        updates.map((u) => [u.id, u.position] as const),
+      );
+      return {
+        nodes: s.nodes.map((n) => {
+          const p = m.get(n.id);
+          return p ? { ...n, position: { ...p } } : n;
+        }),
+      };
+    });
+  },
+  swapMachinePortSlots: (machineFrameId, kind, recipeIndex, targetSlotIndex) => {
+    const s = get();
+    const frame = s.nodes.find(
+      (n) => n.id === machineFrameId && n.type === "machineFrame",
+    );
+    if (!frame) return;
+    const recipe = findRecipeByKey((frame.data as MachineFrameData).recipeKey);
+    if (!recipe) return;
+    const n =
+      kind === "in" ? recipe.ingredients.length : recipe.products.length;
+    if (n <= 1) return;
+    if (targetSlotIndex < 0 || targetSlotIndex >= n) return;
+
+    const bp = machineBlueprintFromFrame(frame);
+    const key =
+      kind === "in" ? "inputSlotByRecipeIndex" : "outputSlotByRecipeIndex";
+    const prev =
+      kind === "in" ? bp.inputSlotByRecipeIndex : bp.outputSlotByRecipeIndex;
+    const perm = normalizePortSlotPermutation(n, prev);
+    if (perm[recipeIndex] === targetSlotIndex) return;
+    const j = perm.findIndex((slot) => slot === targetSlotIndex);
+    if (j < 0) return;
+    const nextPerm = [...perm];
+    [nextPerm[recipeIndex], nextPerm[j]] = [
+      nextPerm[j],
+      nextPerm[recipeIndex],
+    ];
+
+    const built = buildMachineNodes({
+      ...bp,
+      [key]: nextPerm,
+    });
+    const others = s.nodes.filter(
+      (node) => node.id !== machineFrameId && node.parentId !== machineFrameId,
+    );
+    set({ nodes: [...others, ...built] });
+  },
+}));

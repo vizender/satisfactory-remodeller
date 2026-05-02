@@ -1,0 +1,12 @@
+{
+  "source": "local",
+  "count": 3,
+  "files": {
+    "Desc_OreIron_C": "iron_ore.png",
+    "Desc_IronIngot_C": "iron_ingot.png",
+    "Desc_IronPlate_C": "iron_plate.png",
+    "Iron Ore": "iron_ore.png",
+    "Iron Ingot": "iron_ingot.png",
+    "Iron Plate": "iron_plate.png"
+  }
+}

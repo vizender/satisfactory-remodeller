@@ -1,0 +1,10 @@
+{
+  "source": "local",
+  "count": 2,
+  "files": {
+    "Desc_SmelterMk1_C": "smelter.png",
+    "Desc_ConstructorMk1_C": "constructor.png",
+    "Smelter": "smelter.png",
+    "Constructor": "constructor.png"
+  }
+}

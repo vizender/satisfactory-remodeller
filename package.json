@@ -1,0 +1,40 @@
+{
+  "name": "satisfactory-remodeller",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Satisfactory : Remodeller — planificateur d’usines (Tauri + React)",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:web": "vite",
+    "dev:browser": "vite --open",
+    "gen:recipes": "tsx scripts/generateRecipeIndex.ts",
+    "download:icons": "tsx scripts/downloadWikiIcons.ts",
+    "report:icons": "tsx scripts/reportRecipeIcons.ts",
+    "prebuild": "npm run gen:recipes",
+    "predev": "npm run gen:recipes",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@xyflow/react": "^12.9.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^24.9.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.20.6",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}
