@@ -6,11 +6,14 @@ name: Desktop installers
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   macos:

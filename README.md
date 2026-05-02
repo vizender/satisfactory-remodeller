@@ -12,7 +12,7 @@ Les installateurs **ne sont pas versionnés dans Git** : ce seraient des fichier
 
 Pour récupérer un **DMG** (macOS) ou un **installateur .exe** (Windows) :
 
-1. **GitHub Actions** — onglet [**Actions**](https://github.com/vizender/satisfactory-remodeller/actions) du dépôt : ouvrez le workflow **Desktop installers**, bouton **Run workflow** (ou déclenché automatiquement sur un tag `v*`). Quand le job est vert, section **Artifacts** en bas de la page du run : téléchargez le zip **Satisfactory-Remodeller_macOS** ou **Satisfactory-Remodeller_Windows** (contient le `.dmg` ou le `.exe`).  
+1. **GitHub Actions** — onglet [**Actions**](https://github.com/vizender/satisfactory-remodeller/actions) : le workflow **Desktop installers** se lance à chaque push sur **`main`**, sur un tag **`v*`**, ou à la main (**Run workflow** à droite). Ouvrez le dernier run vert → en bas, section **Artifacts** : zip **Satisfactory-Remodeller_macOS** (`.dmg`) ou **Satisfactory-Remodeller_Windows** (`.exe`).  
    *Les artefacts Actions ont une durée de rétention limitée sur GitHub (souvent ~90 jours selon le plan).*
 
 2. **Releases** — pour une version stable, créez une [**Release**](https://github.com/vizender/satisfactory-remodeller/releases) et **joignez** les mêmes fichiers (construits en CI ou en local), afin qu’ils restent disponibles sans limite de temps.
