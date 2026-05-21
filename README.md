@@ -12,18 +12,22 @@ Planificateur d’usines Satisfactory (**React + Vite + TypeScript**) : canvas *
 
 ```bash
 npm install
-npm run dev:web          # http://localhost:1420
+npm run dev:web          # http://localhost:1420/satisfactory-remodeller/
 npm run dev:browser      # idem + ouverture du navigateur
-npm run build && npm run preview   # test du bundle de production
+npm run build && npm run preview   # http://localhost:4173/satisfactory-remodeller/
 ```
 
 Dans l’en-tête, **Navigation → Auto / Trackpad / Souris** règle le défilement et le zoom du canvas (détection automatique ou forçage manuel).
 
+**Clic droit (Safari / Chrome)** : sur le canvas, seuls les menus de l’app s’affichent (recette, machine, lien). Le champ de recherche du sélecteur de recettes garde le menu natif pour copier-coller.
+
 ### Déploiement Vercel (site personnel)
+
+**URL de production :** [https://victor-legall.com/satisfactory-remodeller/](https://victor-legall.com/satisfactory-remodeller/)
 
 1. Importer ce dépôt GitHub dans [Vercel](https://vercel.com).
 2. Framework **Vite** ; répertoire racine `.` ; build `npm run build` ; sortie `dist` (voir aussi [`vercel.json`](vercel.json)).
-3. Attacher votre **domaine personnalisé** dans Vercel → Domains.
+3. Domaine monté sous **`/satisfactory-remodeller`** sur `victor-legall.com` (rewrites dans `vercel.json`).
 4. Chaque push sur la branche de production déclenche un déploiement ; les PR obtiennent une URL de preview.
 
 Les icônes PNG sont chargées **à la demande** (pas tout le dossier `Assets/icons/` au premier chargement).

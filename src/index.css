@@ -29,6 +29,11 @@ body {
   color: var(--text);
 }
 
+/* Canvas : pas de menu long-press iOS sur le pane (complément à preventDefault). */
+.react-flow__pane {
+  -webkit-touch-callout: none;
+}
+
 /* Hitbox des liens : gérée par `WideHitBezierEdge` (`.react-flow__edge-hitpad`), pas seulement le CSS. */
 
 /* Drag de connexion : machine sans port compatible, ports invalides */

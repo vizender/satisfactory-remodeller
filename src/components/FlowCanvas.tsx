@@ -35,6 +35,7 @@ import {
   reactFlowInteractionProps,
   useInputModality,
 } from "@/hooks/useInputModality";
+import { useSuppressNativeContextMenu } from "@/hooks/useSuppressNativeContextMenu";
 import type { RecipeFilter } from "@/lib/recipeFilters";
 import {
   applyConnectionPreviewToNodes,
@@ -129,6 +130,8 @@ function EdgeMenuHost({
 function FlowCanvasInner() {
   const { effective: inputModality } = useInputModality();
   const flowInteraction = reactFlowInteractionProps(inputModality);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  useSuppressNativeContextMenu(canvasRef);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
@@ -254,7 +257,7 @@ function FlowCanvasInner() {
   }, [setSolverReady]);
 
   return (
-    <div className="h-full w-full">
+    <div ref={canvasRef} className="h-full w-full">
       <ReactFlow
         {...flowInteraction}
         onInit={(inst) => {
@@ -309,19 +312,20 @@ function FlowCanvasInner() {
             }
             return;
           }
-          if (node.type !== "machineFrame") return;
-          event.preventDefault();
-          event.stopPropagation();
-          setEdgeMenu(null);
-          setRecipePicker(null);
-          const label =
-            (node.data as { label?: string }).label ?? node.id;
-          setMachineMenu({
-            x: event.clientX,
-            y: event.clientY,
-            machineId: node.id,
-            label,
-          });
+          if (node.type === "machineFrame") {
+            event.preventDefault();
+            event.stopPropagation();
+            setEdgeMenu(null);
+            setRecipePicker(null);
+            const label =
+              (node.data as { label?: string }).label ?? node.id;
+            setMachineMenu({
+              x: event.clientX,
+              y: event.clientY,
+              machineId: node.id,
+              label,
+            });
+          }
         }}
         onPaneClick={() => {
           setConnectionPreview(null);
