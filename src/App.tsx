@@ -1,11 +1,19 @@
+import { useRef } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FlowCanvas } from "@/components/FlowCanvas";
 import { InputModalityControl } from "@/components/InputModalityControl";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { InputModalityProvider } from "@/hooks/useInputModality";
+import {
+  handleSuppressNativeContextMenu,
+  useSuppressNativeContextMenu,
+} from "@/hooks/useSuppressNativeContextMenu";
 
 function App() {
+  const mainRef = useRef<HTMLElement>(null);
+  useSuppressNativeContextMenu(mainRef);
+
   return (
     <ErrorBoundary>
       <InputModalityProvider>
@@ -23,7 +31,13 @@ function App() {
           </header>
           <div className="flex min-h-0 flex-1">
             <ReactFlowProvider>
-              <main className="min-h-0 min-w-0 flex-1">
+              <main
+                ref={mainRef}
+                className="min-h-0 min-w-0 flex-1"
+                onContextMenu={(e) =>
+                  handleSuppressNativeContextMenu(e, mainRef.current)
+                }
+              >
                 <FlowCanvas />
               </main>
             </ReactFlowProvider>

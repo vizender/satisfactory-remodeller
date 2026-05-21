@@ -35,7 +35,7 @@ import {
   reactFlowInteractionProps,
   useInputModality,
 } from "@/hooks/useInputModality";
-import { useSuppressNativeContextMenu } from "@/hooks/useSuppressNativeContextMenu";
+import { handleSuppressNativeContextMenu } from "@/hooks/useSuppressNativeContextMenu";
 import type { RecipeFilter } from "@/lib/recipeFilters";
 import {
   applyConnectionPreviewToNodes,
@@ -131,7 +131,6 @@ function FlowCanvasInner() {
   const { effective: inputModality } = useInputModality();
   const flowInteraction = reactFlowInteractionProps(inputModality);
   const canvasRef = useRef<HTMLDivElement>(null);
-  useSuppressNativeContextMenu(canvasRef);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
@@ -257,7 +256,13 @@ function FlowCanvasInner() {
   }, [setSolverReady]);
 
   return (
-    <div ref={canvasRef} className="h-full w-full">
+    <div
+      ref={canvasRef}
+      className="h-full w-full"
+      onContextMenu={(e) =>
+        handleSuppressNativeContextMenu(e, canvasRef.current)
+      }
+    >
       <ReactFlow
         {...flowInteraction}
         onInit={(inst) => {
@@ -272,7 +277,6 @@ function FlowCanvasInner() {
         isValidConnection={isValidConnection}
         onEdgeContextMenu={(event, edge) => {
           event.preventDefault();
-          event.stopPropagation();
           setMachineMenu(null);
           setRecipePicker(null);
           setEdgeMenu({
@@ -284,7 +288,6 @@ function FlowCanvasInner() {
         onNodeContextMenu={(event, node) => {
           if (node.type === "itemPort") {
             event.preventDefault();
-            event.stopPropagation();
             setEdgeMenu(null);
             setMachineMenu(null);
             const d = node.data as ItemPortData;
@@ -314,7 +317,6 @@ function FlowCanvasInner() {
           }
           if (node.type === "machineFrame") {
             event.preventDefault();
-            event.stopPropagation();
             setEdgeMenu(null);
             setRecipePicker(null);
             const label =
@@ -335,7 +337,6 @@ function FlowCanvasInner() {
         }}
         onPaneContextMenu={(e) => {
           e.preventDefault();
-          e.stopPropagation();
           setEdgeMenu(null);
           setMachineMenu(null);
           const flow =
