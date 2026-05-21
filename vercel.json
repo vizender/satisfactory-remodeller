@@ -2,5 +2,22 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm ci",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/satisfactory-remodeller/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
+      "source": "/satisfactory-remodeller",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/satisfactory-remodeller/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/satisfactory-remodeller/:path*",
+      "destination": "/index.html"
+    }
+  ]
 }
