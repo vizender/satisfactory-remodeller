@@ -1,4 +1,5 @@
-import { getItemIconUrl, type ItemIconHint } from "@/lib/iconUrls";
+import { useItemIconUrl } from "@/hooks/useIconUrl";
+import type { ItemIconHint } from "@/lib/iconUrls";
 import { formatItemClassId } from "@/types/graph";
 
 /**
@@ -17,7 +18,7 @@ export function ItemIconSlot({
   /** Ex. nom de recette + alt : meilleure corrélation avec les PNG wiki. */
   iconHint?: ItemIconHint;
 }) {
-  const resolved = src ?? getItemIconUrl(itemId, iconHint);
+  const resolved = useItemIconUrl(itemId, { src, iconHint });
   const title = alt ?? formatItemClassId(itemId);
   if (resolved) {
     return (
@@ -26,6 +27,8 @@ export function ItemIconSlot({
         alt={title}
         title={title}
         className="h-4 w-4 shrink-0 rounded object-contain"
+        loading="lazy"
+        decoding="async"
       />
     );
   }

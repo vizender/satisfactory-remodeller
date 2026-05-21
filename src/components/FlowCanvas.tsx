@@ -31,6 +31,10 @@ import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
 import { useFlowSolveResult } from "@/hooks/useFlowSolve";
+import {
+  reactFlowInteractionProps,
+  useInputModality,
+} from "@/hooks/useInputModality";
 import type { RecipeFilter } from "@/lib/recipeFilters";
 import {
   applyConnectionPreviewToNodes,
@@ -123,6 +127,8 @@ function EdgeMenuHost({
 }
 
 function FlowCanvasInner() {
+  const { effective: inputModality } = useInputModality();
+  const flowInteraction = reactFlowInteractionProps(inputModality);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
@@ -250,6 +256,7 @@ function FlowCanvasInner() {
   return (
     <div className="h-full w-full">
       <ReactFlow
+        {...flowInteraction}
         onInit={(inst) => {
           rfRef.current = inst;
         }}

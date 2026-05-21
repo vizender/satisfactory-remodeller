@@ -64,7 +64,37 @@ export function defaultMachineInstanceLabel(
   return name.length > 0 ? name : frameId;
 }
 
-/** Toutes les clés `producedIn[0]` distinctes pour les recettes craft (hors placement). */
+/** Recettes craft pour une machine (`producedIn[0]`). */
+function craftRecipesForMachineGroup(machineKey: string): RecipeIndexEntry[] {
+  return index.recipes.filter(
+    (r) => !isPlacementRecipe(r) && r.producedIn?.[0] === machineKey,
+  );
+}
+
+/**
+ * Complexité ports d’une machine : max(entrées) + max(sorties) parmi toutes ses recettes.
+ * Ex. raffinerie 2+2 → 4 ; constructeur 1+1 → 2.
+ */
+export function machinePortComplexityScore(machineKey: string): number {
+  const recipes = craftRecipesForMachineGroup(machineKey);
+  if (recipes.length === 0) return 0;
+  let maxIn = 0;
+  let maxOut = 0;
+  for (const r of recipes) {
+    maxIn = Math.max(maxIn, r.ingredients.length);
+    maxOut = Math.max(maxOut, r.products.length);
+  }
+  return maxIn + maxOut;
+}
+
+function compareMachineGroupsByPortComplexity(a: string, b: string): number {
+  const diff =
+    machinePortComplexityScore(a) - machinePortComplexityScore(b);
+  if (diff !== 0) return diff;
+  return formatMachineGroupLabel(a).localeCompare(formatMachineGroupLabel(b));
+}
+
+/** Toutes les clés `producedIn[0]` distinctes, triées par complexité ports (croissant). */
 export function listCraftMachineGroupKeys(): string[] {
   const set = new Set<string>();
   for (const r of index.recipes) {
@@ -72,9 +102,7 @@ export function listCraftMachineGroupKeys(): string[] {
     const k = r.producedIn?.[0];
     if (k) set.add(k);
   }
-  return [...set].sort((a, b) =>
-    formatMachineGroupLabel(a).localeCompare(formatMachineGroupLabel(b)),
-  );
+  return [...set].sort(compareMachineGroupsByPortComplexity);
 }
 
 /** Recettes dont un produit est `itemId` (ex. besoin amont depuis une entrée). */
@@ -140,9 +168,7 @@ export function groupRecipesByMachine(
     if (!map.has(k)) map.set(k, []);
     map.get(k)!.push(r);
   }
-  const keys = [...map.keys()].sort((a, b) =>
-    formatMachineGroupLabel(a).localeCompare(formatMachineGroupLabel(b)),
-  );
+  const keys = [...map.keys()].sort(compareMachineGroupsByPortComplexity);
   const ordered = new Map<string, RecipeIndexEntry[]>();
   for (const k of keys) ordered.set(k, map.get(k)!);
   return ordered;

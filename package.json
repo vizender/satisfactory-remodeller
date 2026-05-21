@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.1",
   "type": "module",
-  "description": "Satisfactory : Remodeller — planificateur d’usines (Tauri + React)",
+  "description": "Satisfactory : Remodeller — planificateur d’usines (web + React, Tauri optionnel)",
   "author": "vizender",
   "license": "MIT",
   "scripts": {

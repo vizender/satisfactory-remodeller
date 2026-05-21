@@ -1,4 +1,4 @@
-import { getMachineIconUrl } from "@/lib/iconUrls";
+import { useMachineIconUrl } from "@/hooks/useIconUrl";
 import { formatMachineGroupLabel } from "@/lib/recipeFilters";
 
 type Props = {
@@ -19,7 +19,7 @@ const sizeCls = {
 export function MachineIconSlot({ classId, size = "md" }: Props) {
   const dim = sizeCls[size];
   const alt = classId ? formatMachineGroupLabel(classId) : "";
-  const src = classId ? getMachineIconUrl(classId) : null;
+  const src = useMachineIconUrl(classId);
   if (src) {
     return (
       <img
@@ -27,6 +27,8 @@ export function MachineIconSlot({ classId, size = "md" }: Props) {
         alt={alt}
         title={alt}
         className={`${dim} shrink-0 rounded object-contain`}
+        loading="lazy"
+        decoding="async"
       />
     );
   }

@@ -1,12 +1,38 @@
 # Satisfactory : Remodeller
 
-Application desktop (**Tauri 2 + React + Vite + TypeScript**) pour planifier des chaînes de production façon Satisfactory : canvas **React Flow**, état **Zustand**, solveur de flux (débits, multiplicateurs machines, bilan énergie).
+Planificateur d’usines Satisfactory (**React + Vite + TypeScript**) : canvas **React Flow**, état **Zustand**, solveur de flux (débits, multiplicateurs machines, bilan énergie). **Usage principal : navigateur** (Chrome, Safari). Une enveloppe **Tauri 2** optionnelle permet encore des installateurs desktop.
 
 **Auteur / maintenance :** **vizender** · **Licence :** [MIT](LICENSE) (voir ci-dessous).
 
 ---
 
-## Pourquoi il n’y a pas de `.dmg` ni de `.exe` dans ce dépôt ?
+## Utilisation web (recommandé)
+
+### Développement local
+
+```bash
+npm install
+npm run dev:web          # http://localhost:1420
+npm run dev:browser      # idem + ouverture du navigateur
+npm run build && npm run preview   # test du bundle de production
+```
+
+Dans l’en-tête, **Navigation → Auto / Trackpad / Souris** règle le défilement et le zoom du canvas (détection automatique ou forçage manuel).
+
+### Déploiement Vercel (site personnel)
+
+1. Importer ce dépôt GitHub dans [Vercel](https://vercel.com).
+2. Framework **Vite** ; répertoire racine `.` ; build `npm run build` ; sortie `dist` (voir aussi [`vercel.json`](vercel.json)).
+3. Attacher votre **domaine personnalisé** dans Vercel → Domains.
+4. Chaque push sur la branche de production déclenche un déploiement ; les PR obtiennent une URL de preview.
+
+Les icônes PNG sont chargées **à la demande** (pas tout le dossier `Assets/icons/` au premier chargement).
+
+---
+
+## Installateurs desktop (optionnel)
+
+### Pourquoi il n’y a pas de `.dmg` ni de `.exe` dans ce dépôt ?
 
 Les installateurs **ne sont pas versionnés dans Git** : ce seraient des fichiers lourds, spécifiques à chaque OS, et ils changent à chaque release. Le dépôt contient uniquement le **code source**.
 
@@ -70,8 +96,10 @@ Un extrait minimal peut être fourni pour démarrer ; remplacez-le par votre exp
 | `npm install` | Dépendances |
 | `npm run gen:recipes` | Lit `Assets/recipes.json` → `src/generated/recipeIndex.json` |
 | `npm run dev` | Application desktop avec rechargement à chaud (`tauri dev`) |
-| `npm run dev:web` | Front Vite seul dans le navigateur |
-| `npm run build` | Compilation TypeScript + bundle web (`dist/`) |
+| `npm run dev:web` | Front Vite seul dans le navigateur (port 1420) |
+| `npm run dev:browser` | Comme `dev:web` + ouverture du navigateur |
+| `npm run preview` | Sert `dist/` en local après `npm run build` |
+| `npm run build` | Compilation TypeScript + bundle web (`dist/`) — utilisé par Vercel |
 | `npm run build:desktop` | Build **Tauri** : binaire + **installateur** pour l’OS courant (`tauri build`) |
 
 `predev` et `prebuild` régénèrent l’index des recettes automatiquement.
