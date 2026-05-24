@@ -54,6 +54,8 @@ export const messages = {
     clockRange: "{min}–{max} % · défaut {def} %",
     changeRecipe: "Changer la recette…",
     clearForcedRates: "Réinitialiser les débits forcés",
+    portForceLabel: "Forcer /min",
+    portForcedBadge: "Débit forcé",
     deleteMachine: "Supprimer la machine",
     branchEdge: "Brancher (autre destination)",
     branchEdgeHelp:
@@ -171,6 +173,8 @@ export const messages = {
     clockRange: "{min}–{max}% · default {def}%",
     changeRecipe: "Change recipe…",
     clearForcedRates: "Reset forced flow rates",
+    portForceLabel: "Force /min",
+    portForcedBadge: "Forced rate",
     deleteMachine: "Delete machine",
     branchEdge: "Branch (another destination)",
     branchEdgeHelp:

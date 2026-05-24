@@ -258,6 +258,22 @@ interface FlowConflicts {
   portIds: Set<string>;
 }
 
+function isPortDeficit(delta: number, tolerance: number): boolean {
+  return delta < -tolerance;
+}
+
+function deficitTolerance(rate: number): number {
+  return EPS * (1 + Math.abs(rate));
+}
+
+function portHasIncoming(pid: string, realEdges: Edge[]): boolean {
+  return realEdges.some((e) => e.target === pid);
+}
+
+function portHasOutgoing(pid: string, realEdges: Edge[]): boolean {
+  return realEdges.some((e) => e.source === pid);
+}
+
 function collectFinalConflicts(
   machines: string[],
   portsOfMachine: Map<string, string[]>,
@@ -266,6 +282,7 @@ function collectFinalConflicts(
   portDelta: Record<string, number>,
   machineOf: Map<string, string>,
   realEdges: Edge[],
+  portNodes: Node[],
 ): FlowConflicts {
   const machineIds = new Set<string>();
   const conflictPorts = new Set<string>();
@@ -288,16 +305,22 @@ function collectFinalConflicts(
     }
   }
 
-  /** Débits forcés non satisfaits dans le graphe (splits / fusions gérés via portDelta). */
-  for (const [pid, fv] of Object.entries(forcedPortRates)) {
-    if (fv === undefined || Number.isNaN(fv)) continue;
-    const mid = machineOf.get(pid);
-    if (!mid) continue;
+  /** Manque de débit seulement (surplus toléré ; entrées sans liaison = matière première). */
+  for (const n of portNodes) {
+    const pid = n.id;
+    const kind = (n.data as ItemPortData).kind;
+    if (kind === "in" && !portHasIncoming(pid, realEdges)) continue;
+    if (kind === "out" && !portHasOutgoing(pid, realEdges)) continue;
     const delta = portDelta[pid] ?? 0;
-    if (Math.abs(delta) > EPS * (1 + Math.abs(fv))) {
-      machineIds.add(mid);
-      conflictPorts.add(pid);
-    }
+    const fv = forcedPortRates[pid];
+    const refRate =
+      fv !== undefined && !Number.isNaN(fv)
+        ? fv
+        : (base.get(pid) ?? 0);
+    if (!isPortDeficit(delta, deficitTolerance(refRate))) continue;
+    const mid = machineOf.get(pid);
+    if (mid) machineIds.add(mid);
+    conflictPorts.add(pid);
   }
 
   const edgeIds = new Set<string>();
@@ -522,6 +545,7 @@ export function solveFlow(
     portDelta,
     machineOf,
     realEdges,
+    portNodes,
   );
   const hardConflict = conflicts.machineIds.size > 0;
 
@@ -532,7 +556,7 @@ export function solveFlow(
         "Plusieurs « sources » dans la même chaîne sans débit forcé : imposez un débit sur un port ou fusionnez en une seule ligne.";
     } else {
       errorMessage =
-        "Impossible de satisfaire toutes les contraintes : retirez des débits forcés sur les machines en rouge.";
+        "Manque de débit sur la chaîne : vérifiez les ports en rouge et les débits forcés.";
     }
   }
 

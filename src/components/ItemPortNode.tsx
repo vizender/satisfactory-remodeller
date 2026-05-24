@@ -8,6 +8,7 @@ import {
 import { useCallback, useRef, useState, type CSSProperties } from "react";
 import { ItemIconSlot } from "@/components/ItemIconSlot";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
+import { useI18n } from "@/i18n/I18nProvider";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
 import { normalizePortSlotPermutation } from "@/lib/buildMachineGraph";
 import { machinePortShiftXPx } from "@/lib/machineSelection";
@@ -57,11 +58,26 @@ type DragRef = {
 
 const REORDER_ACTIVATE_PX = 4;
 
+function ForcedPinIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      className="h-2.5 w-2.5 shrink-0"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M9.5 1.5a3.5 3.5 0 0 0-3.16 5.01L2.7 10.05a.75.75 0 0 0-.08.96l.07.08a.75.75 0 0 0 .96.08l3.64-3.64A3.5 3.5 0 1 0 9.5 1.5Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" />
+    </svg>
+  );
+}
+
 /**
  * Port : thème par état de flux (bleu équilibré, vert surplus, rouge déficit).
  * Entrée en déficit : tout en rouge (pas de mélange vert/rouge).
  */
 export function ItemPortNode(props: NodeProps) {
+  const { t } = useI18n();
   const { id, data, parentId } = props;
   const d = data as ItemPortData;
   const isIn = d.kind === "in";
@@ -90,6 +106,7 @@ export function ItemPortNode(props: NodeProps) {
   const [forceDraft, setForceDraft] = useState<string | null>(null);
   const forceDisplay =
     forceDraft ?? (forced !== undefined ? String(forced) : "");
+  const isForced = forced !== undefined && !Number.isNaN(forced);
 
   const balanced = Math.abs(delta) <= EPS;
   const showDelta = !balanced;
@@ -454,7 +471,13 @@ export function ItemPortNode(props: NodeProps) {
             <div className="truncate text-[10px] font-medium leading-tight text-[var(--text)]">
               {d.displayName}
             </div>
-            <div className={cn("tabular-nums text-[10px]", rateClass)}>
+            <div
+              className={cn(
+                "tabular-nums text-[10px]",
+                rateClass,
+                isForced && "font-bold",
+              )}
+            >
               {eff.toFixed(1)}/min
             </div>
             {showDelta ? (
@@ -473,13 +496,18 @@ export function ItemPortNode(props: NodeProps) {
           data-port-force-field
           onPointerDown={(ev) => ev.stopPropagation()}
         >
-          Forcer /min
+          {t("portForceLabel")}
           <input
             type="text"
             inputMode="decimal"
             autoComplete="off"
             spellCheck={false}
-            className="port-force-input nodrag mt-px w-full rounded border border-[var(--border)] bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+            className={cn(
+              "port-force-input nodrag mt-px w-full rounded border bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)] outline-none focus:border-[var(--accent)]",
+              isForced
+                ? "border-[var(--accent)]/55 font-bold tabular-nums"
+                : "border-[var(--border)]",
+            )}
             placeholder={eff.toFixed(1)}
             value={forceDisplay}
             onChange={(e) => setForceDraft(e.target.value)}
@@ -490,10 +518,10 @@ export function ItemPortNode(props: NodeProps) {
             }}
             onBlur={(e) => {
               setForceDraft(null);
-              const t = e.target.value.trim();
-              if (!t) setForcedPortRate(id, undefined);
+              const raw = e.target.value.trim();
+              if (!raw) setForcedPortRate(id, undefined);
               else {
-                const v = parseFloat(t.replace(",", "."));
+                const v = parseFloat(raw.replace(",", "."));
                 if (!Number.isNaN(v)) setForcedPortRate(id, v);
               }
             }}
@@ -503,6 +531,15 @@ export function ItemPortNode(props: NodeProps) {
             onPointerDown={(ev) => ev.stopPropagation()}
           />
         </label>
+        {isForced ? (
+          <div
+            className="mt-0.5 flex items-center gap-0.5 text-[7px] font-medium leading-none text-[var(--accent)]"
+            title={t("portForcedBadge")}
+          >
+            <ForcedPinIcon />
+            <span>{t("portForcedBadge")}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
