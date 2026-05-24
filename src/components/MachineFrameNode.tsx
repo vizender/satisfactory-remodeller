@@ -30,8 +30,9 @@ export function MachineFrameNode(props: NodeProps) {
   const clockPct = clampClockPercent(d.clockPercent);
   const clockMult = clockMultiplier(d.clockPercent);
 
-  const { effectiveRate, machineMultiplier } = useFlowSolve();
+  const { effectiveRate, machineMultiplier, conflictMachineIds } = useFlowSolve();
   const m = machineMultiplier[id] ?? 1;
+  const inConflict = conflictMachineIds.includes(id);
   /**
    * Copies « pleine cadence équivalente » : multiplicateur du solveur (débit imposé par le graphe)
    * × facteur 100/horloge (chaque bâtiment à C % équivaut à C/100 machine à 100 % pour ce débit).
@@ -55,7 +56,9 @@ export function MachineFrameNode(props: NodeProps) {
       <div
         className={cn(
           "rf-machine-body absolute flex min-h-0 cursor-grab flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1.5 shadow-inner active:cursor-grabbing",
-          selected && "rf-machine-body-selected",
+          inConflict
+            ? "rf-machine-body-conflict"
+            : selected && "rf-machine-body-selected",
         )}
         style={{
           left: leftOffset,

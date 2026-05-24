@@ -48,6 +48,7 @@ import {
   applyReorderTransitionToNodes,
   type ConnectionDragPreview,
 } from "@/lib/nodeDisplayDecorators";
+import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
   applyMachineSelection,
@@ -159,12 +160,19 @@ function FlowCanvasInner() {
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
 
+  const solve = useFlowSolveResult();
+
   const displayNodes = useMemo(() => {
     let next = nodes;
     next = applyConnectionPreviewToNodes(next, connectionPreview);
     next = applyReorderTransitionToNodes(next, reorderDragSession);
     return next;
   }, [nodes, connectionPreview, reorderDragSession]);
+
+  const displayEdges = useMemo(
+    () => applySolverConflictToEdges(edges, solve.conflictEdgeIds),
+    [edges, solve.conflictEdgeIds],
+  );
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -214,8 +222,6 @@ function FlowCanvasInner() {
   );
   const solverReady = useDocumentStore((s) => s.solverReady);
   const setSolverReady = useDocumentStore((s) => s.setSolverReady);
-
-  const solve = useFlowSolveResult();
 
   const [edgeMenu, setEdgeMenu] = useState<{
     x: number;
@@ -374,7 +380,7 @@ function FlowCanvasInner() {
         }}
         onMoveEnd={onViewportMoveEnd}
         nodes={displayNodes}
-        edges={edges}
+        edges={displayEdges}
         onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

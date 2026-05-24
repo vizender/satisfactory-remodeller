@@ -252,6 +252,12 @@ function rebalanceDeficitDownstream(
   }
 }
 
+interface FlowConflicts {
+  machineIds: Set<string>;
+  edgeIds: Set<string>;
+  portIds: Set<string>;
+}
+
 function collectFinalConflicts(
   machines: string[],
   portsOfMachine: Map<string, string[]>,
@@ -259,17 +265,26 @@ function collectFinalConflicts(
   forcedPortRates: Record<string, number | undefined>,
   portDelta: Record<string, number>,
   machineOf: Map<string, string>,
-): Set<string> {
-  const conflicts = new Set<string>();
+  realEdges: Edge[],
+): FlowConflicts {
+  const machineIds = new Set<string>();
+  const conflictPorts = new Set<string>();
 
   for (const mid of machines) {
-    let implied: number | null = null;
+    const forcedOnPorts: Array<{ pid: string; mp: number }> = [];
     for (const pid of portsOfMachine.get(mid) ?? []) {
       const fv = forcedPortRates[pid];
       if (fv === undefined || Number.isNaN(fv)) continue;
-      const mp = fv / (base.get(pid) ?? 1);
-      if (implied === null) implied = mp;
-      else if (Math.abs(implied - mp) > EPS) conflicts.add(mid);
+      forcedOnPorts.push({ pid, mp: fv / (base.get(pid) ?? 1) });
+    }
+    if (forcedOnPorts.length < 2) continue;
+    const anchor = forcedOnPorts[0]!.mp;
+    for (let i = 1; i < forcedOnPorts.length; i++) {
+      if (Math.abs(forcedOnPorts[i]!.mp - anchor) > EPS) {
+        machineIds.add(mid);
+        for (const fp of forcedOnPorts) conflictPorts.add(fp.pid);
+        break;
+      }
     }
   }
 
@@ -279,10 +294,22 @@ function collectFinalConflicts(
     const mid = machineOf.get(pid);
     if (!mid) continue;
     const delta = portDelta[pid] ?? 0;
-    if (Math.abs(delta) > EPS * (1 + Math.abs(fv))) conflicts.add(mid);
+    if (Math.abs(delta) > EPS * (1 + Math.abs(fv))) {
+      machineIds.add(mid);
+      conflictPorts.add(pid);
+    }
   }
 
-  return conflicts;
+  const edgeIds = new Set<string>();
+  if (conflictPorts.size > 0) {
+    for (const e of realEdges) {
+      if (conflictPorts.has(e.source) || conflictPorts.has(e.target)) {
+        edgeIds.add(e.id);
+      }
+    }
+  }
+
+  return { machineIds, edgeIds, portIds: conflictPorts };
 }
 
 /**
@@ -487,15 +514,16 @@ export function solveFlow(
     }
   }
 
-  const conflictMachineIds = collectFinalConflicts(
+  const conflicts = collectFinalConflicts(
     machines,
     portsOfMachine,
     base,
     forcedPortRates,
     portDelta,
     machineOf,
+    realEdges,
   );
-  const hardConflict = conflictMachineIds.size > 0;
+  const hardConflict = conflicts.machineIds.size > 0;
 
   let errorMessage: string | null = null;
   if (hardConflict) {
@@ -514,7 +542,9 @@ export function solveFlow(
     edgeFlow,
     portDelta,
     hardConflict,
-    conflictMachineIds: [...conflictMachineIds],
+    conflictMachineIds: [...conflicts.machineIds],
+    conflictEdgeIds: [...conflicts.edgeIds],
+    conflictPortIds: [...conflicts.portIds],
     errorMessage,
   };
 }

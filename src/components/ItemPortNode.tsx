@@ -78,6 +78,8 @@ export function ItemPortNode(props: NodeProps) {
     portDelta,
     forcedPortRates,
     setForcedPortRate,
+    conflictMachineIds,
+    conflictPortIds,
   } = useFlowSolve();
 
   const dragRef = useRef<DragRef | null>(null);
@@ -160,7 +162,14 @@ export function ItemPortNode(props: NodeProps) {
         ?.selected ?? false
     );
   });
-  const portShiftX = machinePortShiftXPx(d.kind, parentSelected);
+  const parentInConflict = parentId
+    ? conflictMachineIds.includes(parentId)
+    : false;
+  const portOnConflictEdge = conflictPortIds.includes(id);
+  const portShiftX = machinePortShiftXPx(
+    d.kind,
+    parentSelected || parentInConflict,
+  );
 
   const finishReorder = useCallback(
     (st: DragRef) => {
@@ -401,7 +410,9 @@ export function ItemPortNode(props: NodeProps) {
     <div
       className={cn(
         "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        (parentInConflict || portOnConflictEdge) && "rf-machine-port-conflict",
         parentSelected && "rf-machine-port-selected",
+        portOnConflictEdge && "border-red-500/70 ring-1 ring-red-500/35",
         cardBorder,
       )}
       style={{
