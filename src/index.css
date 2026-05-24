@@ -64,7 +64,14 @@ body {
   -webkit-touch-callout: none;
 }
 
-/* Hitbox des liens : gérée par `WideHitBezierEdge` (`.react-flow__edge-hitpad`), pas seulement le CSS. */
+/* Hitbox des liens : trait invisible (voir `WideHitBezierEdge`). */
+.react-flow__edge-hitpad {
+  stroke: rgba(0, 0, 0, 0.001);
+}
+
+.react-flow__node .port-force-input::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
 
 /* Drag de connexion : machine sans port compatible, ports invalides */
 .rf-machine-body {

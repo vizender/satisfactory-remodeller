@@ -5,7 +5,7 @@ import {
   useStore,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useRef, type CSSProperties } from "react";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
 import { ItemIconSlot } from "@/components/ItemIconSlot";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
@@ -85,6 +85,9 @@ export function ItemPortNode(props: NodeProps) {
   const eff = effectiveRate[id] ?? d.perMinute;
   const delta = portDelta[id] ?? 0;
   const forced = forcedPortRates[id];
+  const [forceDraft, setForceDraft] = useState<string | null>(null);
+  const forceDisplay =
+    forceDraft ?? (forced !== undefined ? String(forced) : "");
 
   const balanced = Math.abs(delta) <= EPS;
   const showDelta = !balanced;
@@ -397,7 +400,7 @@ export function ItemPortNode(props: NodeProps) {
   return (
     <div
       className={cn(
-        "rf-machine-port relative rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
         parentSelected && "rf-machine-port-selected",
         cardBorder,
       )}
@@ -455,19 +458,27 @@ export function ItemPortNode(props: NodeProps) {
           </div>
         </div>
         <label
-          className="block cursor-text select-text text-[8px] text-[var(--muted)]"
+          className="block cursor-text text-[8px] text-[var(--muted)]"
           data-port-force-field
           onPointerDown={(ev) => ev.stopPropagation()}
         >
           Forcer /min
           <input
-            key={forced !== undefined ? `f-${forced}` : "clear"}
             type="text"
             inputMode="decimal"
-            className="nodrag mt-px w-full rounded border border-[var(--border)] bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)]"
+            autoComplete="off"
+            spellCheck={false}
+            className="port-force-input nodrag mt-px w-full rounded border border-[var(--border)] bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
             placeholder={eff.toFixed(1)}
-            defaultValue={forced !== undefined ? String(forced) : ""}
+            value={forceDisplay}
+            onChange={(e) => setForceDraft(e.target.value)}
+            onFocus={() => {
+              setForceDraft(
+                forced !== undefined ? String(forced) : "",
+              );
+            }}
             onBlur={(e) => {
+              setForceDraft(null);
               const t = e.target.value.trim();
               if (!t) setForcedPortRate(id, undefined);
               else {
@@ -478,6 +489,7 @@ export function ItemPortNode(props: NodeProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
+            onPointerDown={(ev) => ev.stopPropagation()}
           />
         </label>
       </div>

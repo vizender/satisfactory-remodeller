@@ -1,4 +1,5 @@
 import { createEmptyWorldCanvas } from "@/lib/canvasTree";
+import { repairFactoryDocumentV2 } from "@/lib/repairDocument";
 import {
   FACTORY_DOCUMENT_SCHEMA_VERSION,
   FACTORY_DOCUMENT_SCHEMA_VERSION_V2,
@@ -45,7 +46,11 @@ export function isFactoryDocumentV2(value: unknown): value is FactoryDocumentV2 
 }
 
 export function normalizeToV2(value: unknown): FactoryDocumentV2 {
-  if (isFactoryDocumentV2(value)) return value;
-  if (isFactoryDocumentV1(value)) return migrateV1ToV2(value);
+  if (isFactoryDocumentV2(value)) {
+    return repairFactoryDocumentV2(value);
+  }
+  if (isFactoryDocumentV1(value)) {
+    return repairFactoryDocumentV2(migrateV1ToV2(value));
+  }
   throw new Error("INVALID_SCHEMA");
 }

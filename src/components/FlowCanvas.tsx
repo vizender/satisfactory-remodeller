@@ -576,15 +576,6 @@ function FlowCanvasInner() {
         />
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-1 text-right">
-            <span
-              className={
-                solverReady
-                  ? "text-xs text-emerald-400/90"
-                  : "text-xs text-amber-400/90"
-              }
-            >
-              {solverReady ? t("solverReady") : t("solverPending")}
-            </span>
             {solve.hardConflict ? (
               <div
                 className="max-w-xs rounded border px-2 py-1.5 text-[11px] leading-snug"
@@ -596,7 +587,15 @@ function FlowCanvasInner() {
               >
                 {solve.errorMessage ?? t("solverConflict")}
               </div>
-            ) : null}
+            ) : solverReady ? (
+              <span className="text-xs text-emerald-400/90">
+                {t("solverReady")}
+              </span>
+            ) : (
+              <span className="text-xs text-amber-400/90">
+                {t("solverPending")}
+              </span>
+            )}
           </div>
         </Panel>
         <EdgeMenuHost

@@ -252,6 +252,39 @@ function rebalanceDeficitDownstream(
   }
 }
 
+function collectFinalConflicts(
+  machines: string[],
+  portsOfMachine: Map<string, string[]>,
+  base: Map<string, number>,
+  forcedPortRates: Record<string, number | undefined>,
+  portDelta: Record<string, number>,
+  machineOf: Map<string, string>,
+): Set<string> {
+  const conflicts = new Set<string>();
+
+  for (const mid of machines) {
+    let implied: number | null = null;
+    for (const pid of portsOfMachine.get(mid) ?? []) {
+      const fv = forcedPortRates[pid];
+      if (fv === undefined || Number.isNaN(fv)) continue;
+      const mp = fv / (base.get(pid) ?? 1);
+      if (implied === null) implied = mp;
+      else if (Math.abs(implied - mp) > EPS) conflicts.add(mid);
+    }
+  }
+
+  /** Débits forcés non satisfaits dans le graphe (splits / fusions gérés via portDelta). */
+  for (const [pid, fv] of Object.entries(forcedPortRates)) {
+    if (fv === undefined || Number.isNaN(fv)) continue;
+    const mid = machineOf.get(pid);
+    if (!mid) continue;
+    const delta = portDelta[pid] ?? 0;
+    if (Math.abs(delta) > EPS * (1 + Math.abs(fv))) conflicts.add(mid);
+  }
+
+  return conflicts;
+}
+
 /**
  * Résout les débits : forçage manuel > sinon ancrage des sources (m=1) >
  * propagation le long des liaisons (conservation m_src×débit_nominal).
@@ -261,7 +294,6 @@ export function solveFlow(
   edges: Edge[],
   forcedPortRates: Record<string, number | undefined>,
 ): FlowSolveResult {
-  const conflictMachineIds = new Set<string>();
   let multiSourceWithoutForce = false;
 
   const portNodes = nodes.filter((n) => n.type === "itemPort");
@@ -294,8 +326,6 @@ export function solveFlow(
     const mp = fv / b;
     if (Number.isNaN(m[mid])) {
       m[mid] = mp;
-    } else if (Math.abs(m[mid] - mp) > EPS) {
-      conflictMachineIds.add(mid);
     }
   }
 
@@ -332,7 +362,7 @@ export function solveFlow(
       m[minId(members)] = 1;
     } else {
       multiSourceWithoutForce = true;
-      for (const mid of members) conflictMachineIds.add(mid);
+      m[minId(sources)] = 1;
     }
   }
 
@@ -344,9 +374,6 @@ export function solveFlow(
         if (Number.isNaN(m[L.mb])) {
           m[L.mb] = candMb;
           changed = true;
-        } else if (Math.abs(m[L.mb] - candMb) > EPS * (1 + Math.abs(candMb))) {
-          conflictMachineIds.add(L.ma);
-          conflictMachineIds.add(L.mb);
         }
       }
       if (!Number.isNaN(m[L.mb])) {
@@ -354,9 +381,6 @@ export function solveFlow(
         if (Number.isNaN(m[L.ma])) {
           m[L.ma] = candMa;
           changed = true;
-        } else if (Math.abs(m[L.ma] - candMa) > EPS * (1 + Math.abs(candMa))) {
-          conflictMachineIds.add(L.ma);
-          conflictMachineIds.add(L.mb);
         }
       }
     }
@@ -463,6 +487,14 @@ export function solveFlow(
     }
   }
 
+  const conflictMachineIds = collectFinalConflicts(
+    machines,
+    portsOfMachine,
+    base,
+    forcedPortRates,
+    portDelta,
+    machineOf,
+  );
   const hardConflict = conflictMachineIds.size > 0;
 
   let errorMessage: string | null = null;

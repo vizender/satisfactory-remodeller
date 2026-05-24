@@ -86,8 +86,8 @@ export const messages = {
       "Connexion depuis une sortie — recettes qui consomment « {item} »",
     connectFromInputProduces:
       "Connexion depuis une entrée — recettes qui produisent « {item} »",
-    solverReady: "Worker solveur OK",
-    solverPending: "Worker solveur…",
+    solverReady: "Débits calculés",
+    solverPending: "Initialisation du solveur…",
     solverConflict: "Contraintes impossibles.",
     close: "Fermer",
     cancel: "Annuler",
@@ -203,8 +203,8 @@ export const messages = {
       "Connection from output — recipes that consume « {item} »",
     connectFromInputProduces:
       "Connection from input — recipes that produce « {item} »",
-    solverReady: "Solver worker OK",
-    solverPending: "Solver worker…",
+    solverReady: "Flow rates computed",
+    solverPending: "Initializing solver…",
     solverConflict: "Impossible constraints.",
     close: "Close",
     cancel: "Cancel",
