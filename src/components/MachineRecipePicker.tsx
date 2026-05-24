@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ItemIconSlot } from "@/components/ItemIconSlot";
 import { MachineIconSlot } from "@/components/MachineIconSlot";
 import { useClampedFixedPosition } from "@/hooks/useClampedFixedPosition";
+import { useI18n } from "@/i18n/I18nProvider";
 import { recipeRepresentativeItemId } from "@/lib/iconUrls";
 import {
   type RecipeFilter,
@@ -15,7 +16,7 @@ import {
 import type { RecipeIndexEntry } from "@/types/satisfactory";
 import { formatItemClassId } from "@/types/graph";
 
-type TabId = "machines";
+type TabId = "machines" | "misc";
 
 type AltFilterMode = "all" | "noAlt" | "altOnly";
 
@@ -23,18 +24,23 @@ type Props = {
   anchorScreen: { x: number; y: number };
   onClose: () => void;
   onPick: (recipeKey: string) => void;
+  onPickFactory?: () => void;
   recipeFilter: RecipeFilter;
   /** Sous-titre optionnel (ex. filtre port). */
   subtitle?: string;
+  hideMiscTab?: boolean;
 };
 
 export function MachineRecipePicker({
   anchorScreen,
   onClose,
   onPick,
+  onPickFactory,
   recipeFilter,
   subtitle,
+  hideMiscTab = false,
 }: Props) {
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabId>("machines");
 
@@ -137,7 +143,7 @@ export function MachineRecipePicker({
       <button
         type="button"
         className="fixed inset-0 z-[10000] cursor-default bg-black/20"
-        aria-label="Fermer"
+        aria-label={t("close")}
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -149,7 +155,7 @@ export function MachineRecipePicker({
         className="fixed z-[10001] flex max-h-[min(82vh,680px)] w-[min(400px,calc(100vw-16px))] flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
         style={{ left, top }}
         role="dialog"
-        aria-label="Choisir une recette"
+        aria-label={t("chooseRecipe")}
       >
         <div className="flex shrink-0 border-b border-[var(--border)] bg-[var(--bg)] px-2 pt-2">
           <button
@@ -159,26 +165,49 @@ export function MachineRecipePicker({
             className={`${tabBtn} ${activeTab === "machines" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}
             onClick={() => setActiveTab("machines")}
           >
-            Machines
+            {t("machines")}
           </button>
-          <button
-            type="button"
-            role="tab"
-            disabled
-            className={`${tabBtn} cursor-not-allowed text-[var(--muted)] opacity-50`}
-            title="Bientôt"
-          >
-            …
-          </button>
+          {!hideMiscTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "misc"}
+              className={`${tabBtn} ${activeTab === "misc" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}
+              onClick={() => setActiveTab("misc")}
+            >
+              {t("misc")}
+            </button>
+          ) : null}
         </div>
 
-        {activeTab === "machines" ? (
+        {activeTab === "misc" ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+            <p className="mb-3 text-[11px] text-[var(--muted)]">
+              {t("miscFactoryHelp")}
+            </p>
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-left hover:border-[var(--accent)]/40"
+              onClick={() => {
+                onPickFactory?.();
+                onClose();
+              }}
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--accent)]/15 text-xl">
+                🏭
+              </span>
+              <span className="text-sm font-semibold text-[var(--text)]">
+                {t("miscFactory")}
+              </span>
+            </button>
+          </div>
+        ) : activeTab === "machines" ? (
           <>
             <div className="shrink-0 border-b border-[var(--border)] px-3 py-2">
               <input
                 type="search"
                 autoFocus
-                placeholder="Rechercher une recette…"
+                placeholder={t("searchRecipe")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
@@ -192,9 +221,9 @@ export function MachineRecipePicker({
               <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg)]/60">
                 <summary className="cursor-pointer list-none px-2.5 py-2 text-[11px] font-medium text-[var(--text)] [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center justify-between gap-2">
-                    <span>Filtres</span>
+                    <span>{t("filters")}</span>
                     <span className="text-[10px] font-normal text-[var(--muted)]">
-                      machines · alternatives
+                      {t("filtersSubtitle")}
                     </span>
                   </span>
                 </summary>
@@ -202,7 +231,7 @@ export function MachineRecipePicker({
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                        Machines
+                        {t("machines")}
                       </span>
                       <span className="flex shrink-0 gap-2">
                         <button
@@ -213,7 +242,7 @@ export function MachineRecipePicker({
                             selectAllMachines();
                           }}
                         >
-                          Tout
+                          {t("selectAll")}
                         </button>
                         <button
                           type="button"
@@ -223,7 +252,7 @@ export function MachineRecipePicker({
                             selectNoMachines();
                           }}
                         >
-                          Rien
+                          {t("selectNone")}
                         </button>
                       </span>
                     </div>
@@ -240,7 +269,7 @@ export function MachineRecipePicker({
                               onClick={() => toggleMachine(key)}
                               className={`flex max-w-full items-center gap-1.5 truncate rounded-md border px-2 py-1 text-left text-[11px] leading-tight transition-colors ${
                                 on
-                                  ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                                  ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)] shadow-[inset_0_0_0_1px_var(--panel-inset-highlight)]"
                                   : "border-[var(--border)] bg-[var(--bg)] text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]"
                               }`}
                             >
@@ -254,31 +283,34 @@ export function MachineRecipePicker({
                   </div>
                   <div>
                     <span className="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                      Variantes
+                      {t("variants")}
                     </span>
                     <div className="flex flex-wrap gap-1.5">
-                      {altBtn("all", "Toutes")}
-                      {altBtn("noAlt", "Sans alt")}
-                      {altBtn("altOnly", "Alternatives")}
+                      {altBtn("all", t("allRecipes"))}
+                      {altBtn("noAlt", t("noAlt"))}
+                      {altBtn("altOnly", t("altOnly"))}
                     </div>
                   </div>
                 </div>
               </details>
 
               <p className="mt-2 text-[10px] text-[var(--muted)]">
-                {filtered.length} recette
-                {filtered.length !== 1 ? "s" : ""}
+                {t("recipeCount", { count: filtered.length })}
                 {recipeFilter.mode === "produces"
-                  ? ` · producteurs de « ${formatItemClassId(recipeFilter.itemId)} »`
+                  ? t("filterProduces", {
+                      item: formatItemClassId(recipeFilter.itemId),
+                    })
                   : recipeFilter.mode === "consumes"
-                    ? ` · consommateurs de « ${formatItemClassId(recipeFilter.itemId)} »`
+                    ? t("filterConsumes", {
+                        item: formatItemClassId(recipeFilter.itemId),
+                      })
                     : ""}
               </p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-1 py-2">
               {filtered.length === 0 ? (
                 <p className="px-2 py-6 text-center text-sm text-[var(--muted)]">
-                  Aucune recette ne correspond.
+                  {t("noRecipesMatch")}
                 </p>
               ) : (
                 [...grouped.entries()].map(([groupKey, list]) => (
@@ -320,7 +352,7 @@ export function MachineRecipePicker({
                                 <span className="font-medium">{r.name}</span>
                                 {r.alternate ? (
                                   <span className="ml-2 text-[10px] text-amber-400/90">
-                                    alt
+                                    {t("altBadge")}
                                   </span>
                                 ) : null}
                                 {extraProducts.length > 0 ? (

@@ -1,4 +1,5 @@
 import { useClampedFixedPosition } from "@/hooks/useClampedFixedPosition";
+import { useI18n } from "@/i18n/I18nProvider";
 
 type Props = {
   x: number;
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
+  const { t } = useI18n();
   const { ref: menuRef, left, top } = useClampedFixedPosition({ x, y }, true);
 
   return (
@@ -16,7 +18,7 @@ export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
       <button
         type="button"
         className="fixed inset-0 z-[9998] cursor-default bg-transparent"
-        aria-label="Fermer le menu"
+        aria-label={t("closeMenu")}
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -38,11 +40,10 @@ export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
             onClose();
           }}
         >
-          Brancher (autre destination)
+          {t("branchEdge")}
         </button>
         <p className="px-3 pb-2 text-[10px] leading-snug text-[var(--muted)]">
-          Plusieurs liaisons depuis une même sortie sont possibles pour le même
-          item.
+          {t("branchEdgeHelp")}
         </p>
         <hr className="border-[var(--border)]" />
         <button
@@ -54,7 +55,7 @@ export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
             onClose();
           }}
         >
-          Supprimer le lien
+          {t("deleteEdge")}
         </button>
       </div>
     </>

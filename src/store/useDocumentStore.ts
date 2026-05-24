@@ -6,14 +6,18 @@ import {
 import { create } from "zustand";
 import {
   buildMachineNodes,
+  computeMachineFramePosition,
   machineBlueprintFromFrame,
   normalizePortSlotPermutation,
   type MachineBlueprint,
+  type MachinePlacementAnchor,
 } from "@/lib/buildMachineGraph";
 import type { ReorderDragSession } from "@/lib/nodeDisplayDecorators";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
+import { loadFactoryDocument } from "@/lib/factoryDocument";
 import { findRecipeByKey } from "@/lib/recipeLookup";
+import type { FactoryDocumentV2 } from "@/types/factoryDocument";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 
 const initialNodes: Node[] = [];
@@ -72,6 +76,14 @@ export interface DocumentState {
     recipeIndex: number,
     targetSlotIndex: number,
   ) => void;
+  /** Remplace le graphe (import JSON / brouillon local). */
+  replaceDocument: (doc: FactoryDocumentV2) => void;
+  /** Met à jour la vue du canvas actif (navigation / sync monde). */
+  replaceActiveCanvas: (slice: {
+    nodes: Node[];
+    edges: Edge[];
+    forcedPortRates: Record<string, number | undefined>;
+  }) => void;
 }
 
 function portIdsForMachine(
@@ -216,14 +228,34 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const recipe = findRecipeByKey(recipeKey);
     const id = nextMachineFrameId(get().nodes);
     const label = defaultMachineInstanceLabel(recipe ?? undefined, id);
+
+    let placement: MachinePlacementAnchor = { mode: "frameCenter" };
+    const linkId = options?.linkOriginPortId;
+    if (linkId) {
+      const origin = get().nodes.find((n) => n.id === linkId);
+      if (origin?.type === "itemPort") {
+        const od = origin.data as ItemPortData;
+        if (od.kind === "out") {
+          placement = { mode: "portCenter", kind: "in", itemId: od.itemId };
+        } else {
+          placement = { mode: "portCenter", kind: "out", itemId: od.itemId };
+        }
+      }
+    }
+
+    const position = computeMachineFramePosition(
+      recipeKey,
+      flowPosition,
+      placement,
+    );
+
     const bp: MachineBlueprint = {
       id,
-      position: flowPosition,
+      position,
       label,
       recipeKey,
     };
     const built = buildMachineNodes(bp);
-    const linkId = options?.linkOriginPortId;
     let extraEdges: Edge[] = [];
     if (linkId) {
       const origin = get().nodes.find((n) => n.id === linkId);
@@ -373,5 +405,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       (node) => node.id !== machineFrameId && node.parentId !== machineFrameId,
     );
     set({ nodes: [...others, ...built] });
+  },
+  replaceDocument: (doc) => {
+    const { nodes, edges, forcedPortRates } = loadFactoryDocument(doc);
+    set({
+      nodes,
+      edges,
+      forcedPortRates,
+      reorderDragSession: null,
+    });
+  },
+  replaceActiveCanvas: (slice) => {
+    set({
+      nodes: slice.nodes,
+      edges: slice.edges,
+      forcedPortRates: slice.forcedPortRates,
+      reorderDragSession: null,
+    });
   },
 }));

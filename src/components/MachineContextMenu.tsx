@@ -6,6 +6,7 @@ import {
   clampClockPercent,
 } from "@/lib/clockSpeed";
 import { useClampedFixedPosition } from "@/hooks/useClampedFixedPosition";
+import { useI18n } from "@/i18n/I18nProvider";
 
 type Props = {
   x: number;
@@ -30,6 +31,7 @@ export function MachineContextMenu({
   onChangeRecipe,
   onDeleteMachine,
 }: Props) {
+  const { t } = useI18n();
   const { ref: menuRef, left, top } = useClampedFixedPosition({ x, y }, true);
   const [numDraft, setNumDraft] = useState(String(clockPercent));
 
@@ -42,7 +44,7 @@ export function MachineContextMenu({
       <button
         type="button"
         className="fixed inset-0 z-[9998] cursor-default bg-transparent"
-        aria-label="Fermer le menu"
+        aria-label={t("closeMenu")}
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -64,7 +66,7 @@ export function MachineContextMenu({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
-            Overclocking
+            {t("overclocking")}
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -77,12 +79,12 @@ export function MachineContextMenu({
                 onClockPercentChange(Number(e.target.value))
               }
               className="h-1.5 min-w-0 flex-1 cursor-pointer accent-sky-500"
-              aria-label="Vitesse d'horloge en pourcentage"
+              aria-label={t("clockAria")}
             />
             <input
               type="text"
               inputMode="numeric"
-              aria-label="Pourcentage numérique"
+              aria-label={t("clockPercentAria")}
               className="w-12 shrink-0 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-right text-xs tabular-nums text-[var(--text)]"
               value={numDraft}
               onChange={(e) => setNumDraft(e.target.value.replace(/[^\d.-]/g, ""))}
@@ -101,7 +103,11 @@ export function MachineContextMenu({
             <span className="shrink-0 text-[11px] text-[var(--muted)]">%</span>
           </div>
           <p className="mt-1 text-[9px] leading-tight text-[var(--muted)]">
-            {CLOCK_MIN}–{CLOCK_MAX} % · défaut {CLOCK_DEFAULT} %
+            {t("clockRange", {
+              min: CLOCK_MIN,
+              max: CLOCK_MAX,
+              def: CLOCK_DEFAULT,
+            })}
           </p>
         </div>
         <button
@@ -112,7 +118,7 @@ export function MachineContextMenu({
             onChangeRecipe();
           }}
         >
-          Changer la recette…
+          {t("changeRecipe")}
         </button>
         <button
           type="button"
@@ -123,7 +129,7 @@ export function MachineContextMenu({
             onClose();
           }}
         >
-          Réinitialiser les débits forcés
+          {t("clearForcedRates")}
         </button>
         <hr className="border-[var(--border)]" />
         <button
@@ -134,7 +140,7 @@ export function MachineContextMenu({
             onDeleteMachine();
           }}
         >
-          Supprimer la machine
+          {t("deleteMachine")}
         </button>
       </div>
     </>

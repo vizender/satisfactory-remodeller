@@ -66,7 +66,7 @@ function WideHitBezierEdgeImpl(props: EdgeProps) {
       <path
         d={path}
         fill="none"
-        stroke="rgba(15, 22, 32, 0.06)"
+        stroke="var(--edge-hit-stroke)"
         strokeWidth={HIT_STROKE_SCREEN_PX}
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"

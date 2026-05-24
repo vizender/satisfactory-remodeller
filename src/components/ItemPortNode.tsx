@@ -10,6 +10,7 @@ import { ItemIconSlot } from "@/components/ItemIconSlot";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
 import { normalizePortSlotPermutation } from "@/lib/buildMachineGraph";
+import { machinePortShiftXPx } from "@/lib/machineSelection";
 import {
   computeVerticalSlotYs,
   nearestSlotIndex,
@@ -47,10 +48,14 @@ type DragRef = {
   slots: number;
   frameH: number;
   cancelled: boolean;
+  /** Réordonnancement engagé (seuil de mouvement dépassé). */
+  active: boolean;
   startSlot: number;
   siblingPositions: Record<string, { x: number; y: number }>;
   perm: number[];
 };
+
+const REORDER_ACTIVATE_PX = 4;
 
 /**
  * Port : thème par état de flux (bleu équilibré, vert surplus, rouge déficit).
@@ -145,6 +150,15 @@ export function ItemPortNode(props: NodeProps) {
 
   const reorderable = d.slotsOnSide > 1;
 
+  const parentSelected = useDocumentStore((s) => {
+    if (!parentId) return false;
+    return (
+      s.nodes.find((n) => n.id === parentId && n.type === "machineFrame")
+        ?.selected ?? false
+    );
+  });
+  const portShiftX = machinePortShiftXPx(d.kind, parentSelected);
+
   const finishReorder = useCallback(
     (st: DragRef) => {
       const self = getNode(id);
@@ -198,9 +212,6 @@ export function ItemPortNode(props: NodeProps) {
       const recipe = fd ? findRecipeByKey(fd.recipeKey) : undefined;
       if (!recipe) return;
 
-      e.stopPropagation();
-      e.preventDefault();
-
       const frameH = frameHeightFromNode(frameNode);
       const nSide =
         d.kind === "in" ? recipe.ingredients.length : recipe.products.length;
@@ -236,17 +247,11 @@ export function ItemPortNode(props: NodeProps) {
         slots: d.slotsOnSide,
         frameH,
         cancelled: false,
+        active: false,
         startSlot,
         siblingPositions,
         perm,
       };
-
-      setReorderDragSession({
-        machineFrameId: parentId,
-        side: d.kind,
-      });
-
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },
     [
       d.kind,
@@ -267,13 +272,39 @@ export function ItemPortNode(props: NodeProps) {
 
       const dx = Math.abs(e.clientX - st.startCX);
       const dy = Math.abs(e.clientY - st.startCY);
-      if (!st.cancelled && dx > dy * 1.15 && dx > 8) {
+
+      if (!st.active) {
+        if (st.cancelled) return;
+        if (dx > dy * 1.15 && dx > 8) {
+          st.cancelled = true;
+          dragRef.current = null;
+          return;
+        }
+        if (dx < REORDER_ACTIVATE_PX && dy < REORDER_ACTIVATE_PX) return;
+
+        st.active = true;
+        e.stopPropagation();
+        e.preventDefault();
+        setReorderDragSession({
+          machineFrameId: st.frameId,
+          side: st.kind,
+        });
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (st.cancelled) return;
+
+      if (st.active && dx > dy * 1.15 && dx > 8) {
         st.cancelled = true;
         restoreAllSiblings(st);
         setReorderDragSession(null);
+        dragRef.current = null;
         return;
       }
-      if (st.cancelled) return;
 
       const dFlow = (e.clientY - st.startCY) / zoom;
       const ys = computeVerticalSlotYs(st.slots, st.frameH);
@@ -328,6 +359,10 @@ export function ItemPortNode(props: NodeProps) {
     (e: React.PointerEvent) => {
       const st = dragRef.current;
       if (!st || e.pointerId !== st.pointerId) return;
+      if (!st.active) {
+        dragRef.current = null;
+        return;
+      }
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {
@@ -362,10 +397,16 @@ export function ItemPortNode(props: NodeProps) {
   return (
     <div
       className={cn(
-        "relative rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        "rf-machine-port relative rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        parentSelected && "rf-machine-port-selected",
         cardBorder,
       )}
-      style={{ width: PORT_W, minHeight: PORT_ROW }}
+      style={{
+        width: PORT_W,
+        minHeight: PORT_ROW,
+        transform:
+          portShiftX !== 0 ? `translateX(${portShiftX}px)` : undefined,
+      }}
     >
       {isIn ? (
         <Handle

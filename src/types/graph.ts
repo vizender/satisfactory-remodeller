@@ -29,6 +29,34 @@ export interface ItemPortData extends Record<string, unknown> {
   slotsOnSide: number;
 }
 
+/** Reserved: boundary port on a factory (future cross-canvas flow). */
+export interface BoundaryPortDef {
+  id: string;
+  itemId: string;
+  displayName: string;
+  linkedPortId?: string;
+}
+
+export interface FactoryBoundarySpecV1 {
+  version: 1;
+  inputs: BoundaryPortDef[];
+  outputs: BoundaryPortDef[];
+}
+
+/** Reserved: factory node visual overrides. */
+export interface FactoryAppearanceV1 {
+  version: 1;
+  accentColor?: string;
+  iconId?: string;
+  frameVariant?: string;
+}
+
+export interface FactoryFrameData extends Record<string, unknown> {
+  label: string;
+  boundary?: FactoryBoundarySpecV1;
+  appearance?: FactoryAppearanceV1;
+}
+
 /**
  * Découpe une chaîne PascalCase/camelCase en mots (OreIron → Ore Iron).
  * Les identifiants avec underscores restent espacés par _.

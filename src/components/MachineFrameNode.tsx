@@ -13,8 +13,12 @@ import { itemRatesForRecipe } from "@/types/graph";
 
 const { PORT_W, BODY_W, GUTTER } = MACHINE_LAYOUT;
 
+function cn(...parts: (string | false | undefined)[]) {
+  return parts.filter(Boolean).join(" ");
+}
+
 export function MachineFrameNode(props: NodeProps) {
-  const { id } = props;
+  const { id, selected } = props;
   const d = props.data as MachineFrameData & { missingRecipe?: boolean };
   const recipe = useMemo(() => findRecipeByKey(d.recipeKey), [d.recipeKey]);
   const rates = useMemo(
@@ -47,9 +51,12 @@ export function MachineFrameNode(props: NodeProps) {
   const leftOffset = PORT_W + GUTTER;
 
   return (
-    <div className="relative h-full w-full min-h-0 overflow-hidden rounded-xl">
+    <div className="relative h-full w-full min-h-0 overflow-visible rounded-xl">
       <div
-        className="absolute flex min-h-0 cursor-grab flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1.5 shadow-inner active:cursor-grabbing"
+        className={cn(
+          "rf-machine-body absolute flex min-h-0 cursor-grab flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1.5 shadow-inner active:cursor-grabbing",
+          selected && "rf-machine-body-selected",
+        )}
         style={{
           left: leftOffset,
           width: BODY_W,

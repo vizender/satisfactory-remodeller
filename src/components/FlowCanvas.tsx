@@ -9,6 +9,7 @@ import {
   type Edge,
   type EdgeChange,
   type EdgeTypes,
+  type NodeChange,
   type NodeTypes,
   type OnConnectStartParams,
   type ReactFlowInstance,
@@ -25,6 +26,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { EdgeContextMenu } from "@/components/EdgeContextMenu";
+import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
+import { FactoryContextMenu } from "@/components/FactoryContextMenu";
+import { FactoryFrameNode } from "@/components/FactoryFrameNode";
 import { WideHitBezierEdge } from "@/components/edges/WideHitBezierEdge";
 import { ItemPortNode } from "@/components/ItemPortNode";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
@@ -35,6 +40,7 @@ import {
   reactFlowInteractionProps,
   useInputModality,
 } from "@/hooks/useInputModality";
+import { useI18n } from "@/i18n/I18nProvider";
 import { handleSuppressNativeContextMenu } from "@/hooks/useSuppressNativeContextMenu";
 import type { RecipeFilter } from "@/lib/recipeFilters";
 import {
@@ -43,16 +49,22 @@ import {
   type ConnectionDragPreview,
 } from "@/lib/nodeDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
+import {
+  applyMachineSelection,
+  clearMachineSelection,
+} from "@/lib/machineSelection";
 import { CLOCK_DEFAULT, clampClockPercent } from "@/lib/clockSpeed";
 import {
   hasEdgeBetweenPorts,
   useDocumentStore,
 } from "@/store/useDocumentStore";
-import type { ItemPortData, MachineFrameData } from "@/types/graph";
+import { useWorldStore } from "@/store/useWorldStore";
+import type { FactoryFrameData, ItemPortData, MachineFrameData } from "@/types/graph";
 
 const nodeTypes: NodeTypes = {
   machineFrame: MachineFrameNode,
   itemPort: ItemPortNode,
+  factoryFrame: FactoryFrameNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -64,6 +76,10 @@ function clientXY(ev: MouseEvent | TouchEvent): { x: number; y: number } {
   if ("clientX" in ev) return { x: ev.clientX, y: ev.clientY };
   const t = ev.changedTouches?.[0];
   return { x: t?.clientX ?? 0, y: t?.clientY ?? 0 };
+}
+
+function isPortForceInputTarget(target: EventTarget | null) {
+  return (target as HTMLElement | null)?.closest?.("[data-port-force-field]");
 }
 
 type RecipePickerState = {
@@ -128,6 +144,7 @@ function EdgeMenuHost({
 }
 
 function FlowCanvasInner() {
+  const { t } = useI18n();
   const { effective: inputModality } = useInputModality();
   const flowInteraction = reactFlowInteractionProps(inputModality);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -183,6 +200,14 @@ function FlowCanvasInner() {
   const clearForcedOnMachine = useDocumentStore((s) => s.clearForcedOnMachine);
   const addMachine = useDocumentStore((s) => s.addMachine);
   const removeMachine = useDocumentStore((s) => s.removeMachine);
+  const addFactory = useWorldStore((s) => s.addFactory);
+  const removeFactory = useWorldStore((s) => s.removeFactory);
+  const duplicateFactory = useWorldStore((s) => s.duplicateFactory);
+  const renameFactory = useWorldStore((s) => s.renameFactory);
+  const navigateToCanvas = useWorldStore((s) => s.navigateToCanvas);
+  const setActiveCanvasViewport = useWorldStore((s) => s.setActiveCanvasViewport);
+  const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
+  const canvasMap = useWorldStore((s) => s.canvasMap);
   const setMachineRecipe = useDocumentStore((s) => s.setMachineRecipe);
   const setMachineClockPercent = useDocumentStore(
     (s) => s.setMachineClockPercent,
@@ -219,11 +244,78 @@ function FlowCanvasInner() {
     null,
   );
 
+  const [factoryMenu, setFactoryMenu] = useState<{
+    x: number;
+    y: number;
+    factoryId: string;
+    label: string;
+  } | null>(null);
+
+  const [factoryDeleteTarget, setFactoryDeleteTarget] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+
+  const onViewportMoveEnd = useCallback(
+    (_ev: unknown, viewport: { x: number; y: number; zoom: number }) => {
+      setActiveCanvasViewport(viewport);
+    },
+    [setActiveCanvasViewport],
+  );
+
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       if (changes.length > 0) applyEdgesChange(changes);
     },
     [applyEdgesChange],
+  );
+
+  const onNodesChangeHandler = useCallback(
+    (changes: NodeChange[]) => {
+      const machineIds = new Set<string>();
+      const factoryIds = new Set<string>();
+      const forwarded: NodeChange[] = [];
+
+      for (const change of changes) {
+        if (change.type === "remove") {
+          const n = useDocumentStore
+            .getState()
+            .nodes.find((node) => node.id === change.id);
+          if (n?.type === "machineFrame") {
+            machineIds.add(n.id);
+            continue;
+          }
+          if (n?.type === "factoryFrame") {
+            factoryIds.add(n.id);
+            continue;
+          }
+          if (n?.type === "itemPort" && n.parentId) {
+            machineIds.add(n.parentId);
+            continue;
+          }
+        }
+        forwarded.push(change);
+      }
+
+      if (factoryIds.size > 0) {
+        for (const id of factoryIds) {
+          const node = useDocumentStore
+            .getState()
+            .nodes.find((n) => n.id === id);
+          const label =
+            (node?.data as FactoryFrameData | undefined)?.label ?? id;
+          setFactoryDeleteTarget({ id, label });
+        }
+      }
+      if (machineIds.size > 0) {
+        for (const id of machineIds) removeMachine(id);
+        setMachineMenu(null);
+        setRecipePicker(null);
+        setEdgeMenu(null);
+      }
+      if (forwarded.length > 0) onNodesChange(forwarded);
+    },
+    [onNodesChange, removeMachine],
   );
 
   const isValidConnection = useCallback((edgeOrConn: Connection | Edge) => {
@@ -255,22 +347,35 @@ function FlowCanvasInner() {
     return () => worker.terminate();
   }, [setSolverReady]);
 
+  useEffect(() => {
+    const inst = rfRef.current;
+    if (!inst) return;
+    const vp = canvasMap[activeCanvasId]?.viewport;
+    if (vp) {
+      inst.setViewport(vp);
+    } else {
+      inst.setViewport({ x: 0, y: 0, zoom: 1 });
+    }
+  }, [activeCanvasId]);
+
   return (
     <div
       ref={canvasRef}
-      className="h-full w-full"
+      className="relative h-full w-full"
       onContextMenu={(e) =>
         handleSuppressNativeContextMenu(e, canvasRef.current)
       }
     >
+      <CanvasTransitionOverlay />
       <ReactFlow
         {...flowInteraction}
         onInit={(inst) => {
           rfRef.current = inst;
         }}
+        onMoveEnd={onViewportMoveEnd}
         nodes={displayNodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
@@ -284,6 +389,48 @@ function FlowCanvasInner() {
             y: event.clientY,
             edgeId: edge.id,
           });
+        }}
+        nodeDragThreshold={6}
+        elevateNodesOnSelect
+        multiSelectionKeyCode="Shift"
+        onNodeClick={(event, node) => {
+          if (isPortForceInputTarget(event.target)) return;
+          if (node.type === "machineFrame" || node.type === "factoryFrame") {
+            applyMachineSelection(
+              node.id,
+              event.shiftKey ? "toggle" : "replace",
+            );
+            setMachineMenu(null);
+            setFactoryMenu(null);
+            setEdgeMenu(null);
+            return;
+          }
+          if (node.type === "itemPort" && node.parentId) {
+            applyMachineSelection(
+              node.parentId,
+              event.shiftKey ? "toggle" : "replace",
+            );
+            setMachineMenu(null);
+            setFactoryMenu(null);
+            setEdgeMenu(null);
+          }
+        }}
+        onNodeDoubleClick={(_event, node) => {
+          if (node.type === "factoryFrame") {
+            void navigateToCanvas(node.id);
+          }
+        }}
+        onNodeDragStart={(event, node) => {
+          if (
+            (node.type !== "machineFrame" && node.type !== "factoryFrame") ||
+            node.selected
+          ) {
+            return;
+          }
+          applyMachineSelection(
+            node.id,
+            event.shiftKey ? "add" : "replace",
+          );
         }}
         onNodeContextMenu={(event, node) => {
           if (node.type === "itemPort") {
@@ -301,7 +448,7 @@ function FlowCanvasInner() {
                 anchor: { x: event.clientX, y: event.clientY },
                 flowPosition: flow,
                 filter: { mode: "consumes", itemId: d.itemId },
-                subtitle: `Lien depuis une sortie — recettes qui consomment « ${d.displayName} »`,
+                subtitle: t("fromOutputConsumes", { item: d.displayName }),
                 linkOriginPortId: node.id,
               });
             } else {
@@ -309,7 +456,7 @@ function FlowCanvasInner() {
                 anchor: { x: event.clientX, y: event.clientY },
                 flowPosition: flow,
                 filter: { mode: "produces", itemId: d.itemId },
-                subtitle: `Lien depuis une entrée — recettes qui produisent « ${d.displayName} »`,
+                subtitle: t("fromInputProduces", { item: d.displayName }),
                 linkOriginPortId: node.id,
               });
             }
@@ -319,6 +466,7 @@ function FlowCanvasInner() {
             event.preventDefault();
             setEdgeMenu(null);
             setRecipePicker(null);
+            setFactoryMenu(null);
             const label =
               (node.data as { label?: string }).label ?? node.id;
             setMachineMenu({
@@ -327,12 +475,29 @@ function FlowCanvasInner() {
               machineId: node.id,
               label,
             });
+            return;
+          }
+          if (node.type === "factoryFrame") {
+            event.preventDefault();
+            setEdgeMenu(null);
+            setRecipePicker(null);
+            setMachineMenu(null);
+            const label =
+              (node.data as FactoryFrameData).label ?? node.id;
+            setFactoryMenu({
+              x: event.clientX,
+              y: event.clientY,
+              factoryId: node.id,
+              label,
+            });
           }
         }}
         onPaneClick={() => {
+          clearMachineSelection();
           setConnectionPreview(null);
           setEdgeMenu(null);
           setMachineMenu(null);
+          setFactoryMenu(null);
           setRecipePicker(null);
         }}
         onPaneContextMenu={(e) => {
@@ -348,7 +513,7 @@ function FlowCanvasInner() {
             anchor: { x: e.clientX, y: e.clientY },
             flowPosition: flow,
             filter: { mode: "none" },
-            subtitle: "Nouvelle machine — toutes les recettes",
+            subtitle: t("newMachineAllRecipes"),
           });
         }}
         onConnectEnd={(event, cs) => {
@@ -370,7 +535,7 @@ function FlowCanvasInner() {
               anchor: { x: cx, y: cy },
               flowPosition: flow,
               filter: { mode: "consumes", itemId: d.itemId },
-              subtitle: `Connexion depuis une sortie — recettes qui consomment « ${d.displayName} »`,
+              subtitle: t("connectFromOutputConsumes", { item: d.displayName }),
               linkOriginPortId: fromId,
             });
           } else {
@@ -378,7 +543,7 @@ function FlowCanvasInner() {
               anchor: { x: cx, y: cy },
               flowPosition: flow,
               filter: { mode: "produces", itemId: d.itemId },
-              subtitle: `Connexion depuis une entrée — recettes qui produisent « ${d.displayName} »`,
+              subtitle: t("connectFromInputProduces", { item: d.displayName }),
               linkOriginPortId: fromId,
             });
           }
@@ -403,11 +568,11 @@ function FlowCanvasInner() {
           animated: false,
         }}
       >
-        <Background gap={16} color="#2d3a4d" />
+        <Background gap={16} color="var(--flow-grid)" />
         <Controls className="!bg-[var(--surface)] !border-[var(--border)] !shadow-lg" />
         <MiniMap
           className="!bg-[var(--surface)] !border-[var(--border)]"
-          maskColor="rgba(15,20,25,0.85)"
+          maskColor="var(--minimap-mask)"
         />
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-1 text-right">
@@ -418,11 +583,18 @@ function FlowCanvasInner() {
                   : "text-xs text-amber-400/90"
               }
             >
-              {solverReady ? "Worker solveur OK" : "Worker solveur…"}
+              {solverReady ? t("solverReady") : t("solverPending")}
             </span>
             {solve.hardConflict ? (
-              <div className="max-w-xs rounded border border-red-500/40 bg-red-950/40 px-2 py-1.5 text-[11px] leading-snug text-red-200">
-                {solve.errorMessage ?? "Contraintes impossibles."}
+              <div
+                className="max-w-xs rounded border px-2 py-1.5 text-[11px] leading-snug"
+                style={{
+                  borderColor: "var(--conflict-border)",
+                  backgroundColor: "var(--conflict-bg)",
+                  color: "var(--conflict-text)",
+                }}
+              >
+                {solve.errorMessage ?? t("solverConflict")}
               </div>
             ) : null}
           </div>
@@ -457,7 +629,7 @@ function FlowCanvasInner() {
                   flowPosition: flow,
                   filter: { mode: "none" },
                   replaceMachineId: machineMenu.machineId,
-                  subtitle: "Changer la recette — les liaisons invalides seront retirées",
+                  subtitle: t("changeRecipeInvalid"),
                 });
               }}
               onDeleteMachine={() => {
@@ -473,7 +645,13 @@ function FlowCanvasInner() {
           anchorScreen={recipePicker.anchor}
           recipeFilter={recipePicker.filter}
           subtitle={recipePicker.subtitle}
+          hideMiscTab={Boolean(recipePicker.linkOriginPortId)}
           onClose={() => setRecipePicker(null)}
+          onPickFactory={() => {
+            const id = addFactory(recipePicker.flowPosition);
+            if (!id) alert(t("factoryDepthLimit"));
+            setRecipePicker(null);
+          }}
           onPick={(recipeKey) => {
             if (recipePicker.replaceMachineId) {
               setMachineRecipe(recipePicker.replaceMachineId, recipeKey);
@@ -490,6 +668,51 @@ function FlowCanvasInner() {
           }}
         />
       ) : null}
+      {factoryMenu
+        ? createPortal(
+            <FactoryContextMenu
+              x={factoryMenu.x}
+              y={factoryMenu.y}
+              label={factoryMenu.label}
+              onClose={() => setFactoryMenu(null)}
+              onOpen={() => {
+                void navigateToCanvas(factoryMenu.factoryId);
+                setFactoryMenu(null);
+              }}
+              onRename={() => {
+                const next = window.prompt(t("factoryRenameMenu"), factoryMenu.label);
+                if (next) renameFactory(factoryMenu.factoryId, next);
+                setFactoryMenu(null);
+              }}
+              onDuplicate={() => {
+                duplicateFactory(factoryMenu.factoryId);
+                setFactoryMenu(null);
+              }}
+              onDelete={() => {
+                setFactoryDeleteTarget({
+                  id: factoryMenu.factoryId,
+                  label: factoryMenu.label,
+                });
+                setFactoryMenu(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
+      <DestructiveConfirmDialog
+        open={factoryDeleteTarget !== null}
+        title={
+          factoryDeleteTarget
+            ? t("factoryDeleteTitle", { name: factoryDeleteTarget.label })
+            : ""
+        }
+        body={t("factoryDeleteBody")}
+        onCancel={() => setFactoryDeleteTarget(null)}
+        onConfirm={() => {
+          if (factoryDeleteTarget) removeFactory(factoryDeleteTarget.id);
+          setFactoryDeleteTarget(null);
+        }}
+      />
     </div>
   );
 }
