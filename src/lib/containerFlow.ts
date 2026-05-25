@@ -130,3 +130,32 @@ export function isContainerMachineId(
 ): boolean {
   return nodes.some((n) => n.id === machineId && n.type === "containerFrame");
 }
+
+/** Port d’entrée d’un conteneur (consomme le surplus amont, pas un ratio recette). */
+export function isContainerInputPort(
+  nodes: Node[],
+  portId: string,
+): boolean {
+  const n = nodes.find((node) => node.id === portId);
+  if (n?.type !== "itemPort") return false;
+  const d = n.data as ItemPortData;
+  return d.kind === "in" && isContainerMachineId(nodes, n.parentId ?? "");
+}
+
+/** Port de sortie d’un conteneur (offre = débit reçu sur l’entrée jumelée). */
+export function isContainerOutputPort(
+  nodes: Node[],
+  portId: string,
+): boolean {
+  const n = nodes.find((node) => node.id === portId);
+  if (n?.type !== "itemPort") return false;
+  const d = n.data as ItemPortData;
+  return d.kind === "out" && isContainerMachineId(nodes, n.parentId ?? "");
+}
+
+/** `f3-out-1` → `f3-in-1` */
+export function pairedContainerInputPortId(outPortId: string): string | null {
+  const m = /^(.+)-out-(\d+)$/.exec(outPortId);
+  if (!m) return null;
+  return `${m[1]}-in-${m[2]}`;
+}

@@ -115,7 +115,8 @@ export function buildContainerNodes(bp: ContainerBlueprint): Node[] {
   for (let slot = 0; slot < slotCount; slot++) {
     const itemId = bp.slotItems?.[slot] ?? CONTAINER_UNASSIGNED_ITEM;
     const displayName = slotItemLabel(itemId);
-    const nominal = itemId ? 1 : 0;
+    /** Pas de débit recette : le solveur alimente selon le surplus amont. */
+    const nominal = 0;
 
     const inData: ItemPortData = {
       kind: "in",

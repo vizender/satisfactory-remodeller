@@ -3,9 +3,16 @@ import { clockMultiplier } from "@/lib/clockSpeed";
 import {
   applyContainerFlow,
   edgeTouchesContainer,
+  isContainerInputPort,
   isContainerMachineId,
+  isContainerOutputPort,
+  pairedContainerInputPortId,
 } from "@/lib/containerFlow";
-import type { ItemPortData, MachineFrameData } from "@/types/graph";
+import type {
+  ContainerFrameData,
+  ItemPortData,
+  MachineFrameData,
+} from "@/types/graph";
 import type { FlowSolveResult } from "@/types/flowSolve";
 
 const EPS = 1e-3;
@@ -87,13 +94,29 @@ function machineHasForcedRate(
  * Besoin nominal attribué à une arête vers une entrée : une seule entrée → débit cible entier ;
  * fusion (plusieurs arêtes vers le même port) → répartition pondérée par débit nominal **sortie** amont.
  */
+function portForcedRate(
+  portId: string,
+  forcedPortRates: Record<string, number | undefined>,
+): number | undefined {
+  const fv = forcedPortRates[portId];
+  if (fv === undefined || Number.isNaN(fv)) return undefined;
+  return fv;
+}
+
 function allocatedDemandOnEdge(
   e: Edge,
+  nodes: Node[],
   effectiveRate: Record<string, number>,
   realEdges: Edge[],
   base: Map<string, number>,
+  forcedPortRates: Record<string, number | undefined>,
 ): number {
   const tgt = e.target;
+  if (isContainerInputPort(nodes, tgt)) {
+    const forced = portForcedRate(tgt, forcedPortRates);
+    if (forced !== undefined) return forced;
+    return 0;
+  }
   const totalNeed = effectiveRate[tgt] ?? 0;
   const incoming = realEdges.filter((x) => x.target === tgt);
   if (incoming.length <= 1) return totalNeed;
@@ -141,7 +164,14 @@ function scaleMachinesToMeetOutgoingDemand(
         if (outs.length === 0) continue;
         let demand = 0;
         for (const e of outs) {
-          demand += allocatedDemandOnEdge(e, effectiveRate, realEdges, base);
+          demand += allocatedDemandOnEdge(
+            e,
+            nodes,
+            effectiveRate,
+            realEdges,
+            base,
+            forcedPortRates,
+          );
         }
         const bp = base.get(pid) ?? 0;
         if (bp > EPS) needM = Math.max(needM, demand / bp);
@@ -194,6 +224,104 @@ function minId(ids: string[]): string {
   return ids.reduce((a, b) => (a < b ? a : b));
 }
 
+function partitionEdgesByContainerTarget(
+  nodes: Node[],
+  edges: Edge[],
+): { regular: Edge[]; containerIn: Edge[] } {
+  const regular: Edge[] = [];
+  const containerIn: Edge[] = [];
+  for (const ed of edges) {
+    if (isContainerInputPort(nodes, ed.target)) containerIn.push(ed);
+    else regular.push(ed);
+  }
+  return { regular, containerIn };
+}
+
+/** Répartit l’offre d’un port sortie : machines d’abord, puis surplus vers conteneurs. */
+function allocateFlowsFromSourcePort(
+  nodes: Node[],
+  supply: number,
+  edges: Edge[],
+  effectiveRate: Record<string, number>,
+  realEdges: Edge[],
+  base: Map<string, number>,
+  forcedPortRates: Record<string, number | undefined>,
+  edgeFlow: Record<string, number>,
+): void {
+  const { regular, containerIn } = partitionEdgesByContainerTarget(nodes, edges);
+
+  const assignRegular = (es: Edge[]) => {
+    if (es.length === 0) return;
+    const needsAlloc = es.map((ed) =>
+      allocatedDemandOnEdge(
+        ed,
+        nodes,
+        effectiveRate,
+        realEdges,
+        base,
+        forcedPortRates,
+      ),
+    );
+    const sumNeed = needsAlloc.reduce((a, b) => a + b, 0);
+
+    if (es.length === 1) {
+      const ed = es[0]!;
+      const need = needsAlloc[0] ?? 0;
+      edgeFlow[ed.id] = Math.min(supply, need);
+      return;
+    }
+    if (sumNeed <= EPS) {
+      const eq = supply / es.length;
+      for (const ed of es) edgeFlow[ed.id] = eq;
+      return;
+    }
+    for (let i = 0; i < es.length; i++) {
+      const ed = es[i]!;
+      const need = needsAlloc[i] ?? 0;
+      const prop = (need / sumNeed) * supply;
+      edgeFlow[ed.id] = Math.min(prop, need);
+    }
+  };
+
+  assignRegular(regular);
+
+  let remaining = Math.max(
+    0,
+    supply - regular.reduce((s, ed) => s + (edgeFlow[ed.id] ?? 0), 0),
+  );
+
+  if (containerIn.length === 0) return;
+
+  const forcedEdges: Edge[] = [];
+  const flexEdges: Edge[] = [];
+  for (const ed of containerIn) {
+    if (portForcedRate(ed.target, forcedPortRates) !== undefined) {
+      forcedEdges.push(ed);
+    } else {
+      flexEdges.push(ed);
+    }
+  }
+
+  for (const ed of forcedEdges) {
+    const need = portForcedRate(ed.target, forcedPortRates)!;
+    const f = Math.min(remaining, need);
+    edgeFlow[ed.id] = f;
+    remaining = Math.max(0, remaining - f);
+  }
+
+  if (flexEdges.length === 0) return;
+
+  if (flexEdges.length === 1) {
+    edgeFlow[flexEdges[0]!.id] = remaining;
+    return;
+  }
+
+  const share = remaining / flexEdges.length;
+  for (const ed of flexEdges) {
+    edgeFlow[ed.id] = share;
+  }
+}
+
 /**
  * Rééquilibrage quand la demande agrégée sur une sortie dépasse l’offre (split, etc.) :
  * réduit les multiplicateurs des machines **aval** (priorité aux déficits ; surplus toléré).
@@ -230,7 +358,14 @@ function rebalanceDeficitDownstream(
       if (supply <= EPS) continue;
 
       const needs = es.map((ed) =>
-        allocatedDemandOnEdge(ed, effectiveRate, realEdges, base),
+        allocatedDemandOnEdge(
+          ed,
+          nodes,
+          effectiveRate,
+          realEdges,
+          base,
+          forcedPortRates,
+        ),
       );
       const sumNeed = needs.reduce((a, b) => a + b, 0);
       if (sumNeed <= EPS) continue;
@@ -486,39 +621,63 @@ export function solveFlow(
     bySource.get(e.source)!.push(e);
   }
 
-  /** 1) Calcul des flux par arête (répartition sorties multiples, merges cohérents). */
+  /** 1a) Flux amont → machines / entrées conteneur (pas depuis sortie conteneur). */
   for (const [src, es] of bySource) {
-    const supply = effectiveRate[src] ?? 0;
-    const needsAlloc = es.map((ed) =>
-      allocatedDemandOnEdge(ed, effectiveRate, realEdges, base),
+    if (isContainerOutputPort(nodes, src)) continue;
+    allocateFlowsFromSourcePort(
+      nodes,
+      effectiveRate[src] ?? 0,
+      es,
+      effectiveRate,
+      realEdges,
+      base,
+      forcedPortRates,
+      edgeFlow,
     );
-    const sumNeed = needsAlloc.reduce((a, b) => a + b, 0);
+  }
 
-    if (es.length === 1) {
-      const ed = es[0];
-      const need = needsAlloc[0] ?? 0;
-      const f = Math.min(supply, need);
-      edgeFlow[ed.id] = f;
-    } else if (es.length > 1) {
-      if (sumNeed <= EPS) {
-        const eq = supply / es.length;
-        es.forEach((ed) => {
-          edgeFlow[ed.id] = eq;
-        });
-      } else {
-        es.forEach((ed, i) => {
-          const need = needsAlloc[i] ?? 0;
-          const prop = (need / sumNeed) * supply;
-          edgeFlow[ed.id] = Math.min(prop, need);
-        });
-      }
+  /** 1b) Sorties conteneur : offre = débit entrant sur le port jumelé. */
+  for (const [src, es] of bySource) {
+    if (!isContainerOutputPort(nodes, src)) continue;
+    const outNode = nodes.find((n) => n.id === src);
+    const frame = outNode?.parentId
+      ? nodes.find((n) => n.id === outNode.parentId)
+      : undefined;
+    if (
+      frame?.type === "containerFrame" &&
+      (frame.data as ContainerFrameData).outputEnabled === false
+    ) {
+      continue;
     }
+    const inId = pairedContainerInputPortId(src);
+    if (!inId) continue;
+    let supply = 0;
+    for (const e of realEdges) {
+      if (e.target === inId) supply += edgeFlow[e.id] ?? 0;
+    }
+    allocateFlowsFromSourcePort(
+      nodes,
+      supply,
+      es,
+      effectiveRate,
+      realEdges,
+      base,
+      forcedPortRates,
+      edgeFlow,
+    );
   }
 
   for (const e of realEdges) {
     if (edgeFlow[e.id] !== undefined) continue;
     const supply = effectiveRate[e.source] ?? 0;
-    const need = allocatedDemandOnEdge(e, effectiveRate, realEdges, base);
+    const need = allocatedDemandOnEdge(
+      e,
+      nodes,
+      effectiveRate,
+      realEdges,
+      base,
+      forcedPortRates,
+    );
     edgeFlow[e.id] = Math.min(supply, need);
   }
 
