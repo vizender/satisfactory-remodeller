@@ -29,6 +29,8 @@ import { EdgeContextMenu } from "@/components/EdgeContextMenu";
 import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { FactoryContextMenu } from "@/components/FactoryContextMenu";
+import { ContainerFrameNode } from "@/components/ContainerFrameNode";
+import { ContainerContextMenu } from "@/components/ContainerContextMenu";
 import { FactoryFrameNode } from "@/components/FactoryFrameNode";
 import { WideHitBezierEdge } from "@/components/edges/WideHitBezierEdge";
 import { ItemPortNode } from "@/components/ItemPortNode";
@@ -60,12 +62,22 @@ import {
   useDocumentStore,
 } from "@/store/useDocumentStore";
 import { useWorldStore } from "@/store/useWorldStore";
-import type { FactoryFrameData, ItemPortData, MachineFrameData } from "@/types/graph";
+import type {
+  ContainerFrameData,
+  FactoryFrameData,
+  ItemPortData,
+  MachineFrameData,
+} from "@/types/graph";
+import {
+  isPortItemAssigned,
+  portItemsCompatible,
+} from "@/types/graph";
 
 const nodeTypes: NodeTypes = {
   machineFrame: MachineFrameNode,
   itemPort: ItemPortNode,
   factoryFrame: FactoryFrameNode,
+  containerFrame: ContainerFrameNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -206,8 +218,15 @@ function FlowCanvasInner() {
     [],
   );
   const clearForcedOnMachine = useDocumentStore((s) => s.clearForcedOnMachine);
+  const clearForcedOnContainer = useDocumentStore((s) => s.clearForcedOnContainer);
+  const setContainerOutputEnabled = useDocumentStore(
+    (s) => s.setContainerOutputEnabled,
+  );
+  const setContainerVariant = useDocumentStore((s) => s.setContainerVariant);
   const addMachine = useDocumentStore((s) => s.addMachine);
+  const addContainer = useDocumentStore((s) => s.addContainer);
   const removeMachine = useDocumentStore((s) => s.removeMachine);
+  const removeContainer = useDocumentStore((s) => s.removeContainer);
   const addFactory = useWorldStore((s) => s.addFactory);
   const removeFactory = useWorldStore((s) => s.removeFactory);
   const duplicateFactory = useWorldStore((s) => s.duplicateFactory);
@@ -257,10 +276,30 @@ function FlowCanvasInner() {
     label: string;
   } | null>(null);
 
+  const [containerMenu, setContainerMenu] = useState<{
+    x: number;
+    y: number;
+    containerId: string;
+    label: string;
+  } | null>(null);
+
   const [factoryDeleteTarget, setFactoryDeleteTarget] = useState<{
     id: string;
     label: string;
   } | null>(null);
+
+  const containerMenuData = useMemo(() => {
+    if (!containerMenu) return null;
+    const fr = nodes.find(
+      (n) => n.id === containerMenu.containerId && n.type === "containerFrame",
+    );
+    if (!fr) return null;
+    const d = fr.data as ContainerFrameData;
+    return {
+      variant: d.variant ?? "standard",
+      outputEnabled: d.outputEnabled !== false,
+    };
+  }, [containerMenu, nodes]);
 
   const onViewportMoveEnd = useCallback(
     (_ev: unknown, viewport: { x: number; y: number; zoom: number }) => {
@@ -295,8 +334,19 @@ function FlowCanvasInner() {
             factoryIds.add(n.id);
             continue;
           }
+          if (n?.type === "containerFrame") {
+            machineIds.add(n.id);
+            continue;
+          }
           if (n?.type === "itemPort" && n.parentId) {
-            machineIds.add(n.parentId);
+            const parent = useDocumentStore
+              .getState()
+              .nodes.find((p) => p.id === n.parentId);
+            if (parent?.type === "containerFrame") {
+              machineIds.add(n.parentId);
+            } else {
+              machineIds.add(n.parentId);
+            }
             continue;
           }
         }
@@ -314,14 +364,19 @@ function FlowCanvasInner() {
         }
       }
       if (machineIds.size > 0) {
-        for (const id of machineIds) removeMachine(id);
+        for (const id of machineIds) {
+          const node = useDocumentStore.getState().nodes.find((n) => n.id === id);
+          if (node?.type === "containerFrame") removeContainer(id);
+          else removeMachine(id);
+        }
         setMachineMenu(null);
+        setContainerMenu(null);
         setRecipePicker(null);
         setEdgeMenu(null);
       }
       if (forwarded.length > 0) onNodesChange(forwarded);
     },
-    [onNodesChange, removeMachine],
+    [onNodesChange, removeMachine, removeContainer],
   );
 
   const isValidConnection = useCallback((edgeOrConn: Connection | Edge) => {
@@ -334,7 +389,17 @@ function FlowCanvasInner() {
     const sd = src.data as ItemPortData;
     const td = tgt.data as ItemPortData;
     if (sd.kind !== "out" || td.kind !== "in") return false;
-    if (sd.itemId !== td.itemId) return false;
+    if (!portItemsCompatible(sd.itemId, td.itemId)) return false;
+    const itemId = isPortItemAssigned(sd.itemId) ? sd.itemId : td.itemId;
+    if (!isPortItemAssigned(itemId)) return false;
+    const srcParent = list.find((n) => n.id === src.parentId);
+    if (
+      srcParent?.type === "containerFrame" &&
+      sd.kind === "out" &&
+      (srcParent.data as ContainerFrameData).outputEnabled === false
+    ) {
+      return false;
+    }
     if (
       edgeOrConn.source &&
       edgeOrConn.target &&
@@ -401,13 +466,18 @@ function FlowCanvasInner() {
         multiSelectionKeyCode="Shift"
         onNodeClick={(event, node) => {
           if (isPortForceInputTarget(event.target)) return;
-          if (node.type === "machineFrame" || node.type === "factoryFrame") {
+          if (
+            node.type === "machineFrame" ||
+            node.type === "factoryFrame" ||
+            node.type === "containerFrame"
+          ) {
             applyMachineSelection(
               node.id,
               event.shiftKey ? "toggle" : "replace",
             );
             setMachineMenu(null);
             setFactoryMenu(null);
+            setContainerMenu(null);
             setEdgeMenu(null);
             return;
           }
@@ -418,6 +488,7 @@ function FlowCanvasInner() {
             );
             setMachineMenu(null);
             setFactoryMenu(null);
+            setContainerMenu(null);
             setEdgeMenu(null);
           }
         }}
@@ -428,7 +499,9 @@ function FlowCanvasInner() {
         }}
         onNodeDragStart={(event, node) => {
           if (
-            (node.type !== "machineFrame" && node.type !== "factoryFrame") ||
+            (node.type !== "machineFrame" &&
+              node.type !== "factoryFrame" &&
+              node.type !== "containerFrame") ||
             node.selected
           ) {
             return;
@@ -473,6 +546,7 @@ function FlowCanvasInner() {
             setEdgeMenu(null);
             setRecipePicker(null);
             setFactoryMenu(null);
+            setContainerMenu(null);
             const label =
               (node.data as { label?: string }).label ?? node.id;
             setMachineMenu({
@@ -488,12 +562,29 @@ function FlowCanvasInner() {
             setEdgeMenu(null);
             setRecipePicker(null);
             setMachineMenu(null);
+            setContainerMenu(null);
             const label =
               (node.data as FactoryFrameData).label ?? node.id;
             setFactoryMenu({
               x: event.clientX,
               y: event.clientY,
               factoryId: node.id,
+              label,
+            });
+            return;
+          }
+          if (node.type === "containerFrame") {
+            event.preventDefault();
+            setEdgeMenu(null);
+            setRecipePicker(null);
+            setMachineMenu(null);
+            setFactoryMenu(null);
+            const label =
+              (node.data as ContainerFrameData).label ?? node.id;
+            setContainerMenu({
+              x: event.clientX,
+              y: event.clientY,
+              containerId: node.id,
               label,
             });
           }
@@ -504,6 +595,7 @@ function FlowCanvasInner() {
           setEdgeMenu(null);
           setMachineMenu(null);
           setFactoryMenu(null);
+          setContainerMenu(null);
           setRecipePicker(null);
         }}
         onPaneContextMenu={(e) => {
@@ -657,6 +749,16 @@ function FlowCanvasInner() {
             if (!id) alert(t("factoryDepthLimit"));
             setRecipePicker(null);
           }}
+          onPickContainer={(variant) => {
+            addContainer(
+              variant,
+              recipePicker.flowPosition,
+              recipePicker.linkOriginPortId
+                ? { linkOriginPortId: recipePicker.linkOriginPortId }
+                : undefined,
+            );
+            setRecipePicker(null);
+          }}
           onPick={(recipeKey) => {
             if (recipePicker.replaceMachineId) {
               setMachineRecipe(recipePicker.replaceMachineId, recipeKey);
@@ -699,6 +801,32 @@ function FlowCanvasInner() {
                   label: factoryMenu.label,
                 });
                 setFactoryMenu(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
+      {containerMenu && containerMenuData
+        ? createPortal(
+            <ContainerContextMenu
+              x={containerMenu.x}
+              y={containerMenu.y}
+              containerLabel={containerMenu.label}
+              variant={containerMenuData.variant}
+              outputEnabled={containerMenuData.outputEnabled}
+              onOutputEnabledChange={(v) =>
+                setContainerOutputEnabled(containerMenu.containerId, v)
+              }
+              onVariantChange={(v) =>
+                setContainerVariant(containerMenu.containerId, v)
+              }
+              onClose={() => setContainerMenu(null)}
+              onClearForced={() =>
+                clearForcedOnContainer(containerMenu.containerId)
+              }
+              onDeleteContainer={() => {
+                removeContainer(containerMenu.containerId);
+                setContainerMenu(null);
               }}
             />,
             document.body,

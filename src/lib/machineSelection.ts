@@ -24,7 +24,11 @@ export function machinePortShiftXPx(
   return kind === "in" ? -half : half;
 }
 
-const SELECTABLE_FRAME_TYPES = new Set(["machineFrame", "factoryFrame"]);
+const SELECTABLE_FRAME_TYPES = new Set([
+  "machineFrame",
+  "factoryFrame",
+  "containerFrame",
+]);
 
 export function applyMachineSelection(
   frameId: string,

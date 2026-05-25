@@ -25,6 +25,7 @@ export function computeFlowSolveSnapshot(
       conflictMachineIds: [],
       conflictEdgeIds: [],
       conflictPortIds: [],
+      portStoredPerMin: {},
       errorMessage:
         msg ||
         "Erreur interne du solveur — vérifiez les nœuds et les liaisons.",

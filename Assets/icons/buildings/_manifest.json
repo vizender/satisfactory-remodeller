@@ -1,10 +1,12 @@
 {
   "source": "local",
-  "count": 2,
+  "count": 3,
   "files": {
     "Desc_SmelterMk1_C": "smelter.png",
     "Desc_ConstructorMk1_C": "constructor.png",
+    "Desc_QuantumEncoder_C": "Quantum_Encoder.png",
     "Smelter": "smelter.png",
-    "Constructor": "constructor.png"
+    "Constructor": "constructor.png",
+    "Quantum Encoder": "Quantum_Encoder.png"
   }
 }

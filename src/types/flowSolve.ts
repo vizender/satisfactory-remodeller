@@ -12,5 +12,7 @@ export interface FlowSolveResult {
   conflictEdgeIds: string[];
   /** Ports impliqués dans un conflit (entrées / sorties forcées). */
   conflictPortIds: string[];
+  /** Stockage net (items/min) par port d’entrée de conteneur. */
+  portStoredPerMin: Record<string, number>;
   errorMessage: string | null;
 }

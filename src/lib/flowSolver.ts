@@ -1,5 +1,10 @@
 import type { Edge, Node } from "@xyflow/react";
 import { clockMultiplier } from "@/lib/clockSpeed";
+import {
+  applyContainerFlow,
+  edgeTouchesContainer,
+  isContainerMachineId,
+} from "@/lib/containerFlow";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 import type { FlowSolveResult } from "@/types/flowSolve";
 
@@ -15,10 +20,10 @@ function clockMultiplierForMachine(
   machineFrameId: string | undefined,
 ): number {
   if (!machineFrameId) return 1;
-  const frame = nodes.find(
-    (n) => n.id === machineFrameId && n.type === "machineFrame",
-  );
+  const frame = nodes.find((n) => n.id === machineFrameId);
   if (!frame) return 1;
+  if (frame.type === "containerFrame") return 1;
+  if (frame.type !== "machineFrame") return 1;
   return clockMultiplier((frame.data as MachineFrameData).clockPercent);
 }
 
@@ -125,6 +130,7 @@ function scaleMachinesToMeetOutgoingDemand(
 
     let changed = false;
     for (const mid of machines) {
+      if (isContainerMachineId(nodes, mid)) continue;
       if (machineHasForcedRate(mid, portsOfMachine, forcedPortRates)) continue;
       let needM = m[mid] ?? 1;
       for (const pid of portsOfMachine.get(mid) ?? []) {
@@ -195,6 +201,7 @@ function minId(ids: string[]): string {
  */
 function rebalanceDeficitDownstream(
   m: Record<string, number>,
+  nodes: Node[],
   realEdges: Edge[],
   base: Map<string, number>,
   machineOf: Map<string, string>,
@@ -238,6 +245,7 @@ function rebalanceDeficitDownstream(
           if (machineHasForcedRate(mid, portsOfMachine, forcedPortRates)) {
             continue;
           }
+          if (isContainerMachineId(nodes, mid)) continue;
           const prev = m[mid] ?? 1;
           const next = Math.max(prev * factor, 1e-12);
           m[mid] = next;
@@ -387,6 +395,7 @@ export function solveFlow(
     const ma = machineOf.get(e.source);
     const mb = machineOf.get(e.target);
     if (!ma || !mb || ma === mb || bi <= EPS || bo <= 0) continue;
+    if (edgeTouchesContainer(nodes, e.source, e.target)) continue;
     machLinks.push({
       ma,
       mb,
@@ -454,6 +463,7 @@ export function solveFlow(
 
   rebalanceDeficitDownstream(
     m,
+    nodes,
     realEdges,
     base,
     machineOf,
@@ -560,7 +570,7 @@ export function solveFlow(
     }
   }
 
-  return {
+  const baseResult: FlowSolveResult = {
     machineMultiplier: m,
     effectiveRate,
     edgeFlow,
@@ -569,6 +579,9 @@ export function solveFlow(
     conflictMachineIds: [...conflicts.machineIds],
     conflictEdgeIds: [...conflicts.edgeIds],
     conflictPortIds: [...conflicts.portIds],
+    portStoredPerMin: {},
     errorMessage,
   };
+
+  return applyContainerFlow(nodes, edges, baseResult);
 }

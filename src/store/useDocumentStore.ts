@@ -5,6 +5,17 @@ import {
 } from "@xyflow/react";
 import { create } from "zustand";
 import {
+  buildContainerNodes,
+  computeContainerFramePosition,
+  containerBlueprintFromFrame,
+  type ContainerBlueprint,
+} from "@/lib/buildContainerGraph";
+import {
+  applyContainerItemAssignment,
+} from "@/lib/containerPortAssign";
+import { CONTAINER_DEFAULT_LABEL } from "@/constants/container";
+import type { ContainerVariant } from "@/types/graph";
+import {
   buildMachineNodes,
   computeMachineFramePosition,
   machineBlueprintFromFrame,
@@ -19,6 +30,10 @@ import { loadFactoryDocument } from "@/lib/factoryDocument";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import type { FactoryDocumentV2 } from "@/types/factoryDocument";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
+import {
+  isPortItemAssigned,
+  portItemsCompatible,
+} from "@/types/graph";
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
@@ -37,6 +52,15 @@ export interface DocumentState {
   setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
   /** Retire tous les overrides sur les ports d’une machine (cadre). */
   clearForcedOnMachine: (machineFrameId: string) => void;
+  clearForcedOnContainer: (containerFrameId: string) => void;
+  setContainerOutputEnabled: (
+    containerFrameId: string,
+    outputEnabled: boolean,
+  ) => void;
+  setContainerVariant: (
+    containerFrameId: string,
+    variant: ContainerVariant,
+  ) => void;
   addResolvedEdge: (edge: Edge) => void;
   /**
    * Nouvelle machine à `flowPosition`.
@@ -48,8 +72,14 @@ export interface DocumentState {
     flowPosition: { x: number; y: number },
     options?: { linkOriginPortId?: string },
   ) => void;
+  addContainer: (
+    variant: ContainerVariant,
+    flowPosition: { x: number; y: number },
+    options?: { linkOriginPortId?: string },
+  ) => void;
   /** Supprime le cadre, les ports et toutes les arêtes attachées. */
   removeMachine: (machineFrameId: string) => void;
+  removeContainer: (containerFrameId: string) => void;
   /** Remplace la recette et retire les liaisons / forçages devenus invalides. */
   setMachineRecipe: (machineFrameId: string, recipeKey: string) => void;
   /** Surclock 0–250 % (défaut 100). */
@@ -86,17 +116,42 @@ export interface DocumentState {
   }) => void;
 }
 
+function portIdsForFrame(nodes: Node[], frameId: string): string[] {
+  return nodes
+    .filter((n) => n.type === "itemPort" && n.parentId === frameId)
+    .map((n) => n.id);
+}
+
 function portIdsForMachine(
   nodes: Node[],
   machineId: string,
 ): string[] {
-  return nodes
-    .filter(
-      (n) =>
-        n.type === "itemPort" &&
-        n.parentId === machineId,
-    )
-    .map((n) => n.id);
+  return portIdsForFrame(nodes, machineId);
+}
+
+function nextContainerFrameId(nodes: Node[]): string {
+  let max = 0;
+  for (const n of nodes) {
+    if (n.type !== "containerFrame") continue;
+    const m = /^c(\d+)$/.exec(n.id);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `c${max + 1}`;
+}
+
+function containerOutputDisabled(
+  nodes: Node[],
+  portId: string,
+): boolean {
+  const port = nodes.find((n) => n.id === portId && n.type === "itemPort");
+  if (!port?.parentId) return false;
+  const frame = nodes.find(
+    (n) => n.id === port.parentId && n.type === "containerFrame",
+  );
+  if (!frame) return false;
+  const d = port.data as ItemPortData;
+  if (d.kind !== "out") return false;
+  return (frame.data as { outputEnabled?: boolean }).outputEnabled === false;
 }
 
 function nextMachineFrameId(nodes: Node[]): string {
@@ -178,9 +233,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
     const sd = src.data as ItemPortData;
     const td = tgt.data as ItemPortData;
-    if (sd.kind !== "out" || td.kind !== "in" || sd.itemId !== td.itemId) {
-      return;
-    }
+    if (sd.kind !== "out" || td.kind !== "in") return;
+    if (!portItemsCompatible(sd.itemId, td.itemId)) return;
+    const itemId = isPortItemAssigned(sd.itemId) ? sd.itemId : td.itemId;
+    if (!isPortItemAssigned(itemId)) return;
+    if (containerOutputDisabled(nodes, connection.source!)) return;
     const ps = connection.source;
     const pt = connection.target;
     if (!ps || !pt || hasEdgeBetweenPorts(get().edges, ps, pt)) {
@@ -193,9 +250,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       target: connection.target,
       sourceHandle: connection.sourceHandle ?? "item",
       targetHandle: connection.targetHandle ?? "item",
-      data: { itemId: sd.itemId },
+      data: { itemId },
     };
-    set({ edges: [...get().edges, edge] });
+    const nextNodes = applyContainerItemAssignment(
+      nodes,
+      connection.source!,
+      connection.target!,
+      itemId,
+    );
+    set({ nodes: nextNodes, edges: [...get().edges, edge] });
   },
   removeEdgeById: (edgeId) =>
     set({ edges: get().edges.filter((e) => e.id !== edgeId) }),
@@ -212,6 +275,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   clearForcedOnMachine: (machineFrameId) =>
     set((s) => {
       const ids = new Set(portIdsForMachine(s.nodes, machineFrameId));
+      const next = { ...s.forcedPortRates };
+      for (const k of Object.keys(next)) {
+        if (ids.has(k)) delete next[k];
+      }
+      return { forcedPortRates: next };
+    }),
+  clearForcedOnContainer: (containerFrameId) =>
+    set((s) => {
+      const ids = new Set(portIdsForFrame(s.nodes, containerFrameId));
       const next = { ...s.forcedPortRates };
       for (const k of Object.keys(next)) {
         if (ids.has(k)) delete next[k];
@@ -286,6 +358,71 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       edges: extraEdges.length ? [...s.edges, ...extraEdges] : s.edges,
     }));
   },
+  addContainer: (variant, flowPosition, options) => {
+    const id = nextContainerFrameId(get().nodes);
+    const position = computeContainerFramePosition(variant, flowPosition);
+    const bp: ContainerBlueprint = {
+      id,
+      position,
+      label: CONTAINER_DEFAULT_LABEL[variant],
+      variant,
+      outputEnabled: true,
+    };
+    const built = buildContainerNodes(bp);
+    let extraEdges: Edge[] = [];
+    const linkId = options?.linkOriginPortId;
+    if (linkId) {
+      const origin = get().nodes.find((n) => n.id === linkId);
+      if (origin?.type === "itemPort") {
+        const od = origin.data as ItemPortData;
+        const itemId = od.itemId;
+        if (isPortItemAssigned(itemId)) {
+          if (od.kind === "out") {
+            const targetIn = built.find(
+              (n) =>
+                n.type === "itemPort" &&
+                n.parentId === id &&
+                (n.data as ItemPortData).kind === "in" &&
+                portItemsCompatible((n.data as ItemPortData).itemId, itemId),
+            );
+            if (
+              targetIn &&
+              !hasEdgeBetweenPorts(get().edges, linkId, targetIn.id)
+            ) {
+              extraEdges.push(makeItemEdge(linkId, targetIn.id, itemId));
+            }
+          } else {
+            const sourceOut = built.find(
+              (n) =>
+                n.type === "itemPort" &&
+                n.parentId === id &&
+                (n.data as ItemPortData).kind === "out" &&
+                portItemsCompatible((n.data as ItemPortData).itemId, itemId),
+            );
+            if (
+              sourceOut &&
+              !hasEdgeBetweenPorts(get().edges, sourceOut.id, linkId)
+            ) {
+              extraEdges.push(makeItemEdge(sourceOut.id, linkId, itemId));
+            }
+          }
+        }
+      }
+    }
+    let nextNodes = built;
+    for (const e of extraEdges) {
+      nextNodes = applyContainerItemAssignment(
+        nextNodes,
+        e.source,
+        e.target,
+        e.data?.itemId as string,
+      );
+    }
+    set((s) => ({
+      nodes: [...s.nodes, ...nextNodes],
+      edges: extraEdges.length ? [...s.edges, ...extraEdges] : s.edges,
+    }));
+  },
   removeMachine: (machineFrameId) => {
     const portIds = new Set(portIdsForMachine(get().nodes, machineFrameId));
     set((s) => {
@@ -298,6 +435,58 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const forcedPortRates = { ...s.forcedPortRates };
       for (const pid of portIds) delete forcedPortRates[pid];
       return { nodes, edges, forcedPortRates };
+    });
+  },
+  removeContainer: (containerFrameId) => {
+    const portIds = new Set(portIdsForFrame(get().nodes, containerFrameId));
+    set((s) => {
+      const nodes = s.nodes.filter(
+        (n) => n.id !== containerFrameId && n.parentId !== containerFrameId,
+      );
+      const edges = s.edges.filter(
+        (e) => !portIds.has(e.source) && !portIds.has(e.target),
+      );
+      const forcedPortRates = { ...s.forcedPortRates };
+      for (const pid of portIds) delete forcedPortRates[pid];
+      return { nodes, edges, forcedPortRates };
+    });
+  },
+  setContainerOutputEnabled: (containerFrameId, outputEnabled) => {
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id !== containerFrameId || n.type !== "containerFrame") {
+          return n;
+        }
+        const d = n.data as import("@/types/graph").ContainerFrameData;
+        return {
+          ...n,
+          data: { ...d, outputEnabled } satisfies typeof d,
+        };
+      }),
+    }));
+  },
+  setContainerVariant: (containerFrameId, variant) => {
+    const s = get();
+    const frame = s.nodes.find(
+      (n) => n.id === containerFrameId && n.type === "containerFrame",
+    );
+    if (!frame) return;
+    const portIds = new Set(portIdsForFrame(s.nodes, containerFrameId));
+    const bp = containerBlueprintFromFrame(frame, s.nodes);
+    bp.variant = variant;
+    const built = buildContainerNodes(bp);
+    const others = s.nodes.filter(
+      (n) => n.id !== containerFrameId && n.parentId !== containerFrameId,
+    );
+    const edges = s.edges.filter(
+      (e) => !portIds.has(e.source) && !portIds.has(e.target),
+    );
+    const forcedPortRates = { ...s.forcedPortRates };
+    for (const pid of portIds) delete forcedPortRates[pid];
+    set({
+      nodes: [...others, ...built],
+      edges,
+      forcedPortRates,
     });
   },
   setMachineRecipe: (machineFrameId, recipeKey) => {

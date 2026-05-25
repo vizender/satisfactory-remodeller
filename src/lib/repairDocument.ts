@@ -14,6 +14,7 @@ const KNOWN_NODE_TYPES = new Set([
   "machineFrame",
   "itemPort",
   "factoryFrame",
+  "containerFrame",
 ]);
 
 function sanitizeNodes(nodes: unknown): Node[] {

@@ -3,6 +3,10 @@
  * Clés : `Desc_*_C`, valeurs : nom de fichier dans `Assets/icons/items/`.
  */
 export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
+  /** Wiki / recettes : `Screws.png`, pas « Iron_Screw ». */
+  Desc_IronScrew_C: "Screws.png",
+  /** Fluide wiki `Dark_Matter_Residue.png` (classe `Desc_QuantumEnergy_C`). */
+  Desc_QuantumEnergy_C: "Dark_Matter_Residue.png",
   /** Recette « Synthetic Power Shard » → même item que les autres power shards. */
   Desc_CrystalShard_C: "Power_Shard.png",
   /** Wiki / jeu : visuel proche de « Reanimated SAM », pas « SAM_Fluctuator ». */

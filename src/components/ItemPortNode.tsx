@@ -18,7 +18,7 @@ import {
 } from "@/lib/machinePortLayout";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { useDocumentStore } from "@/store/useDocumentStore";
-import type { ItemPortData, MachineFrameData } from "@/types/graph";
+import type { ContainerFrameData, ItemPortData, MachineFrameData } from "@/types/graph";
 
 const { PORT_W, PORT_ROW } = MACHINE_LAYOUT;
 const EPS = 0.05;
@@ -174,10 +174,16 @@ export function ItemPortNode(props: NodeProps) {
 
   const parentSelected = useDocumentStore((s) => {
     if (!parentId) return false;
-    return (
-      s.nodes.find((n) => n.id === parentId && n.type === "machineFrame")
-        ?.selected ?? false
+    const p = s.nodes.find((n) => n.id === parentId);
+    return p?.selected ?? false;
+  });
+  const parentContainerOutputOff = useDocumentStore((s) => {
+    if (!parentId || isIn) return false;
+    const fr = s.nodes.find(
+      (n) => n.id === parentId && n.type === "containerFrame",
     );
+    if (!fr) return false;
+    return (fr.data as ContainerFrameData).outputEnabled === false;
   });
   const parentInConflict = parentId
     ? conflictMachineIds.includes(parentId)
@@ -429,6 +435,7 @@ export function ItemPortNode(props: NodeProps) {
         "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
         (parentInConflict || portOnConflictEdge) && "rf-machine-port-conflict",
         parentSelected && "rf-machine-port-selected",
+        parentContainerOutputOff && "opacity-45",
         portOnConflictEdge && "border-red-500/70 ring-1 ring-red-500/35",
         cardBorder,
       )}
@@ -446,7 +453,7 @@ export function ItemPortNode(props: NodeProps) {
           position={Position.Left}
           className={handleIn}
         />
-      ) : (
+      ) : parentContainerOutputOff ? null : (
         <Handle
           id="item"
           type="source"

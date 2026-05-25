@@ -12,4 +12,7 @@ export const BUILDING_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_GeneratorFuel_C: "Fuel_Generator.png",
   /** Libellé UI « Nuclear Reactor » ; asset wiki « Nuclear_Power_Plant ». */
   Desc_GeneratorNuclear_C: "Nuclear_Power_Plant.png",
+  Desc_StorageContainerMk1_C: "Storage_Container.png",
+  Desc_StorageContainerMk2_C: "Industrial_Storage_Container.png",
+  Desc_QuantumEncoder_C: "Quantum_Encoder.png",
 };

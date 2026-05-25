@@ -13,8 +13,9 @@ import {
   listCraftMachineGroupKeys,
   recipeMatchesSearchQuery,
 } from "@/lib/recipeFilters";
+import { CONTAINER_BUILDING_CLASS } from "@/constants/container";
+import { formatItemClassId, type ContainerVariant } from "@/types/graph";
 import type { RecipeIndexEntry } from "@/types/satisfactory";
-import { formatItemClassId } from "@/types/graph";
 
 type TabId = "machines" | "misc";
 
@@ -25,6 +26,7 @@ type Props = {
   onClose: () => void;
   onPick: (recipeKey: string) => void;
   onPickFactory?: () => void;
+  onPickContainer?: (variant: ContainerVariant) => void;
   recipeFilter: RecipeFilter;
   /** Sous-titre optionnel (ex. filtre port). */
   subtitle?: string;
@@ -36,6 +38,7 @@ export function MachineRecipePicker({
   onClose,
   onPick,
   onPickFactory,
+  onPickContainer,
   recipeFilter,
   subtitle,
   hideMiscTab = false,
@@ -181,8 +184,8 @@ export function MachineRecipePicker({
         </div>
 
         {activeTab === "misc" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
-            <p className="mb-3 text-[11px] text-[var(--muted)]">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+            <p className="text-[11px] text-[var(--muted)]">
               {t("miscFactoryHelp")}
             </p>
             <button
@@ -200,6 +203,33 @@ export function MachineRecipePicker({
                 {t("miscFactory")}
               </span>
             </button>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              {t("miscContainerHelp")}
+            </p>
+            {(
+              [
+                ["standard", t("containerStandard")] as const,
+                ["industrial", t("containerIndustrial")] as const,
+              ] as const
+            ).map(([variant, label]) => (
+              <button
+                key={variant}
+                type="button"
+                className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-left hover:border-[var(--accent)]/40"
+                onClick={() => {
+                  onPickContainer?.(variant);
+                  onClose();
+                }}
+              >
+                <MachineIconSlot
+                  classId={CONTAINER_BUILDING_CLASS[variant]}
+                  size="md"
+                />
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  {label}
+                </span>
+              </button>
+            ))}
           </div>
         ) : activeTab === "machines" ? (
           <>

@@ -57,6 +57,34 @@ export interface FactoryFrameData extends Record<string, unknown> {
   appearance?: FactoryAppearanceV1;
 }
 
+export type ContainerVariant = "standard" | "industrial";
+
+/** Cadre conteneur (stockage / point de terminaison de chaîne). */
+export interface ContainerFrameData extends Record<string, unknown> {
+  label: string;
+  variant: ContainerVariant;
+  /** Si faux : sorties inactives (bouchon de chaîne). */
+  outputEnabled: boolean;
+  /** Classe bâtiment pour l’icône (`Desc_StorageContainerMk*`). */
+  buildingClassId: string;
+}
+
+/** Port sans item encore relié (connexion définira l’item). */
+export const CONTAINER_UNASSIGNED_ITEM = "";
+
+export function isPortItemAssigned(itemId: string): boolean {
+  return itemId.length > 0;
+}
+
+export function portItemsCompatible(
+  a: string,
+  b: string,
+): boolean {
+  if (a === b) return true;
+  if (!isPortItemAssigned(a) || !isPortItemAssigned(b)) return true;
+  return false;
+}
+
 /**
  * Découpe une chaîne PascalCase/camelCase en mots (OreIron → Ore Iron).
  * Les identifiants avec underscores restent espacés par _.
@@ -72,6 +100,10 @@ export function splitPascalTokens(s: string): string {
 const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   /** Le jeu utilise `Desc_Stone_C` ; on affiche « Limestone » partout en UI. */
   Desc_Stone_C: "Limestone",
+  /** Classe `IronScrew` → libellé wiki / recettes « Screws ». */
+  Desc_IronScrew_C: "Screws",
+  /** Classe interne `QuantumEnergy` ; fluide affiché « Dark Matter Residue ». */
+  Desc_QuantumEnergy_C: "Dark Matter Residue",
 };
 
 /**
