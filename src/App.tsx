@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FlowCanvas } from "@/components/FlowCanvas";
@@ -14,6 +15,16 @@ import {
   handleSuppressNativeContextMenu,
   useSuppressNativeContextMenu,
 } from "@/hooks/useSuppressNativeContextMenu";
+
+/** Desktop Tauri shell — no web analytics. */
+function isTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
+}
+
+/** Strip trailing slash; Vite `BASE_URL` is `/satisfactory-remodeller/` on web deploy. */
+const vercelAnalyticsBasePath =
+  import.meta.env.BASE_URL.replace(/\/$/, "") || undefined;
 
 function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
@@ -60,6 +71,12 @@ function App() {
           <AppShell />
         </InputModalityProvider>
       </I18nProvider>
+      {!isTauriRuntime() ? (
+        <Analytics
+          basePath={vercelAnalyticsBasePath}
+          mode={import.meta.env.PROD ? "production" : "development"}
+        />
+      ) : null}
     </ErrorBoundary>
   );
 }
