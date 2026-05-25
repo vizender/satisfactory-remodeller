@@ -13,4 +13,6 @@ export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_SAMFluctuator_C: "Reanimated_SAM.png",
   /** Pas de « Snow.png » dans les assets ; « Actual_Snow » correspond au contenu FICSMAS. */
   Desc_Snow_C: "Actual_Snow.png",
+  /** Classe `SteelPlate` → visuel wiki `Steel_Beam.png` (pas « Steel_Plate »). */
+  Desc_SteelPlate_C: "Steel_Beam.png",
 };

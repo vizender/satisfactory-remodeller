@@ -9,6 +9,11 @@ import {
   type CanvasId,
   type CanvasRecord,
 } from "@/types/canvas";
+import {
+  formatItemClassId,
+  isPortItemAssigned,
+  type ItemPortData,
+} from "@/types/graph";
 
 const KNOWN_NODE_TYPES = new Set([
   "machineFrame",
@@ -16,6 +21,21 @@ const KNOWN_NODE_TYPES = new Set([
   "factoryFrame",
   "containerFrame",
 ]);
+
+/** Réaligne les libellés ports sur `formatItemClassId` (ex. Steel Plate → Steel Beam). */
+function refreshItemPortDisplayNames(nodes: Node[]): Node[] {
+  return nodes.map((n) => {
+    if (n.type !== "itemPort") return n;
+    const d = n.data as ItemPortData;
+    if (!isPortItemAssigned(d.itemId)) return n;
+    const displayName = formatItemClassId(d.itemId);
+    if (d.displayName === displayName) return n;
+    return {
+      ...n,
+      data: { ...d, displayName },
+    };
+  });
+}
 
 function sanitizeNodes(nodes: unknown): Node[] {
   if (!Array.isArray(nodes)) return [];
@@ -36,7 +56,7 @@ function sanitizeNodes(nodes: unknown): Node[] {
     seen.add(n.id);
     out.push(structuredClone(n));
   }
-  return out;
+  return refreshItemPortDisplayNames(out);
 }
 
 function sanitizeEdges(edges: unknown, nodeIds: Set<string>): Edge[] {

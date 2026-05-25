@@ -104,6 +104,8 @@ const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   Desc_IronScrew_C: "Screws",
   /** Classe interne `DarkEnergy` ; fluide affiché « Dark Matter Residue ». */
   Desc_DarkEnergy_C: "Dark Matter Residue",
+  /** Classe `SteelPlate` ; en jeu / wiki l’item s’appelle « Steel Beam ». */
+  Desc_SteelPlate_C: "Steel Beam",
 };
 
 /**
@@ -125,6 +127,18 @@ export function formatItemClassId(id: string): string {
     base = splitPascalTokens(core);
   }
   return applyGoldToCateriumLabel(base);
+}
+
+/** Libellé port / UI : toujours dérivé de l’id item (pas du `displayName` persisté). */
+export function itemPortDisplayName(
+  itemId: string,
+  storedDisplayName?: string,
+): string {
+  if (!isPortItemAssigned(itemId)) {
+    const s = storedDisplayName?.trim();
+    return s && s !== "—" ? s : "—";
+  }
+  return formatItemClassId(itemId);
 }
 
 export interface ItemRateRow {

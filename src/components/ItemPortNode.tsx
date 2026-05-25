@@ -20,7 +20,12 @@ import { findRecipeByKey } from "@/lib/recipeLookup";
 import { useTutorialGates } from "@/hooks/useTutorialGates";
 import { useDocumentStore } from "@/store/useDocumentStore";
 import { useTutorialStore } from "@/store/useTutorialStore";
-import type { ContainerFrameData, ItemPortData, MachineFrameData } from "@/types/graph";
+import {
+  itemPortDisplayName,
+  type ContainerFrameData,
+  type ItemPortData,
+  type MachineFrameData,
+} from "@/types/graph";
 
 const { PORT_W, PORT_ROW } = MACHINE_LAYOUT;
 const EPS = 0.05;
@@ -83,6 +88,7 @@ export function ItemPortNode(props: NodeProps) {
   const { id, data, parentId } = props;
   const d = data as ItemPortData;
   const isIn = d.kind === "in";
+  const portLabel = itemPortDisplayName(d.itemId, d.displayName);
 
   const { getNode } = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
@@ -490,7 +496,7 @@ export function ItemPortNode(props: NodeProps) {
           <ItemIconSlot itemId={d.itemId} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[10px] font-medium leading-tight text-[var(--text)]">
-              {d.displayName}
+              {portLabel}
             </div>
             <div
               className={cn(

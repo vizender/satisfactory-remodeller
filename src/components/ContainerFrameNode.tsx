@@ -7,8 +7,12 @@ import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useDocumentStore } from "@/store/useDocumentStore";
-import type { ContainerFrameData, ItemPortData } from "@/types/graph";
-import { isPortItemAssigned } from "@/types/graph";
+import {
+  formatItemClassId,
+  isPortItemAssigned,
+  type ContainerFrameData,
+  type ItemPortData,
+} from "@/types/graph";
 
 const { BODY_W, GUTTER, PORT_W } = MACHINE_LAYOUT;
 
@@ -55,7 +59,9 @@ export function ContainerFrameNode(props: NodeProps) {
       rows.push({
         slot,
         itemId,
-        displayName: inData?.displayName ?? "—",
+        displayName: isPortItemAssigned(itemId)
+          ? formatItemClassId(itemId)
+          : "—",
         inRate: effectiveRate[inId] ?? 0,
         outRate: outputEnabled ? (effectiveRate[outId] ?? 0) : 0,
         stored: portStoredPerMin[inId] ?? 0,

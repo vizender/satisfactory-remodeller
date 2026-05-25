@@ -72,6 +72,7 @@ import type {
 } from "@/types/graph";
 import {
   isPortItemAssigned,
+  itemPortDisplayName,
   portItemsCompatible,
 } from "@/types/graph";
 
@@ -586,7 +587,9 @@ function FlowCanvasInner() {
                 anchor: { x: event.clientX, y: event.clientY },
                 flowPosition: flow,
                 filter: { mode: "consumes", itemId: d.itemId },
-                subtitle: t("fromOutputConsumes", { item: d.displayName }),
+                subtitle: t("fromOutputConsumes", {
+                  item: itemPortDisplayName(d.itemId, d.displayName),
+                }),
                 linkOriginPortId: node.id,
               });
             } else {
@@ -594,7 +597,9 @@ function FlowCanvasInner() {
                 anchor: { x: event.clientX, y: event.clientY },
                 flowPosition: flow,
                 filter: { mode: "produces", itemId: d.itemId },
-                subtitle: t("fromInputProduces", { item: d.displayName }),
+                subtitle: t("fromInputProduces", {
+                  item: itemPortDisplayName(d.itemId, d.displayName),
+                }),
                 linkOriginPortId: node.id,
               });
             }
@@ -709,7 +714,9 @@ function FlowCanvasInner() {
               anchor: { x: cx, y: cy },
               flowPosition: flow,
               filter: { mode: "consumes", itemId: d.itemId },
-              subtitle: t("connectFromOutputConsumes", { item: d.displayName }),
+              subtitle: t("connectFromOutputConsumes", {
+                item: itemPortDisplayName(d.itemId, d.displayName),
+              }),
               linkOriginPortId: fromId,
             });
           } else {
@@ -717,7 +724,9 @@ function FlowCanvasInner() {
               anchor: { x: cx, y: cy },
               flowPosition: flow,
               filter: { mode: "produces", itemId: d.itemId },
-              subtitle: t("connectFromInputProduces", { item: d.displayName }),
+              subtitle: t("connectFromInputProduces", {
+                item: itemPortDisplayName(d.itemId, d.displayName),
+              }),
               linkOriginPortId: fromId,
             });
           }
