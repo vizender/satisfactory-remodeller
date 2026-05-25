@@ -102,8 +102,8 @@ const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   Desc_Stone_C: "Limestone",
   /** Classe `IronScrew` → libellé wiki / recettes « Screws ». */
   Desc_IronScrew_C: "Screws",
-  /** Classe interne `QuantumEnergy` ; fluide affiché « Dark Matter Residue ». */
-  Desc_QuantumEnergy_C: "Dark Matter Residue",
+  /** Classe interne `DarkEnergy` ; fluide affiché « Dark Matter Residue ». */
+  Desc_DarkEnergy_C: "Dark Matter Residue",
 };
 
 /**
