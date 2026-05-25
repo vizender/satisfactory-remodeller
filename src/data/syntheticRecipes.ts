@@ -23,23 +23,48 @@ const S = {
 /** 60 items/min : `craftsPerMinute = 60 / duration` → duration 1 s, montant 1. */
 const RATE_60_PER_MIN = 1;
 
+/** `craftsPerMinute = 60 / duration` → montants = débits /min à 100 %. */
+const RATE_NOMINAL_DURATION_S = 60;
+
 function mk(
   className: string,
   name: string,
   producedIn: string,
   ingredients: { item: string; amount: number }[],
   products: { item: string; amount: number }[],
+  duration = RATE_60_PER_MIN,
 ): RecipeIndexEntry {
   return {
     className,
     name,
     recipeKey: className,
     ...S,
-    duration: RATE_60_PER_MIN,
+    duration,
     ingredients,
     products,
     producedIn: [producedIn],
   };
+}
+
+const COAL_GEN_WATER_PER_MIN = 45;
+
+function mkCoalGeneratorBurn(
+  className: string,
+  name: string,
+  fuelItem: string,
+  fuelPerMinute: number,
+): RecipeIndexEntry {
+  return mk(
+    className,
+    name,
+    "Desc_GeneratorCoal_C",
+    [
+      { item: fuelItem, amount: fuelPerMinute },
+      { item: "Desc_Water_C", amount: COAL_GEN_WATER_PER_MIN },
+    ],
+    [],
+    RATE_NOMINAL_DURATION_S,
+  );
 }
 
 export const SYNTHETIC_RECIPES: RecipeIndexEntry[] = [
@@ -129,12 +154,23 @@ export const SYNTHETIC_RECIPES: RecipeIndexEntry[] = [
     [],
     [{ item: "Desc_LiquidOil_C", amount: 2 }],
   ),
-  mk(
+  mkCoalGeneratorBurn(
     "Synthetic_GeneratorCoal_Consume_C",
-    "Coal-Powered Generator — burn coal (60/min)",
-    "Desc_GeneratorCoal_C",
-    [{ item: "Desc_Coal_C", amount: 1 }],
-    [],
+    "Coal-Powered Generator — coal (15/min)",
+    "Desc_Coal_C",
+    15,
+  ),
+  mkCoalGeneratorBurn(
+    "Synthetic_GeneratorCoal_Compacted_C",
+    "Coal-Powered Generator — compacted coal (7.143/min)",
+    "Desc_CompactedCoal_C",
+    7.142857,
+  ),
+  mkCoalGeneratorBurn(
+    "Synthetic_GeneratorCoal_Coke_C",
+    "Coal-Powered Generator — petroleum coke (25/min)",
+    "Desc_PetroleumCoke_C",
+    25,
   ),
   mk(
     "Synthetic_GeneratorFuel_Consume_C",

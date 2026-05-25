@@ -25,7 +25,8 @@ export default defineConfig(async () => ({
   clearScreen: false,
   server: {
     port: 1420,
-    strictPort: true,
+    /** Si 1420 est pris (ancien `npm run dev`), essaie le port suivant au lieu d’échouer. */
+    strictPort: false,
     /** Utiliser `vite --open` (`npm run dev:browser`) pour Safari ; Tauri lance `vite` sans ouverture navigateur. */
     open: false,
     host: host || false,

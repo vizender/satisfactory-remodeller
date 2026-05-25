@@ -5,6 +5,7 @@ import {
   WORLD_CANVAS_NAME,
   type BreadcrumbItem,
   type CanvasId,
+  type CanvasParentLink,
   type CanvasRecord,
 } from "@/types/canvas";
 import type { FactoryFrameData } from "@/types/graph";
@@ -91,12 +92,78 @@ export function nextFactoryId(canvases: Record<CanvasId, CanvasRecord>): string 
   return `f${max + 1}`;
 }
 
-export function nextFactoryLabel(factoryNameCounter: number): {
-  label: string;
-  nextCounter: number;
-} {
-  const n = factoryNameCounter + 1;
-  return { label: `Factory ${n}`, nextCounter: n };
+/** Libellé par défaut « Factory N » (usine non renommée). */
+export const DEFAULT_FACTORY_LABEL_RE = /^Factory (\d+)$/i;
+
+export function parseDefaultFactoryNumber(label: string): number | null {
+  const m = DEFAULT_FACTORY_LABEL_RE.exec(label.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function labelFromFactoryNode(node: Node): string {
+  return (node.data as FactoryFrameData | undefined)?.label ?? "";
+}
+
+/**
+ * Numéros « Factory N » sur le canvas hôte (frères) et sur chaque usine ancêtre
+ * (fil d’Ariane au-dessus du canvas actif).
+ */
+export function collectDefaultFactoryNumbersForPlacement(
+  canvases: Record<CanvasId, CanvasRecord>,
+  hostCanvasId: CanvasId,
+): number[] {
+  const nums: number[] = [];
+  const host = canvases[hostCanvasId];
+  if (host) {
+    for (const n of host.nodes) {
+      if (n.type !== "factoryFrame") continue;
+      const parsed = parseDefaultFactoryNumber(labelFromFactoryNode(n));
+      if (parsed != null) nums.push(parsed);
+    }
+  }
+
+  let canvas: CanvasRecord | undefined = host;
+  while (canvas?.parent) {
+    const parentLink: CanvasParentLink = canvas.parent;
+    const parentId: CanvasId = parentLink.canvasId;
+    const factoryNodeId = parentLink.factoryNodeId;
+    const parentCanvas: CanvasRecord | undefined = canvases[parentId];
+    const anc = parentCanvas?.nodes.find((n: Node) => n.id === factoryNodeId);
+    if (anc?.type === "factoryFrame") {
+      const parsed = parseDefaultFactoryNumber(labelFromFactoryNode(anc));
+      if (parsed != null) nums.push(parsed);
+    }
+    canvas = parentCanvas;
+  }
+
+  return nums;
+}
+
+/** Prochain libellé par défaut selon le contexte (pas de compteur global). */
+export function nextFactoryLabel(
+  canvases: Record<CanvasId, CanvasRecord>,
+  hostCanvasId: CanvasId,
+): { label: string } {
+  const nums = collectDefaultFactoryNumbersForPlacement(canvases, hostCanvasId);
+  const next = nums.length === 0 ? 1 : Math.max(...nums) + 1;
+  return { label: `Factory ${next}` };
+}
+
+/** Max « Factory N » dans tout le document (persistance legacy). */
+export function deriveFactoryNameCounter(
+  canvases: Record<CanvasId, CanvasRecord>,
+): number {
+  let max = 0;
+  for (const canvas of Object.values(canvases)) {
+    for (const n of canvas.nodes) {
+      if (n.type !== "factoryFrame") continue;
+      const parsed = parseDefaultFactoryNumber(labelFromFactoryNode(n));
+      if (parsed != null) max = Math.max(max, parsed);
+    }
+  }
+  return max;
 }
 
 export function createChildCanvasRecord(

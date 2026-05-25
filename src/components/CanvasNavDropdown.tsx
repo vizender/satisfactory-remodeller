@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
+import { useTutorialGates } from "@/hooks/useTutorialGates";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getBreadcrumbPath } from "@/lib/canvasTree";
+import { useTutorialStore } from "@/store/useTutorialStore";
 import { useWorldStore } from "@/store/useWorldStore";
 import { WORLD_CANVAS_ID, WORLD_CANVAS_NAME } from "@/types/canvas";
 
@@ -18,6 +20,8 @@ export function CanvasNavDropdown() {
   const navigateToCanvas = useWorldStore((s) => s.navigateToCanvas);
   const renameActiveCanvas = useWorldStore((s) => s.renameActiveCanvas);
   const clearActiveCanvas = useWorldStore((s) => s.clearActiveCanvas);
+  const tutorialGates = useTutorialGates();
+  const tutorialActive = useTutorialStore((s) => s.active);
 
   const activeName = useMemo(() => {
     if (activeCanvasId === WORLD_CANVAS_ID) return WORLD_CANVAS_NAME;
@@ -56,7 +60,13 @@ export function CanvasNavDropdown() {
   };
 
   const commitRename = () => {
-    renameActiveCanvas(renameValue);
+    const trimmed = renameValue.trim();
+    renameActiveCanvas(trimmed);
+    if (trimmed && activeCanvasId !== WORLD_CANVAS_ID) {
+      useTutorialStore
+        .getState()
+        .onFactoryRenamed(activeCanvasId, trimmed);
+    }
     setRenameOpen(false);
   };
 
@@ -68,7 +78,10 @@ export function CanvasNavDropdown() {
           className="flex max-w-[min(240px,40vw)] items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent)]/40"
           aria-expanded={open}
           aria-haspopup="menu"
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => {
+            if (tutorialActive && !tutorialGates.allowCanvasNav) return;
+            setOpen((o) => !o);
+          }}
         >
           <span className="truncate">{activeName}</span>
           <span className="text-[var(--muted)]" aria-hidden>
@@ -85,27 +98,45 @@ export function CanvasNavDropdown() {
               {t("factoryNavTitle")}
             </span>
             <nav className="max-h-48 overflow-y-auto">
-              {breadcrumb.map((item) => (
-                <button
-                  key={item.canvasId}
-                  type="button"
-                  className={`block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--bg)] ${
-                    item.canvasId === activeCanvasId
-                      ? "bg-[var(--accent)]/10 font-semibold text-[var(--text)]"
-                      : "text-[var(--muted)]"
-                  }`}
-                  style={{ paddingLeft: `${8 + item.depth * 12}px` }}
-                  onClick={() => {
-                    void navigateToCanvas(item.canvasId);
-                    setOpen(false);
-                  }}
-                >
-                  {item.name}
-                </button>
-              ))}
+              {breadcrumb.map((item) => {
+                const navAllowed =
+                  !tutorialActive ||
+                  tutorialGates.allowNavigateToCanvas(item.canvasId);
+                return (
+                  <button
+                    key={item.canvasId}
+                    type="button"
+                    disabled={!navAllowed}
+                    className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
+                      !navAllowed
+                        ? "cursor-not-allowed opacity-35 text-[var(--muted)]"
+                        : "hover:bg-[var(--bg)]"
+                    } ${
+                      item.canvasId === activeCanvasId
+                        ? "bg-[var(--accent)]/10 font-semibold text-[var(--text)]"
+                        : "text-[var(--muted)]"
+                    }`}
+                    style={{ paddingLeft: `${8 + item.depth * 12}px` }}
+                    onClick={() => {
+                      if (tutorialActive && !navAllowed) return;
+                      if (tutorialActive && !tutorialGates.allowCanvasNav) {
+                        if (!tutorialGates.allowNavigateToCanvas(item.canvasId)) {
+                          return;
+                        }
+                      }
+                      void navigateToCanvas(item.canvasId).then(() => {
+                        useTutorialStore.getState().onNavigatedTo(item.canvasId);
+                      });
+                      setOpen(false);
+                    }}
+                  >
+                    {item.name}
+                  </button>
+                );
+              })}
             </nav>
 
-            {!isWorld ? (
+            {!isWorld && (!tutorialActive || tutorialGates.allowFactoryContextMenu) ? (
               <button
                 type="button"
                 className="mt-2 block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--text)] hover:bg-[var(--bg)]"
@@ -115,6 +146,7 @@ export function CanvasNavDropdown() {
               </button>
             ) : null}
 
+            {!tutorialActive ? (
             <button
               type="button"
               className="mt-1 block w-full rounded px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"
@@ -125,6 +157,7 @@ export function CanvasNavDropdown() {
             >
               {t("factoryClear")}
             </button>
+            ) : null}
           </div>
         ) : null}
       </div>

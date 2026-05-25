@@ -1,5 +1,10 @@
-import { useEffect, useRef } from "react";
-import { readLocalDraft, writeLocalDraft } from "@/lib/factoryDocument";
+import { useEffect, useRef, useState } from "react";
+import {
+  readLocalDraft,
+  writeLocalDraft,
+} from "@/lib/factoryDocument";
+import { scrubTutorialFactoriesFromDocument } from "@/lib/tutorialWorld";
+import { isTutorialCompleted } from "@/tutorial/tutorialStorage";
 import { useDocumentStore } from "@/store/useDocumentStore";
 import { useWorldStore } from "@/store/useWorldStore";
 
@@ -25,17 +30,23 @@ function debounce<T extends (...args: never[]) => void>(
 
 /**
  * Restaure le brouillon local au montage et enregistre les changements (debounced).
+ * @returns `true` une fois l’hydratation initiale terminée.
  */
-export function useLocalDraft(): void {
+export function useLocalDraft(): boolean {
   const hydrated = useRef(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;
-    const draft = readLocalDraft();
+    let draft = readLocalDraft();
+    if (draft && isTutorialCompleted()) {
+      draft = scrubTutorialFactoriesFromDocument(draft);
+    }
     if (draft) {
       useWorldStore.getState().replaceWorldDocument(draft);
     }
+    setReady(true);
   }, []);
 
   useEffect(() => {
@@ -50,4 +61,6 @@ export function useLocalDraft(): void {
       unsubDoc();
     };
   }, []);
+
+  return ready;
 }

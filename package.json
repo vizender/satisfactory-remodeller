@@ -7,9 +7,10 @@
   "author": "vizender",
   "license": "MIT",
   "scripts": {
-    "dev": "tauri dev",
-    "dev:web": "vite",
+    "dev": "vite",
     "dev:browser": "vite --open",
+    "dev:desktop": "tauri dev",
+    "dev:web": "vite",
     "gen:recipes": "tsx scripts/generateRecipeIndex.ts",
     "download:icons": "tsx scripts/downloadWikiIcons.ts",
     "report:icons": "tsx scripts/reportRecipeIcons.ts",

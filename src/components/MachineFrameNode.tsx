@@ -5,6 +5,7 @@ import { MachineIconSlot } from "@/components/MachineIconSlot";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { nominalConsumerMw } from "@/data/buildingPower";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
+import { useI18n } from "@/i18n/I18nProvider";
 import { clampClockPercent, clockMultiplier } from "@/lib/clockSpeed";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { consumerPowerMwAtClock } from "@/lib/powerCalculations";
@@ -18,6 +19,7 @@ function cn(...parts: (string | false | undefined)[]) {
 }
 
 export function MachineFrameNode(props: NodeProps) {
+  const { t } = useI18n();
   const { id, selected } = props;
   const d = props.data as MachineFrameData & { missingRecipe?: boolean };
   const recipe = useMemo(() => findRecipeByKey(d.recipeKey), [d.recipeKey]);
@@ -74,7 +76,7 @@ export function MachineFrameNode(props: NodeProps) {
               {d.label}
             </div>
             <p className="mt-1 shrink-0 text-[10px] text-amber-400/90">
-              Recette introuvable : {d.recipeKey}
+              {t("recipeNotFound", { key: d.recipeKey })}
             </p>
           </>
         ) : (
@@ -90,7 +92,7 @@ export function MachineFrameNode(props: NodeProps) {
               {rates.inputs.length > 0 ? (
                 <div>
                   <div className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-400/90">
-                    Entrées / min (récap résolu)
+                    {t("machineInputsRecap")}
                   </div>
                   <ul className="space-y-1">
                     {rates.inputs.map((row, i) => {
@@ -121,7 +123,7 @@ export function MachineFrameNode(props: NodeProps) {
               {rates.outputs.length > 0 ? (
                 <div>
                   <div className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-sky-400/90">
-                    Sorties / min (récap résolu)
+                    {t("machineOutputsRecap")}
                   </div>
                   <ul className="space-y-1">
                     {rates.outputs.map((row, i) => {
@@ -151,7 +153,7 @@ export function MachineFrameNode(props: NodeProps) {
               ) : null}
               <div className="shrink-0 space-y-px border-t border-[var(--border)] pt-1 text-[9px] leading-tight text-[var(--muted)]/85">
                 <div>
-                  Nombre de machines :{" "}
+                  {t("machineCountForRate")}{" "}
                   {nombreMachinesPourDebit !== null ? (
                     <span className="tabular-nums text-[var(--text)]/90">
                       {nombreMachinesPourDebit.toFixed(2)}
@@ -160,10 +162,10 @@ export function MachineFrameNode(props: NodeProps) {
                     <span>—</span>
                   )}
                 </div>
-                <div>Overclocking : {clockPct} %</div>
-                <div>Amplificateur (Sloop) : —</div>
+                <div>{t("machineOverclockLine", { pct: String(clockPct) })}</div>
+                <div>{t("machineAmplifierLine")}</div>
                 <div>
-                  Puissance :{" "}
+                  {t("machinePowerLine")}{" "}
                   {powerMw !== null ? (
                     <span className="tabular-nums text-[var(--text)]/90">
                       {powerMw.toFixed(2)} MW
@@ -173,8 +175,10 @@ export function MachineFrameNode(props: NodeProps) {
                   )}
                 </div>
                 <div>
-                  {(rates.craftsPerMinute * clockMult * m).toFixed(1)} crafts/min
-                  · {recipe.duration}s/craft
+                  {t("machineCraftsLine", {
+                    rate: (rates.craftsPerMinute * clockMult * m).toFixed(1),
+                    duration: String(recipe.duration),
+                  })}
                 </div>
               </div>
             </div>

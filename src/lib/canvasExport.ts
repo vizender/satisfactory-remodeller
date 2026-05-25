@@ -3,6 +3,7 @@ import { buildFactoryNode } from "@/lib/buildFactoryGraph";
 import {
   collectDescendantCanvasIds,
   createChildCanvasRecord,
+  deriveFactoryNameCounter,
   nextFactoryLabel,
   sliceActiveCanvas,
   syncFactoryNodeLabel,
@@ -17,21 +18,19 @@ import type { FactoryFrameData } from "@/types/graph";
 export function buildWorldDocument(
   canvases: Record<CanvasId, CanvasRecord>,
   meta: FactoryDocumentV2["meta"],
-  factoryNameCounter: number,
 ): FactoryDocumentV2 {
   return {
     schemaVersion: 2,
     rootCanvasId: "world",
     canvases: structuredClone(canvases),
     meta: { ...meta, updatedAt: new Date().toISOString() },
-    factoryNameCounter,
+    factoryNameCounter: deriveFactoryNameCounter(canvases),
   };
 }
 
 export function buildCanvasSubtreeExport(
   canvases: Record<CanvasId, CanvasRecord>,
   rootCanvasId: CanvasId,
-  factoryNameCounter: number,
 ): CanvasSubtreeExportV1 {
   const ids = collectDescendantCanvasIds(canvases, rootCanvasId);
   const subset: Record<CanvasId, CanvasRecord> = {};
@@ -43,7 +42,7 @@ export function buildCanvasSubtreeExport(
     schemaVersion: 1,
     rootFactoryId: rootCanvasId,
     canvases: subset,
-    factoryNameCounter,
+    factoryNameCounter: deriveFactoryNameCounter(subset),
   };
 }
 
@@ -65,17 +64,14 @@ export function isCanvasSubtreeExport(
 export function cloneFactorySubtree(
   canvases: Record<CanvasId, CanvasRecord>,
   sourceFactoryId: CanvasId,
-  factoryNameCounter: number,
   position: { x: number; y: number },
 ): {
   canvases: Record<CanvasId, CanvasRecord>;
   newRootId: CanvasId;
-  factoryNameCounter: number;
   node: Node;
 } {
   const ids = collectDescendantCanvasIds(canvases, sourceFactoryId);
   const idMap = new Map<string, string>();
-  let counter = factoryNameCounter;
 
   for (const oldId of ids) {
   if (oldId === sourceFactoryId) {
@@ -85,8 +81,9 @@ export function cloneFactorySubtree(
     }
   }
 
-  const { label, nextCounter } = nextFactoryLabel(counter);
-  counter = nextCounter;
+  const parentCanvasId =
+    canvases[sourceFactoryId]?.parent?.canvasId ?? "world";
+  const { label } = nextFactoryLabel(canvases, parentCanvasId);
   const newRootId = idMap.get(sourceFactoryId)!;
 
   const nextCanvases = { ...canvases };
@@ -132,7 +129,6 @@ export function cloneFactorySubtree(
   return {
     canvases: nextCanvases,
     newRootId,
-    factoryNameCounter: counter,
     node,
   };
 }
@@ -186,11 +182,9 @@ export function mergeImportedSubtree(
   parentCanvasId: CanvasId,
   exportDoc: CanvasSubtreeExportV1,
   position: { x: number; y: number },
-  factoryNameCounter: number,
 ): {
   canvases: Record<CanvasId, CanvasRecord>;
   newRootId: CanvasId;
-  factoryNameCounter: number;
 } {
   const idMap = new Map<string, string>();
   const exportIds = collectDescendantCanvasIds(
@@ -202,14 +196,9 @@ export function mergeImportedSubtree(
     idMap.set(oldId, nextFactoryIdFromMap(canvases, idMap));
   }
 
-  let counter = Math.max(
-    factoryNameCounter,
-    exportDoc.factoryNameCounter ?? 0,
-  );
   const newRootId = idMap.get(exportDoc.rootFactoryId)!;
   const srcRoot = exportDoc.canvases[exportDoc.rootFactoryId];
-  const { label, nextCounter } = nextFactoryLabel(counter);
-  counter = nextCounter;
+  const { label } = nextFactoryLabel(canvases, parentCanvasId);
 
   const nextCanvases = { ...canvases };
 
@@ -253,7 +242,7 @@ export function mergeImportedSubtree(
     nodes: [...parent.nodes, factoryNode],
   };
 
-  return { canvases: nextCanvases, newRootId, factoryNameCounter: counter };
+  return { canvases: nextCanvases, newRootId };
 }
 
 export function renameFactoryAcrossTree(

@@ -21,6 +21,15 @@ type TabId = "machines" | "misc";
 
 type AltFilterMode = "all" | "noAlt" | "altOnly";
 
+export type TutorialPickerConstraint = {
+  allowedRecipeKeys?: readonly string[];
+  prioritizeRecipeKey?: string;
+  allowedMachineKeys?: readonly string[];
+  onlyMiscTab?: boolean;
+  lockTab?: TabId;
+  hideSearchAndFilters?: boolean;
+};
+
 type Props = {
   anchorScreen: { x: number; y: number };
   onClose: () => void;
@@ -30,8 +39,26 @@ type Props = {
   recipeFilter: RecipeFilter;
   /** Sous-titre optionnel (ex. filtre port). */
   subtitle?: string;
-  hideMiscTab?: boolean;
+  /** Usine désactivée (ex. liaison depuis un port — pas encore supporté). */
+  disableMiscFactory?: boolean;
+  tutorialConstraint?: TutorialPickerConstraint | null;
+  /** Empêche la fermeture par clic sur le fond (mode tutoriel). */
+  lockDismiss?: boolean;
 };
+
+function sortRecipesForTutorial(
+  list: RecipeIndexEntry[],
+  prioritizeRecipeKey?: string,
+): RecipeIndexEntry[] {
+  if (!prioritizeRecipeKey) return list;
+  const copy = [...list];
+  copy.sort((a, b) => {
+    if (a.recipeKey === prioritizeRecipeKey) return -1;
+    if (b.recipeKey === prioritizeRecipeKey) return 1;
+    return a.name.localeCompare(b.name);
+  });
+  return copy;
+}
 
 export function MachineRecipePicker({
   anchorScreen,
@@ -41,17 +68,26 @@ export function MachineRecipePicker({
   onPickContainer,
   recipeFilter,
   subtitle,
-  hideMiscTab = false,
+  disableMiscFactory = false,
+  tutorialConstraint = null,
+  lockDismiss = false,
 }: Props) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<TabId>("machines");
+  const [activeTab, setActiveTab] = useState<TabId>(
+    tutorialConstraint?.onlyMiscTab || tutorialConstraint?.lockTab === "misc"
+      ? "misc"
+      : "machines",
+  );
 
   const allMachineKeys = useMemo(() => listCraftMachineGroupKeys(), []);
 
-  const [allowedMachines, setAllowedMachines] = useState<Set<string>>(
-    () => new Set(allMachineKeys),
-  );
+  const tutorialMachineKeys = tutorialConstraint?.allowedMachineKeys;
+
+  const [allowedMachines, setAllowedMachines] = useState<Set<string>>(() => {
+    if (tutorialMachineKeys?.length) return new Set(tutorialMachineKeys);
+    return new Set(allMachineKeys);
+  });
 
   const [altMode, setAltMode] = useState<AltFilterMode>("all");
 
@@ -84,10 +120,36 @@ export function MachineRecipePicker({
     return afterAltFilter.filter((r) => recipeMatchesSearchQuery(r, q));
   }, [afterAltFilter, search]);
 
-  const grouped = useMemo(
-    () => groupRecipesByMachine(filtered),
-    [filtered],
+  const grouped = useMemo(() => {
+    const g = groupRecipesByMachine(filtered);
+    if (!tutorialConstraint?.prioritizeRecipeKey) return g;
+    const next = new Map<string, RecipeIndexEntry[]>();
+    for (const [key, list] of g) {
+      next.set(
+        key,
+        sortRecipesForTutorial(list, tutorialConstraint.prioritizeRecipeKey),
+      );
+    }
+    return next;
+  }, [filtered, tutorialConstraint?.prioritizeRecipeKey]);
+
+  const allowedRecipeSet = useMemo(
+    () =>
+      tutorialConstraint?.allowedRecipeKeys
+        ? new Set(tutorialConstraint.allowedRecipeKeys)
+        : null,
+    [tutorialConstraint?.allowedRecipeKeys],
   );
+
+  const recipePickable = useCallback(
+    (recipeKey: string) =>
+      !allowedRecipeSet || allowedRecipeSet.has(recipeKey),
+    [allowedRecipeSet],
+  );
+
+  useEffect(() => {
+    if (tutorialConstraint?.lockTab) setActiveTab(tutorialConstraint.lockTab);
+  }, [tutorialConstraint?.lockTab]);
 
   const toggleMachine = useCallback((key: string) => {
     setAllowedMachines((prev) => {
@@ -119,6 +181,7 @@ export function MachineRecipePicker({
   }, [onKeyDown]);
 
   const handlePick = (r: RecipeIndexEntry) => {
+    if (!recipePickable(r.recipeKey)) return;
     onPick(r.recipeKey);
     onClose();
   };
@@ -147,10 +210,12 @@ export function MachineRecipePicker({
         type="button"
         className="fixed inset-0 z-[10000] cursor-default bg-black/20"
         aria-label={t("close")}
-        onClick={onClose}
+        onClick={() => {
+          if (!lockDismiss) onClose();
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
-          onClose();
+          if (!lockDismiss) onClose();
         }}
       />
       <div
@@ -161,21 +226,25 @@ export function MachineRecipePicker({
         aria-label={t("chooseRecipe")}
       >
         <div className="flex shrink-0 border-b border-[var(--border)] bg-[var(--bg)] px-2 pt-2">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "machines"}
-            className={`${tabBtn} ${activeTab === "machines" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}
-            onClick={() => setActiveTab("machines")}
-          >
-            {t("machines")}
-          </button>
-          {!hideMiscTab ? (
+          {!tutorialConstraint?.onlyMiscTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "machines"}
+              disabled={tutorialConstraint?.lockTab === "misc"}
+              className={`${tabBtn} ${activeTab === "machines" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"} ${tutorialConstraint?.lockTab === "misc" ? "cursor-not-allowed opacity-40" : ""}`}
+              onClick={() => setActiveTab("machines")}
+            >
+              {t("machines")}
+            </button>
+          ) : null}
+          {!tutorialConstraint?.allowedRecipeKeys?.length ? (
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === "misc"}
-              className={`${tabBtn} ${activeTab === "misc" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}
+              disabled={tutorialConstraint?.lockTab === "machines"}
+              className={`${tabBtn} ${activeTab === "misc" ? "border-[var(--border)] bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"} ${tutorialConstraint?.lockTab === "machines" ? "cursor-not-allowed opacity-40" : ""}`}
               onClick={() => setActiveTab("misc")}
             >
               {t("misc")}
@@ -186,12 +255,20 @@ export function MachineRecipePicker({
         {activeTab === "misc" ? (
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
             <p className="text-[11px] text-[var(--muted)]">
-              {t("miscFactoryHelp")}
+              {disableMiscFactory
+                ? t("miscFactoryPortDisabled")
+                : t("miscFactoryHelp")}
             </p>
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-left hover:border-[var(--accent)]/40"
+              disabled={disableMiscFactory}
+              className={`flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-3 text-left ${
+                disableMiscFactory
+                  ? "cursor-not-allowed opacity-35"
+                  : "hover:border-[var(--accent)]/40"
+              }`}
               onClick={() => {
+                if (disableMiscFactory) return;
                 onPickFactory?.();
                 onClose();
               }}
@@ -248,6 +325,7 @@ export function MachineRecipePicker({
                 </p>
               ) : null}
 
+              {!tutorialConstraint?.hideSearchAndFilters ? (
               <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg)]/60">
                 <summary className="cursor-pointer list-none px-2.5 py-2 text-[11px] font-medium text-[var(--text)] [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center justify-between gap-2">
@@ -323,6 +401,7 @@ export function MachineRecipePicker({
                   </div>
                 </div>
               </details>
+              ) : null}
 
               <p className="mt-2 text-[10px] text-[var(--muted)]">
                 {t("recipeCount", { count: filtered.length })}
@@ -355,11 +434,17 @@ export function MachineRecipePicker({
                       {list.map((r) => {
                         const previewItemId = recipeRepresentativeItemId(r);
                         const extraProducts = r.products.slice(1);
+                        const pickable = recipePickable(r.recipeKey);
                         return (
                           <li key={r.recipeKey}>
                             <button
                               type="button"
-                              className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--text)] hover:bg-[var(--bg)]"
+                              disabled={!pickable}
+                              className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                pickable
+                                  ? "text-[var(--text)] hover:bg-[var(--bg)]"
+                                  : "cursor-not-allowed opacity-35 text-[var(--muted)]"
+                              }`}
                               onClick={() => handlePick(r)}
                             >
                               {previewItemId ? (

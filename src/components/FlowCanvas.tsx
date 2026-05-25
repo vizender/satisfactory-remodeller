@@ -38,10 +38,12 @@ import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
 import { useFlowSolveResult } from "@/hooks/useFlowSolve";
+import { useTutorialGates } from "@/hooks/useTutorialGates";
 import {
   reactFlowInteractionProps,
   useInputModality,
 } from "@/hooks/useInputModality";
+import { useTutorialStore } from "@/store/useTutorialStore";
 import { useI18n } from "@/i18n/I18nProvider";
 import { handleSuppressNativeContextMenu } from "@/hooks/useSuppressNativeContextMenu";
 import type { RecipeFilter } from "@/lib/recipeFilters";
@@ -173,6 +175,8 @@ function FlowCanvasInner() {
     useState<ConnectionDragPreview | null>(null);
 
   const solve = useFlowSolveResult();
+  const tutorialGates = useTutorialGates();
+  const tutorialActive = useTutorialStore((s) => s.active);
 
   const displayNodes = useMemo(() => {
     let next = nodes;
@@ -188,14 +192,22 @@ function FlowCanvasInner() {
 
   const onConnect = useCallback(
     (c: Connection) => {
+      if (tutorialActive && !tutorialGates.allowFreeConnect) return;
       storeOnConnect(c);
       setConnectionPreview(null);
     },
-    [storeOnConnect],
+    [storeOnConnect, tutorialActive, tutorialGates.allowFreeConnect],
   );
 
   const onConnectStart = useCallback(
     (_event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
+      if (
+        tutorialActive &&
+        !tutorialGates.allowPortLinkDrag &&
+        !tutorialGates.allowFreeConnect
+      ) {
+        return;
+      }
       const nid = params.nodeId;
       if (!nid || params.handleType === null) {
         setConnectionPreview(null);
@@ -232,6 +244,19 @@ function FlowCanvasInner() {
   const duplicateFactory = useWorldStore((s) => s.duplicateFactory);
   const renameFactory = useWorldStore((s) => s.renameFactory);
   const navigateToCanvas = useWorldStore((s) => s.navigateToCanvas);
+  const navigateWithTutorial = useCallback(
+    async (canvasId: string) => {
+      if (
+        tutorialActive &&
+        !tutorialGates.allowNavigateToCanvas(canvasId)
+      ) {
+        return;
+      }
+      await navigateToCanvas(canvasId);
+      useTutorialStore.getState().onNavigatedTo(canvasId);
+    },
+    [navigateToCanvas, tutorialActive, tutorialGates],
+  );
   const setActiveCanvasViewport = useWorldStore((s) => s.setActiveCanvasViewport);
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
   const canvasMap = useWorldStore((s) => s.canvasMap);
@@ -355,6 +380,7 @@ function FlowCanvasInner() {
 
       if (factoryIds.size > 0) {
         for (const id of factoryIds) {
+          if (tutorialActive && !tutorialGates.allowDeleteFactory(id)) continue;
           const node = useDocumentStore
             .getState()
             .nodes.find((n) => n.id === id);
@@ -365,9 +391,13 @@ function FlowCanvasInner() {
       }
       if (machineIds.size > 0) {
         for (const id of machineIds) {
+          if (tutorialActive && !tutorialGates.allowDeleteMachine(id)) continue;
           const node = useDocumentStore.getState().nodes.find((n) => n.id === id);
           if (node?.type === "containerFrame") removeContainer(id);
-          else removeMachine(id);
+          else {
+            removeMachine(id);
+            useTutorialStore.getState().onMachineRemoved(id);
+          }
         }
         setMachineMenu(null);
         setContainerMenu(null);
@@ -376,7 +406,13 @@ function FlowCanvasInner() {
       }
       if (forwarded.length > 0) onNodesChange(forwarded);
     },
-    [onNodesChange, removeMachine, removeContainer],
+    [
+      onNodesChange,
+      removeMachine,
+      removeContainer,
+      tutorialActive,
+      tutorialGates,
+    ],
   );
 
   const isValidConnection = useCallback((edgeOrConn: Connection | Edge) => {
@@ -452,6 +488,7 @@ function FlowCanvasInner() {
         onConnectStart={onConnectStart}
         isValidConnection={isValidConnection}
         onEdgeContextMenu={(event, edge) => {
+          if (tutorialActive && !tutorialGates.allowEdgeContextMenu) return;
           event.preventDefault();
           setMachineMenu(null);
           setRecipePicker(null);
@@ -494,9 +531,23 @@ function FlowCanvasInner() {
         }}
         onNodeDoubleClick={(_event, node) => {
           if (node.type === "factoryFrame") {
-            void navigateToCanvas(node.id);
+            if (
+              tutorialActive &&
+              (!tutorialGates.allowFactoryDoubleClick ||
+                !tutorialGates.allowFactoryOpen ||
+                !tutorialGates.allowNavigateToCanvas(node.id))
+            ) {
+              return;
+            }
+            void navigateWithTutorial(node.id);
           }
         }}
+        nodesConnectable={
+          !tutorialActive ||
+          tutorialGates.allowPortLinkDrag ||
+          tutorialGates.allowFreeConnect
+        }
+        nodesDraggable={!tutorialActive || tutorialGates.allowNodeDrag}
         onNodeDragStart={(event, node) => {
           if (
             (node.type !== "machineFrame" &&
@@ -513,6 +564,14 @@ function FlowCanvasInner() {
         }}
         onNodeContextMenu={(event, node) => {
           if (node.type === "itemPort") {
+            if (tutorialActive && !tutorialGates.allowPortRecipePicker) return;
+            if (
+              tutorialActive &&
+              tutorialGates.requiredLinkOriginPortId &&
+              node.id !== tutorialGates.requiredLinkOriginPortId
+            ) {
+              return;
+            }
             event.preventDefault();
             setEdgeMenu(null);
             setMachineMenu(null);
@@ -542,6 +601,7 @@ function FlowCanvasInner() {
             return;
           }
           if (node.type === "machineFrame") {
+            if (tutorialActive && !tutorialGates.allowMachineContextMenu) return;
             event.preventDefault();
             setEdgeMenu(null);
             setRecipePicker(null);
@@ -558,6 +618,13 @@ function FlowCanvasInner() {
             return;
           }
           if (node.type === "factoryFrame") {
+            if (
+              tutorialActive &&
+              (!tutorialGates.allowFactoryContextMenu ||
+                !tutorialGates.allowFactoryContextMenuFor(node.id))
+            ) {
+              return;
+            }
             event.preventDefault();
             setEdgeMenu(null);
             setRecipePicker(null);
@@ -574,6 +641,7 @@ function FlowCanvasInner() {
             return;
           }
           if (node.type === "containerFrame") {
+            if (tutorialActive) return;
             event.preventDefault();
             setEdgeMenu(null);
             setRecipePicker(null);
@@ -599,6 +667,7 @@ function FlowCanvasInner() {
           setRecipePicker(null);
         }}
         onPaneContextMenu={(e) => {
+          if (tutorialActive && !tutorialGates.allowPaneRecipePicker) return;
           e.preventDefault();
           setEdgeMenu(null);
           setMachineMenu(null);
@@ -616,9 +685,16 @@ function FlowCanvasInner() {
         }}
         onConnectEnd={(event, cs) => {
           setConnectionPreview(null);
+          if (tutorialActive && !tutorialGates.allowPortLinkDrag) return;
           const fromId = cs.fromNode?.id ?? cs.fromHandle?.nodeId;
           if (!fromId) return;
           if (cs.toHandle !== null) return;
+          if (
+            tutorialGates.requiredLinkOriginPortId &&
+            fromId !== tutorialGates.requiredLinkOriginPortId
+          ) {
+            return;
+          }
           const n = rfRef.current?.getNode(fromId);
           if (!n || n.type !== "itemPort") return;
           const d = n.data as ItemPortData;
@@ -654,7 +730,6 @@ function FlowCanvasInner() {
         snapGrid={[16, 16]}
         className="bg-[var(--bg)]"
         proOptions={{ hideAttribution: true }}
-        nodesConnectable
         elevateEdgesOnSelect
         defaultEdgeOptions={{
           /**
@@ -730,7 +805,12 @@ function FlowCanvasInner() {
                 });
               }}
               onDeleteMachine={() => {
-                removeMachine(machineMenu.machineId);
+                const mid = machineMenu.machineId;
+                if (tutorialActive && !tutorialGates.allowDeleteMachine(mid)) {
+                  return;
+                }
+                removeMachine(mid);
+                useTutorialStore.getState().onMachineRemoved(mid);
                 setMachineMenu(null);
               }}
             />,
@@ -742,10 +822,13 @@ function FlowCanvasInner() {
           anchorScreen={recipePicker.anchor}
           recipeFilter={recipePicker.filter}
           subtitle={recipePicker.subtitle}
-          hideMiscTab={Boolean(recipePicker.linkOriginPortId)}
+          disableMiscFactory={Boolean(recipePicker.linkOriginPortId)}
+          tutorialConstraint={tutorialGates.pickerConstraint}
+          lockDismiss={tutorialActive}
           onClose={() => setRecipePicker(null)}
           onPickFactory={() => {
             const id = addFactory(recipePicker.flowPosition);
+            if (id) useTutorialStore.getState().onFactoryAdded(id);
             if (!id) alert(t("factoryDepthLimit"));
             setRecipePicker(null);
           }}
@@ -760,16 +843,29 @@ function FlowCanvasInner() {
             setRecipePicker(null);
           }}
           onPick={(recipeKey) => {
+            const linkId = recipePicker.linkOriginPortId;
             if (recipePicker.replaceMachineId) {
               setMachineRecipe(recipePicker.replaceMachineId, recipeKey);
             } else {
+              const beforeIds = new Set(
+                useDocumentStore.getState().nodes.map((n) => n.id),
+              );
               addMachine(
                 recipeKey,
                 recipePicker.flowPosition,
-                recipePicker.linkOriginPortId
-                  ? { linkOriginPortId: recipePicker.linkOriginPortId }
-                  : undefined,
+                linkId ? { linkOriginPortId: linkId } : undefined,
               );
+              const added = useDocumentStore
+                .getState()
+                .nodes.find(
+                  (n) =>
+                    n.type === "machineFrame" && !beforeIds.has(n.id),
+                );
+              if (added) {
+                useTutorialStore
+                  .getState()
+                  .onMachineAdded(recipeKey, added.id, linkId);
+              }
             }
             setRecipePicker(null);
           }}
@@ -783,12 +879,18 @@ function FlowCanvasInner() {
               label={factoryMenu.label}
               onClose={() => setFactoryMenu(null)}
               onOpen={() => {
-                void navigateToCanvas(factoryMenu.factoryId);
+                if (tutorialActive && !tutorialGates.allowFactoryOpen) return;
+                void navigateWithTutorial(factoryMenu.factoryId);
                 setFactoryMenu(null);
               }}
               onRename={() => {
                 const next = window.prompt(t("factoryRenameMenu"), factoryMenu.label);
-                if (next) renameFactory(factoryMenu.factoryId, next);
+                if (next) {
+                  renameFactory(factoryMenu.factoryId, next);
+                  useTutorialStore
+                    .getState()
+                    .onFactoryRenamed(factoryMenu.factoryId, next);
+                }
                 setFactoryMenu(null);
               }}
               onDuplicate={() => {
@@ -796,8 +898,13 @@ function FlowCanvasInner() {
                 setFactoryMenu(null);
               }}
               onDelete={() => {
+                const fid = factoryMenu.factoryId;
+                if (tutorialActive && !tutorialGates.allowDeleteFactory(fid)) {
+                  setFactoryMenu(null);
+                  return;
+                }
                 setFactoryDeleteTarget({
-                  id: factoryMenu.factoryId,
+                  id: fid,
                   label: factoryMenu.label,
                 });
                 setFactoryMenu(null);
@@ -842,7 +949,11 @@ function FlowCanvasInner() {
         body={t("factoryDeleteBody")}
         onCancel={() => setFactoryDeleteTarget(null)}
         onConfirm={() => {
-          if (factoryDeleteTarget) removeFactory(factoryDeleteTarget.id);
+          if (factoryDeleteTarget) {
+            const fid = factoryDeleteTarget.id;
+            removeFactory(fid);
+            useTutorialStore.getState().onFactoryRemoved(fid);
+          }
           setFactoryDeleteTarget(null);
         }}
       />

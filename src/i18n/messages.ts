@@ -49,6 +49,18 @@ export const messages = {
     balanceHelp:
       "Marge = production max. déclarée − conso (ne tient pas compte du carburant).",
     overclocking: "Overclocking",
+    recipeNotFound: "Recette introuvable : {key}",
+    machineInputsRecap: "Entrées / min (récap résolu)",
+    machineOutputsRecap: "Sorties / min (récap résolu)",
+    machineCountForRate: "Nombre de machines :",
+    machineOverclockLine: "Overclocking : {pct} %",
+    machineAmplifierLine: "Amplificateur (Sloop) : —",
+    machinePowerLine: "Puissance :",
+    machineCraftsLine: "{rate} crafts/min · {duration}s/craft",
+    mobileUnsupportedTitle: "Écran trop petit ou tactile",
+    mobileUnsupportedBody:
+      "Cette application n’est pas optimisée pour téléphone ou tablette. Utilisez un ordinateur avec souris ou trackpad (clic droit, glisser-déposer, molette).",
+    mobileUnsupportedContinue: "Continuer quand même",
     clockAria: "Vitesse d'horloge en pourcentage",
     clockPercentAria: "Pourcentage numérique",
     clockRange: "{min}–{max} % · défaut {def} %",
@@ -98,6 +110,8 @@ export const messages = {
     misc: "Divers",
     miscFactory: "Usine",
     miscFactoryHelp: "Place une usine ouvrant une usine imbriquée.",
+    miscFactoryPortDisabled:
+      "Les usines ne peuvent pas encore être reliées depuis un port (option grisée).",
     miscContainerHelp:
       "Stockage : peut servir de bouchon de chaîne (sorties désactivées) ou relais avec tampon.",
     containerStandard: "Conteneur",
@@ -134,6 +148,38 @@ export const messages = {
     importFactoryJson: "Importer une usine (JSON)",
     summaryNestedFactories: "Inclut {count} usine(s) imbriquée(s)",
     errorInvalidSchemaV2: "Format non reconnu (schemaVersion 1 ou 2 attendu).",
+    settingsTutorial: "Tutoriel",
+    settingsStartTutorial: "Relancer le tutoriel",
+    tutorialTitle: "Tutoriel",
+    tutorialPanelAria: "Instructions du tutoriel",
+    tutorialNext: "Suivant",
+    tutorialSkipAll: "Passer le tutoriel",
+    tutorial_welcome:
+      "Bienvenue dans Satisfactory : Remodeller. Ce guide vous montre comment placer des machines, relier des flux et utiliser les usines imbriquées. Cliquez sur Suivant pour commencer.",
+    tutorial_placePlate:
+      "Clic droit sur le fond du plan → choisissez la recette Plaques de fer (Constructeur). Les autres recettes sont grisées.",
+    tutorial_placeSmelter:
+      "Sur le port d’entrée Lingot de fer du Constructeur, faites glisser vers le vide ou clic droit, puis choisissez Lingot de fer (Fonderie).",
+    tutorial_deletePlate:
+      "Supprimez le Constructeur de plaques : sélectionnez-le et appuyez sur Suppr, ou clic droit → Supprimer la machine.",
+    tutorial_connectFoundry:
+      "Depuis la sortie Lingot de fer du Fonderie, glissez ou clic droit, puis placez une Fonderie avec Lingot d’acier solide (Solid Steel Ingot).",
+    tutorial_reorderFoundry:
+      "Sur la Fonderie à deux entrées, faites glisser verticalement une entrée pour permuter l’ordre des ports.",
+    tutorial_createFactory:
+      "Clic droit sur le fond → Divers → Usine pour placer une usine imbriquée dans le plan tutoriel.",
+    tutorial_renameFactory:
+      "Clic droit sur la nouvelle usine → Renommer, avec le nom de votre choix.",
+    tutorial_enterFactory:
+      "Double-cliquez l’usine renommée (ou clic droit → Ouvrir) pour entrer dedans.",
+    tutorial_machineInFactory:
+      "Dans cette usine, clic droit sur le fond et placez n’importe quelle machine.",
+    tutorial_nestedFactory:
+      "Toujours dans la même usine, créez une deuxième usine via Divers → Usine.",
+    tutorial_navBack:
+      "Menu de navigation (en haut à gauche) : revenez au plan « Tutorial ».",
+    tutorial_deleteFactory:
+      "Supprimez l’usine imbriquée : clic droit → Supprimer, puis confirmez. Le plan tutoriel sera retiré à la fin.",
   },
   en: {
     settings: "Settings",
@@ -180,6 +226,18 @@ export const messages = {
     balanceHelp:
       "Surplus = max declared production − consumption (fuel not modeled).",
     overclocking: "Overclocking",
+    recipeNotFound: "Recipe not found: {key}",
+    machineInputsRecap: "Inputs / min (resolved totals)",
+    machineOutputsRecap: "Outputs / min (resolved totals)",
+    machineCountForRate: "Machine count:",
+    machineOverclockLine: "Overclock: {pct}%",
+    machineAmplifierLine: "Amplifier (Sloop): —",
+    machinePowerLine: "Power:",
+    machineCraftsLine: "{rate} crafts/min · {duration}s/craft",
+    mobileUnsupportedTitle: "Small or touch screen detected",
+    mobileUnsupportedBody:
+      "This app is not optimized for phones or tablets. Please use a computer with a mouse or trackpad (right-click, drag-and-drop, scroll wheel).",
+    mobileUnsupportedContinue: "Continue anyway",
     clockAria: "Clock speed percentage",
     clockPercentAria: "Numeric percentage",
     clockRange: "{min}–{max}% · default {def}%",
@@ -229,6 +287,8 @@ export const messages = {
     misc: "Misc",
     miscFactory: "Factory",
     miscFactoryHelp: "Places a factory that opens a nested factory.",
+    miscFactoryPortDisabled:
+      "Factories cannot be linked from a port yet (option disabled).",
     miscContainerHelp:
       "Storage: use as a chain endpoint (outputs off) or as a buffer relay.",
     containerStandard: "Storage Container",
@@ -265,6 +325,38 @@ export const messages = {
     importFactoryJson: "Import factory (JSON)",
     summaryNestedFactories: "Includes {count} nested factory/factories",
     errorInvalidSchemaV2: "Unrecognized format (schemaVersion 1 or 2 expected).",
+    settingsTutorial: "Tutorial",
+    settingsStartTutorial: "Restart tutorial",
+    tutorialTitle: "Tutorial",
+    tutorialPanelAria: "Tutorial instructions",
+    tutorialNext: "Next",
+    tutorialSkipAll: "Skip tutorial",
+    tutorial_welcome:
+      "Welcome to Satisfactory: Remodeller. This walkthrough shows how to place machines, link flows, and use nested factories. Click Next to begin.",
+    tutorial_placePlate:
+      "Right-click the canvas background and pick Iron Plate (Constructor). Other recipes are greyed out.",
+    tutorial_placeSmelter:
+      "On the Constructor’s Iron Ingot input port, drag to empty space or right-click, then pick Iron Ingot (Smelter).",
+    tutorial_deletePlate:
+      "Delete the Iron Plate Constructor: select it and press Delete, or right-click → Delete machine.",
+    tutorial_connectFoundry:
+      "From the Smelter’s Iron Ingot output, drag or right-click, then place a Foundry with Solid Steel Ingot.",
+    tutorial_reorderFoundry:
+      "On the two-input Foundry, drag an input port vertically to swap port order.",
+    tutorial_createFactory:
+      "Right-click the canvas → Misc → Factory to place a nested factory in the tutorial area.",
+    tutorial_renameFactory:
+      "Right-click the new factory → Rename with any name you like.",
+    tutorial_enterFactory:
+      "Double-click the renamed factory (or right-click → Open) to enter it.",
+    tutorial_machineInFactory:
+      "Inside that factory, right-click the canvas and place any machine.",
+    tutorial_nestedFactory:
+      "Still inside the same factory, create another factory via Misc → Factory.",
+    tutorial_navBack:
+      "Open the navigation menu (top left) and return to the Tutorial canvas.",
+    tutorial_deleteFactory:
+      "Delete the nested factory: right-click → Delete factory, then confirm. The tutorial area is removed when you finish.",
   },
 } as const;
 

@@ -11,6 +11,7 @@ import {
   parseFactoryDocumentJson,
 } from "@/lib/factoryDocument";
 import { isCanvasSubtreeExport } from "@/lib/canvasExport";
+import { useTutorialStore } from "@/store/useTutorialStore";
 import { useWorldStore } from "@/store/useWorldStore";
 
 const NAV_OPTIONS: InputModalityPreference[] = ["auto", "trackpad", "mouse"];
@@ -115,6 +116,7 @@ export function SettingsMenu() {
 
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
   const canExportCanvas = activeCanvasId !== "world";
+  const startTutorial = useTutorialStore((s) => s.startTutorial);
 
   return (
     <div ref={rootRef} className="relative">
@@ -252,6 +254,20 @@ export function SettingsMenu() {
                 if (f) void handleImportFactory(f);
               }}
             />
+          </section>
+
+          <section className="mb-4">
+            <h3 className={sectionTitle}>{t("settingsTutorial")}</h3>
+            <button
+              type="button"
+              className={menuBtn}
+              onClick={() => {
+                startTutorial({ force: true });
+                setOpen(false);
+              }}
+            >
+              {t("settingsStartTutorial")}
+            </button>
           </section>
 
           <section>

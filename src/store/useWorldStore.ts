@@ -166,12 +166,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   toWorldDocument: () => {
     get().flushActiveCanvas();
-    const { canvasMap, factoryNameCounter } = get();
-    return buildWorldDocument(
-      canvasMap,
-      { updatedAt: new Date().toISOString(), exportTitle: "world" },
-      factoryNameCounter,
-    );
+    const { canvasMap } = get();
+    return buildWorldDocument(canvasMap, {
+      updatedAt: new Date().toISOString(),
+      exportTitle: "world",
+    });
   },
 
   navigateToCanvas: async (canvasId) => {
@@ -213,11 +212,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   addFactory: (flowPosition) => {
-    const { activeCanvasId, canvasMap, factoryNameCounter } = get();
+    const { activeCanvasId, canvasMap } = get();
     if (!canAddNestedFactory(canvasMap, activeCanvasId)) return null;
 
     const factoryId = nextFactoryId(canvasMap);
-    const { label, nextCounter } = nextFactoryLabel(factoryNameCounter);
+    const { label } = nextFactoryLabel(canvasMap, activeCanvasId);
 
     const factoryNode = buildFactoryNode(factoryId, flowPosition, label);
     const childCanvas = createChildCanvasRecord(
@@ -238,7 +237,6 @@ export const useWorldStore = create<WorldState>((set, get) => ({
         ...persistActiveSlice(s.canvasMap, activeCanvasId),
         [factoryId]: childCanvas,
       },
-      factoryNameCounter: nextCounter,
     }));
 
     return factoryId;
@@ -294,7 +292,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   duplicateFactory: (factoryId, position) => {
     get().flushActiveCanvas();
-    const { canvasMap, factoryNameCounter } = get();
+    const { canvasMap } = get();
     const source = canvasMap[factoryId];
     if (!source) return null;
 
@@ -304,12 +302,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       y: (srcNode?.position.y ?? 0) + 32,
     };
 
-    const cloned = cloneFactorySubtree(
-      canvasMap,
-      factoryId,
-      factoryNameCounter,
-      pos,
-    );
+    const cloned = cloneFactorySubtree(canvasMap, factoryId, pos);
 
     const parentCanvasId = source.parent?.canvasId;
     if (!parentCanvasId) return null;
@@ -325,7 +318,6 @@ export const useWorldStore = create<WorldState>((set, get) => ({
             nodes: [...p.nodes, cloned.node],
           },
         },
-        factoryNameCounter: cloned.factoryNameCounter,
       };
     });
 
@@ -370,18 +362,14 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   exportActiveSubtree: () => {
     get().flushActiveCanvas();
-    const { canvasMap, activeCanvasId, factoryNameCounter } = get();
+    const { canvasMap, activeCanvasId } = get();
     if (activeCanvasId === WORLD_CANVAS_ID) return null;
-    return buildCanvasSubtreeExport(
-      canvasMap,
-      activeCanvasId,
-      factoryNameCounter,
-    );
+    return buildCanvasSubtreeExport(canvasMap, activeCanvasId);
   },
 
   importFactorySubtree: (exportDoc, position) => {
     get().flushActiveCanvas();
-    const { canvasMap, activeCanvasId, factoryNameCounter } = get();
+    const { canvasMap, activeCanvasId } = get();
     if (!canAddNestedFactory(canvasMap, activeCanvasId)) return null;
 
     const merged = mergeImportedSubtree(
@@ -389,12 +377,10 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       activeCanvasId,
       exportDoc,
       position,
-      factoryNameCounter,
     );
 
     set({
       canvasMap: merged.canvases,
-      factoryNameCounter: merged.factoryNameCounter,
     });
 
     get().loadCanvasIntoDocument(activeCanvasId);

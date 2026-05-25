@@ -1,4 +1,19 @@
-import type { GeneratorBuildingSpec } from "@/types/power";
+import type { GeneratorBuildingSpec, GeneratorIoRate } from "@/types/power";
+
+/** Eau de refroidissement fixe pour chaque mode du générateur à charbon (m³/min). */
+export const COAL_GENERATOR_WATER_M3_PER_MIN = 45;
+
+function withCoalGeneratorWater(inputs: GeneratorIoRate[]): GeneratorIoRate[] {
+  const water: GeneratorIoRate = {
+    itemId: "Desc_Water_C",
+    perMinute: COAL_GENERATOR_WATER_M3_PER_MIN,
+  };
+  const idx = inputs.findIndex((i) => i.itemId === "Desc_Water_C");
+  if (idx >= 0) {
+    return inputs.map((row, i) => (i === idx ? water : row));
+  }
+  return [...inputs, water];
+}
 
 /**
  * Générateurs : puissance fixe par bâtiment, débits nominaux (/min) par mode.
@@ -43,15 +58,23 @@ export const GENERATOR_BUILDING_SPECS: GeneratorBuildingSpec[] = [
     classId: "Desc_GeneratorCoal_C",
     powerMw: 75,
     modes: [
-      { key: "coal", inputs: [{ itemId: "Desc_Coal_C", perMinute: 15 }], outputs: [] },
+      {
+        key: "coal",
+        inputs: withCoalGeneratorWater([{ itemId: "Desc_Coal_C", perMinute: 15 }]),
+        outputs: [],
+      },
       {
         key: "compacted-coal",
-        inputs: [{ itemId: "Desc_CompactedCoal_C", perMinute: 7.142857 }],
+        inputs: withCoalGeneratorWater([
+          { itemId: "Desc_CompactedCoal_C", perMinute: 7.142857 },
+        ]),
         outputs: [],
       },
       {
         key: "petroleum-coke",
-        inputs: [{ itemId: "Desc_PetroleumCoke_C", perMinute: 25 }],
+        inputs: withCoalGeneratorWater([
+          { itemId: "Desc_PetroleumCoke_C", perMinute: 25 },
+        ]),
         outputs: [],
       },
     ],

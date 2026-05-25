@@ -17,7 +17,9 @@ import {
   nearestSlotIndex,
 } from "@/lib/machinePortLayout";
 import { findRecipeByKey } from "@/lib/recipeLookup";
+import { useTutorialGates } from "@/hooks/useTutorialGates";
 import { useDocumentStore } from "@/store/useDocumentStore";
+import { useTutorialStore } from "@/store/useTutorialStore";
 import type { ContainerFrameData, ItemPortData, MachineFrameData } from "@/types/graph";
 
 const { PORT_W, PORT_ROW } = MACHINE_LAYOUT;
@@ -88,6 +90,7 @@ export function ItemPortNode(props: NodeProps) {
   const setNodePositions = useDocumentStore((s) => s.setNodePositions);
   const swapMachinePortSlots = useDocumentStore((s) => s.swapMachinePortSlots);
   const setReorderDragSession = useDocumentStore((s) => s.setReorderDragSession);
+  const tutorialGates = useTutorialGates();
 
   const {
     effectiveRate,
@@ -212,6 +215,7 @@ export function ItemPortNode(props: NodeProps) {
         });
       } else {
         swapMachinePortSlots(st.frameId, st.kind, st.recipeIdx, endSlot);
+        useTutorialStore.getState().onPortSwapped(st.frameId);
       }
     },
     [getNode, id, setNodePosition, swapMachinePortSlots],
@@ -233,8 +237,11 @@ export function ItemPortNode(props: NodeProps) {
   const onReorderPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!reorderable) return;
+      if (parentId && !tutorialGates.allowPortReorder(parentId)) return;
       if ((e.target as HTMLElement).closest(".react-flow__handle")) return;
       if ((e.target as HTMLElement).closest("[data-port-force-field]")) return;
+      e.stopPropagation();
+      e.preventDefault();
       const frameNode = parentId ? getNode(parentId) : undefined;
       if (!parentId || !frameNode) return;
       const self = getNode(id);
@@ -287,6 +294,11 @@ export function ItemPortNode(props: NodeProps) {
         siblingPositions,
         perm,
       };
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
     },
     [
       d.kind,
@@ -297,6 +309,7 @@ export function ItemPortNode(props: NodeProps) {
       parentId,
       reorderable,
       setReorderDragSession,
+      tutorialGates,
     ],
   );
 
@@ -394,14 +407,14 @@ export function ItemPortNode(props: NodeProps) {
     (e: React.PointerEvent) => {
       const st = dragRef.current;
       if (!st || e.pointerId !== st.pointerId) return;
-      if (!st.active) {
-        dragRef.current = null;
-        return;
-      }
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {
         /* déjà relâché */
+      }
+      if (!st.active) {
+        dragRef.current = null;
+        return;
       }
       dragRef.current = null;
       try {
@@ -433,6 +446,7 @@ export function ItemPortNode(props: NodeProps) {
     <div
       className={cn(
         "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        reorderable && "nodrag nopan",
         (parentInConflict || portOnConflictEdge) && "rf-machine-port-conflict",
         parentSelected && "rf-machine-port-selected",
         parentContainerOutputOff && "opacity-45",
@@ -466,7 +480,7 @@ export function ItemPortNode(props: NodeProps) {
           className={cn(
             "flex items-start gap-1 pl-0.5",
             reorderable &&
-              "cursor-ns-resize touch-none select-none",
+              "nodrag nopan cursor-ns-resize touch-none select-none",
           )}
           onPointerDown={reorderable ? onReorderPointerDown : undefined}
           onPointerMove={reorderable ? onReorderPointerMove : undefined}
