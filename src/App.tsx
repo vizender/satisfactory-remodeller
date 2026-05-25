@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FlowCanvas } from "@/components/FlowCanvas";
@@ -72,10 +73,13 @@ function App() {
         </InputModalityProvider>
       </I18nProvider>
       {!isTauriRuntime() ? (
-        <Analytics
-          basePath={vercelAnalyticsBasePath}
-          mode={import.meta.env.PROD ? "production" : "development"}
-        />
+        <>
+          <Analytics
+            basePath={vercelAnalyticsBasePath}
+            mode={import.meta.env.PROD ? "production" : "development"}
+          />
+          <SpeedInsights />
+        </>
       ) : null}
     </ErrorBoundary>
   );
