@@ -144,6 +144,9 @@ export const messages = {
     factoryDoubleClickOpen: "Double-clic pour ouvrir",
     exportWorldJson: "Exporter le monde (JSON)",
     exportFactoryJson: "Exporter cette usine (JSON)",
+    settingsExportHint:
+      "L’export ouvre une fenêtre « Enregistrer sous » (dossier Téléchargements par défaut). Vous pouvez renommer le fichier avant l’enregistrement.",
+    exportFilenamePrompt: "Nom du fichier JSON",
     importWorldJson: "Importer un monde (JSON)",
     importFactoryJson: "Importer une usine (JSON)",
     summaryNestedFactories: "Inclut {count} usine(s) imbriquée(s)",
@@ -321,6 +324,9 @@ export const messages = {
     factoryDoubleClickOpen: "Double-click to open",
     exportWorldJson: "Export world (JSON)",
     exportFactoryJson: "Export this factory (JSON)",
+    settingsExportHint:
+      "Export opens a “Save as” dialog (Downloads folder by default). You can rename the file before saving.",
+    exportFilenamePrompt: "JSON file name",
     importWorldJson: "Import world (JSON)",
     importFactoryJson: "Import factory (JSON)",
     summaryNestedFactories: "Includes {count} nested factory/factories",

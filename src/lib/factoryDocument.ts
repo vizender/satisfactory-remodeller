@@ -78,33 +78,31 @@ export function writeLocalDraft(doc: FactoryDocumentV2): void {
   }
 }
 
-export function exportFilename(
-  doc: FactoryDocumentV2,
-  suffix = "world",
-): string {
-  const slug = (doc.meta.exportTitle ?? suffix)
+function slugifyExportTitle(title: string): string {
+  return title
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/gi, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 48);
-  const date = doc.meta.updatedAt.slice(0, 10);
-  return `factory-${slug || suffix}-${date}.json`;
 }
 
-export function downloadFactoryJson(
-  doc: FactoryDocumentV2,
-  filename?: string,
-): void {
-  const blob = new Blob([JSON.stringify(doc, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename ?? exportFilename(doc);
-  a.click();
-  URL.revokeObjectURL(url);
+/** Default download name: `factory-{slug}-{date}.json`. */
+export function exportFilename(title: string, dateIso?: string): string {
+  const slug = slugifyExportTitle(title);
+  const date = (dateIso ?? new Date().toISOString()).slice(0, 10);
+  return `factory-${slug || "export"}-${date}.json`;
+}
+
+export function exportFilenameForWorld(doc: FactoryDocumentV2): string {
+  return exportFilename(doc.meta.exportTitle ?? "world", doc.meta.updatedAt);
+}
+
+export function exportFilenameForCanvas(
+  canvasName: string,
+  dateIso?: string,
+): string {
+  return exportFilename(canvasName, dateIso);
 }
 
 /** @deprecated Use world document load via useWorldStore. */

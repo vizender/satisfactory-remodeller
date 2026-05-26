@@ -6,10 +6,11 @@ import {
   type InputModalityPreference,
 } from "@/hooks/useInputModality";
 import {
-  downloadFactoryJson,
-  exportFilename,
+  exportFilenameForCanvas,
+  exportFilenameForWorld,
   parseFactoryDocumentJson,
 } from "@/lib/factoryDocument";
+import { saveJsonFile } from "@/lib/saveJsonFile";
 import { isCanvasSubtreeExport } from "@/lib/canvasExport";
 import { useTutorialStore } from "@/store/useTutorialStore";
 import { useWorldStore } from "@/store/useWorldStore";
@@ -60,27 +61,25 @@ export function SettingsMenu() {
   const selectCls =
     "w-full rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs text-[var(--text)]";
 
-  const handleExportWorld = () => {
+  const handleExportWorld = async () => {
     const doc = useWorldStore.getState().exportWorld();
-    downloadFactoryJson(doc);
+    await saveJsonFile(doc, exportFilenameForWorld(doc), {
+      promptLabel: t("exportFilenamePrompt"),
+    });
     setOpen(false);
   };
 
-  const handleExportCanvas = () => {
-    const subtree = useWorldStore.getState().exportActiveSubtree();
+  const handleExportCanvas = async () => {
+    const state = useWorldStore.getState();
+    const subtree = state.exportActiveSubtree();
     if (!subtree) return;
-    const blob = new Blob([JSON.stringify(subtree, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = exportFilename(
-      useWorldStore.getState().exportWorld(),
-      "factory",
+    const canvas = state.canvasMap[state.activeCanvasId];
+    const name = canvas?.name?.trim() || "factory";
+    await saveJsonFile(
+      subtree,
+      exportFilenameForCanvas(name, new Date().toISOString()),
+      { promptLabel: t("exportFilenamePrompt") },
     );
-    a.click();
-    URL.revokeObjectURL(url);
     setOpen(false);
   };
 
@@ -205,6 +204,9 @@ export function SettingsMenu() {
 
           <section className="mb-4">
             <h3 className={sectionTitle}>{t("settingsData")}</h3>
+            <p className="mb-2 text-[10px] leading-snug text-[var(--muted)]">
+              {t("settingsExportHint")}
+            </p>
             <div className="flex flex-col gap-1">
               <button type="button" className={menuBtn} onClick={handleExportWorld}>
                 {t("exportWorldJson")}
