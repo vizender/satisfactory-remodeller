@@ -12,6 +12,7 @@ export const TUTORIAL_STEP_IDS = [
   "nestedFactory",
   "navBack",
   "deleteFactory",
+  "complete",
 ] as const;
 
 export type TutorialStepId = (typeof TUTORIAL_STEP_IDS)[number];

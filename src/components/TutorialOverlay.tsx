@@ -8,11 +8,13 @@ export function TutorialOverlay() {
   const active = useTutorialStore((s) => s.active);
   const step = useTutorialStore((s) => s.currentStep());
   const advanceWelcome = useTutorialStore((s) => s.advanceWelcome);
+  const advanceComplete = useTutorialStore((s) => s.advanceComplete);
   const skipTutorial = useTutorialStore((s) => s.skipTutorial);
 
   if (!active || !step) return null;
 
   const isWelcome = step === "welcome";
+  const isComplete = step === "complete";
 
   return (
     <div
@@ -44,6 +46,17 @@ export function TutorialOverlay() {
             onClick={advanceWelcome}
           >
             {t("tutorialNext")}
+          </button>
+        </div>
+      ) : null}
+      {isComplete ? (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            className="rounded-md border border-[var(--accent)] bg-[var(--accent)]/15 px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--accent)]/25"
+            onClick={advanceComplete}
+          >
+            {t("tutorialFinish")}
           </button>
         </div>
       ) : null}

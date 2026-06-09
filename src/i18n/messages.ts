@@ -9,6 +9,9 @@ export const messages = {
     settingsAutoSave: "Sauvegarde automatique",
     settingsAutoSaveBody:
       "Le plan est enregistré automatiquement dans le stockage local du navigateur (toutes les ~1,5 s). Il reste disponible après fermeture de l’onglet ou redémarrage de l’ordinateur. L’export JSON sert de copie de secours. Les cookies ne sont pas utilisés (taille limitée).",
+    settingsVersion: "Version {version}",
+    settingsVersionLegend: "majeure · mineure · correctifs",
+    settingsLastUpdated: "Dernière mise à jour : {date}",
     langFr: "Français",
     langEn: "English",
     navAuto: "Auto",
@@ -182,7 +185,10 @@ export const messages = {
     tutorial_navBack:
       "Menu de navigation (en haut à gauche) : revenez au plan « Tutorial ».",
     tutorial_deleteFactory:
-      "Supprimez l’usine imbriquée : clic droit → Supprimer, puis confirmez. Le plan tutoriel sera retiré à la fin.",
+      "Supprimez l’usine imbriquée : clic droit → Supprimer, puis confirmez.",
+    tutorial_complete:
+      "Merci d’avoir suivi ce tutoriel ! Vous êtes de retour sur votre plan Monde — vous pouvez continuer à construire quand vous le souhaitez. Bon jeu avec Satisfactory : Remodeller.",
+    tutorialFinish: "Terminer",
   },
   en: {
     settings: "Settings",
@@ -192,6 +198,9 @@ export const messages = {
     settingsAutoSave: "Automatic save",
     settingsAutoSaveBody:
       "Your factory is saved automatically in the browser’s local storage (about every 1.5 s). It stays available after you close the tab or restart your computer. Use JSON export for a backup file. Cookies are not used (size limit).",
+    settingsVersion: "Version {version}",
+    settingsVersionLegend: "major · minor · bug fixes",
+    settingsLastUpdated: "Last updated: {date}",
     langFr: "Français",
     langEn: "English",
     navAuto: "Auto",
@@ -362,7 +371,10 @@ export const messages = {
     tutorial_navBack:
       "Open the navigation menu (top left) and return to the Tutorial canvas.",
     tutorial_deleteFactory:
-      "Delete the nested factory: right-click → Delete factory, then confirm. The tutorial area is removed when you finish.",
+      "Delete the nested factory: right-click → Delete factory, then confirm.",
+    tutorial_complete:
+      "Thanks for completing the tutorial! You're back on your World canvas — keep building whenever you like. Enjoy Satisfactory: Remodeller.",
+    tutorialFinish: "Finish",
   },
 } as const;
 

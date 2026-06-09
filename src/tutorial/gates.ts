@@ -258,6 +258,8 @@ export function getTutorialGates(
         allowCanvasNav: false,
         allowNavigateToCanvas: nav,
       };
+    case "complete":
+      return NO_GATES;
     default:
       return NO_GATES;
   }

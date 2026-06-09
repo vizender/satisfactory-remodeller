@@ -11,6 +11,10 @@ import {
   parseFactoryDocumentJson,
 } from "@/lib/factoryDocument";
 import { saveJsonFile } from "@/lib/saveJsonFile";
+import {
+  appVersion,
+  formatAppBuildDate,
+} from "@/lib/appRelease";
 import { isCanvasSubtreeExport } from "@/lib/canvasExport";
 import { useTutorialStore } from "@/store/useTutorialStore";
 import { useWorldStore } from "@/store/useWorldStore";
@@ -116,6 +120,7 @@ export function SettingsMenu() {
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
   const canExportCanvas = activeCanvasId !== "world";
   const startTutorial = useTutorialStore((s) => s.startTutorial);
+  const buildDate = formatAppBuildDate(locale);
 
   return (
     <div ref={rootRef} className="relative">
@@ -272,12 +277,20 @@ export function SettingsMenu() {
             </button>
           </section>
 
-          <section>
+          <section className="mb-4">
             <h3 className={sectionTitle}>{t("settingsAutoSave")}</h3>
             <p className="text-[11px] leading-snug text-[var(--muted)]">
               {t("settingsAutoSaveBody")}
             </p>
           </section>
+
+          <footer className="border-t border-[var(--border)] pt-3 text-[10px] leading-relaxed text-[var(--muted)]">
+            <p className="text-[11px] tabular-nums text-[var(--text)]">
+              {t("settingsVersion", { version: appVersion })}
+            </p>
+            <p className="mt-0.5">{t("settingsVersionLegend")}</p>
+            <p className="mt-1">{t("settingsLastUpdated", { date: buildDate })}</p>
+          </footer>
         </div>
       ) : null}
     </div>

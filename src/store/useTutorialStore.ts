@@ -57,6 +57,7 @@ export interface TutorialState {
   startTutorial: (opts?: { force?: boolean }) => void;
   skipTutorial: () => void;
   advanceWelcome: () => void;
+  advanceComplete: () => void;
   onMachineAdded: (
     recipeKey: string,
     frameId: string,
@@ -70,17 +71,21 @@ export interface TutorialState {
   onFactoryRemoved: (factoryId: string) => void;
 }
 
-function finishTutorial(
-  set: (partial: Partial<TutorialState>) => void,
-  rootId: string | null,
-) {
+function dismissTutorial(set: (partial: Partial<TutorialState>) => void) {
   markTutorialCompleted();
-  teardownTutorialSandbox(rootId);
   set({
     active: false,
     stepIndex: 0,
     markers: emptyMarkers(),
   });
+}
+
+function finishTutorial(
+  set: (partial: Partial<TutorialState>) => void,
+  rootId: string | null,
+) {
+  teardownTutorialSandbox(rootId);
+  dismissTutorial(set);
 }
 
 function advanceStep(
@@ -89,8 +94,12 @@ function advanceStep(
 ) {
   const next = get().stepIndex + 1;
   if (next >= TUTORIAL_STEP_IDS.length) {
-    finishTutorial(set, get().markers.tutorialRootCanvasId);
+    dismissTutorial(set);
     return;
+  }
+  const nextStep = TUTORIAL_STEP_IDS[next];
+  if (nextStep === "complete") {
+    teardownTutorialSandbox(get().markers.tutorialRootCanvasId);
   }
   set({ stepIndex: next });
 }
@@ -139,6 +148,11 @@ export const useTutorialStore = create<TutorialState>((set, get) => ({
   advanceWelcome: () => {
     if (get().currentStep() !== "welcome") return;
     advanceStep(get, set);
+  },
+
+  advanceComplete: () => {
+    if (get().currentStep() !== "complete") return;
+    dismissTutorial(set);
   },
 
   onMachineAdded: (recipeKey, frameId, linkOriginPortId) => {
