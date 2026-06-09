@@ -12,9 +12,9 @@ Planificateur d’usines Satisfactory (**React + Vite + TypeScript**) : canvas *
 
 ```bash
 npm install
-npm run dev:web          # http://localhost:1420/satisfactory-remodeller/
+npm run dev:web          # http://localhost:1420/
 npm run dev:browser      # idem + ouverture du navigateur
-npm run build && npm run preview   # http://localhost:4173/satisfactory-remodeller/
+npm run build && npm run preview   # http://localhost:4173/
 ```
 
 Dans l’en-tête, **Navigation → Auto / Trackpad / Souris** règle le défilement et le zoom du canvas (détection automatique ou forçage manuel).
@@ -23,11 +23,11 @@ Dans l’en-tête, **Navigation → Auto / Trackpad / Souris** règle le défile
 
 ### Déploiement Vercel (site personnel)
 
-**URL de production :** [https://victor-legall.com/satisfactory-remodeller/](https://victor-legall.com/satisfactory-remodeller/)
+**URL de production :** [https://satisfactoryremodeller.com/](https://satisfactoryremodeller.com/)
 
 1. Importer ce dépôt GitHub dans [Vercel](https://vercel.com).
 2. Framework **Vite** ; répertoire racine `.` ; build `npm run build` ; sortie `dist` (voir aussi [`vercel.json`](vercel.json)).
-3. Domaine monté sous **`/satisfactory-remodeller`** sur `victor-legall.com` (rewrites dans `vercel.json`).
+3. Domaine personnalisé **`satisfactoryremodeller.com`** : ajouter le domaine dans Vercel → **Settings → Domains**, puis configurer les enregistrements DNS chez le registrar (Vercel affiche les valeurs A/CNAME à utiliser).
 4. Chaque push sur la branche de production déclenche un déploiement ; les PR obtiennent une URL de preview.
 
 Les icônes PNG sont chargées **à la demande** (pas tout le dossier `Assets/icons/` au premier chargement).

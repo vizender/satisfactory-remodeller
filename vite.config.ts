@@ -6,16 +6,9 @@ import { defineConfig } from "vite";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
-/** Web deploy under victor-legall.com/satisfactory-remodeller; Tauri desktop stays at /. */
-const isTauri =
-  !!process.env.TAURI_ENV_PLATFORM ||
-  process.env.TAURI_ENV_DEBUG === "true" ||
-  process.env.TAURI_ENV_DEBUG === "1";
-const base = isTauri ? "/" : "/satisfactory-remodeller/";
-
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  base,
+  base: "/",
   plugins: [tailwindcss(), react()],
   resolve: {
     alias: {

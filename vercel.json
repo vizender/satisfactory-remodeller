@@ -4,19 +4,7 @@
   "installCommand": "npm ci",
   "rewrites": [
     {
-      "source": "/satisfactory-remodeller/assets/:path*",
-      "destination": "/assets/:path*"
-    },
-    {
-      "source": "/satisfactory-remodeller",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/satisfactory-remodeller/",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/satisfactory-remodeller/:path*",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

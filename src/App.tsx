@@ -23,7 +23,7 @@ function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
 }
 
-/** Strip trailing slash; Vite `BASE_URL` is `/satisfactory-remodeller/` on web deploy. */
+/** Subpath for Vercel Analytics when `base` is not `/` (unused at root deploy). */
 const vercelAnalyticsBasePath =
   import.meta.env.BASE_URL.replace(/\/$/, "") || undefined;
 
