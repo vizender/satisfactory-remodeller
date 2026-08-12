@@ -5,6 +5,8 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FlowCanvas } from "@/components/FlowCanvas";
 import { CanvasNavDropdown } from "@/components/CanvasNavDropdown";
+import { EdgeRoutingToggle } from "@/components/EdgeRoutingToggle";
+import { RigidPortSnapToggle } from "@/components/RigidPortSnapToggle";
 import { SettingsMenu } from "@/components/SettingsMenu";
 import { MobileUnsupportedGate } from "@/components/MobileUnsupportedGate";
 import { SummaryPanel } from "@/components/SummaryPanel";
@@ -41,6 +43,8 @@ function AppShell() {
             Satisfactory : Remodeller
           </h1>
           <CanvasNavDropdown />
+          <RigidPortSnapToggle />
+          <EdgeRoutingToggle />
         </div>
         <SettingsMenu />
       </header>

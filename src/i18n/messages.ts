@@ -136,6 +136,16 @@ export const messages = {
       "Cette action supprime définitivement cette usine et toutes les usines imbriquées. Irréversible.",
     factoryDepthLimit: "Profondeur maximale de 10 usines imbriquées atteinte.",
     factoryNavTitle: "Navigation",
+    snapToggle: "Snap",
+    snapToggleTitle:
+      "Aligner horizontalement les ports connectés lorsqu’ils sont proches",
+    edgeRoutingCurved: "Courbes",
+    edgeRoutingStraight: "Droites",
+    edgeRoutingToggleTitle:
+      "Basculer entre liaisons courbes et liaisons orthogonales (3 segments)",
+    resetEdgeRoute: "Réinitialiser le tracé",
+    addEdgeKink: "Ajouter un coude",
+    removeEdgeKink: "Supprimer le coude",
     factoryRenameMenu: "Renommer l’usine…",
     factoryClear: "Vider l’usine…",
     factoryClearTitle: "Vider cette usine ?",
@@ -322,6 +332,16 @@ export const messages = {
       "This permanently deletes this factory and all nested factories inside it. This cannot be undone.",
     factoryDepthLimit: "Maximum nested factory depth of 10 reached.",
     factoryNavTitle: "Navigation",
+    snapToggle: "Snap",
+    snapToggleTitle:
+      "Snap connected ports horizontally when they are closely aligned",
+    edgeRoutingCurved: "Curved",
+    edgeRoutingStraight: "Straight",
+    edgeRoutingToggleTitle:
+      "Toggle between curved and orthogonal (3-segment) connections",
+    resetEdgeRoute: "Reset route",
+    addEdgeKink: "Add kink",
+    removeEdgeKink: "Remove kink",
     factoryRenameMenu: "Rename factory…",
     factoryClear: "Clear factory…",
     factoryClearTitle: "Clear this factory?",

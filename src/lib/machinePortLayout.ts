@@ -1,3 +1,4 @@
+import { snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 
 const { PORT_ROW, PORT_STACK_STEP } = MACHINE_LAYOUT;
@@ -10,10 +11,12 @@ export function computeVerticalSlotYs(
   frameH: number,
 ): number[] {
   if (count <= 0) return [];
-  if (count === 1) return [(frameH - PORT_ROW) / 2];
+  if (count === 1) return [snapToGrid((frameH - PORT_ROW) / 2)];
   const span = (count - 1) * PORT_STACK_STEP;
-  const top = (frameH - span - PORT_ROW) / 2;
-  return Array.from({ length: count }, (_, i) => top + i * PORT_STACK_STEP);
+  const top = snapToGrid((frameH - span - PORT_ROW) / 2);
+  return Array.from({ length: count }, (_, i) =>
+    snapToGrid(top + i * PORT_STACK_STEP),
+  );
 }
 
 export function nearestSlotIndex(

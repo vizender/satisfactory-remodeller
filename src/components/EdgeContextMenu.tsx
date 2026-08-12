@@ -7,9 +7,27 @@ type Props = {
   onClose: () => void;
   onBranch?: () => void;
   onDelete?: () => void;
+  onResetRoute?: () => void;
+  showResetRoute?: boolean;
+  onAddKink?: () => void;
+  showAddKink?: boolean;
+  onRemoveKink?: () => void;
+  showRemoveKink?: boolean;
 };
 
-export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
+export function EdgeContextMenu({
+  x,
+  y,
+  onClose,
+  onBranch,
+  onDelete,
+  onResetRoute,
+  showResetRoute,
+  onAddKink,
+  showAddKink,
+  onRemoveKink,
+  showRemoveKink,
+}: Props) {
   const { t } = useI18n();
   const { ref: menuRef, left, top } = useClampedFixedPosition({ x, y }, true);
 
@@ -45,6 +63,54 @@ export function EdgeContextMenu({ x, y, onClose, onBranch, onDelete }: Props) {
         <p className="px-3 pb-2 text-[10px] leading-snug text-[var(--muted)]">
           {t("branchEdgeHelp")}
         </p>
+        {showAddKink ? (
+          <>
+            <hr className="border-[var(--border)]" />
+            <button
+              type="button"
+              role="menuitem"
+              className="block w-full px-3 py-2 text-left text-sm text-[var(--text)] hover:bg-[var(--bg)]"
+              onClick={() => {
+                onAddKink?.();
+                onClose();
+              }}
+            >
+              {t("addEdgeKink")}
+            </button>
+          </>
+        ) : null}
+        {showRemoveKink ? (
+          <>
+            <hr className="border-[var(--border)]" />
+            <button
+              type="button"
+              role="menuitem"
+              className="block w-full px-3 py-2 text-left text-sm text-[var(--text)] hover:bg-[var(--bg)]"
+              onClick={() => {
+                onRemoveKink?.();
+                onClose();
+              }}
+            >
+              {t("removeEdgeKink")}
+            </button>
+          </>
+        ) : null}
+        {showResetRoute ? (
+          <>
+            <hr className="border-[var(--border)]" />
+            <button
+              type="button"
+              role="menuitem"
+              className="block w-full px-3 py-2 text-left text-sm text-[var(--text)] hover:bg-[var(--bg)]"
+              onClick={() => {
+                onResetRoute?.();
+                onClose();
+              }}
+            >
+              {t("resetEdgeRoute")}
+            </button>
+          </>
+        ) : null}
         <hr className="border-[var(--border)]" />
         <button
           type="button"

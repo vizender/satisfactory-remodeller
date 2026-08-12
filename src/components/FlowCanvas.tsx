@@ -25,6 +25,10 @@ import {
   type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  BACKGROUND_GRID_GAP,
+  SNAP_GRID_SIZE,
+} from "@/constants/flowGrid";
 import { EdgeContextMenu } from "@/components/EdgeContextMenu";
 import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
@@ -32,7 +36,7 @@ import { FactoryContextMenu } from "@/components/FactoryContextMenu";
 import { ContainerFrameNode } from "@/components/ContainerFrameNode";
 import { ContainerContextMenu } from "@/components/ContainerContextMenu";
 import { FactoryFrameNode } from "@/components/FactoryFrameNode";
-import { WideHitBezierEdge } from "@/components/edges/WideHitBezierEdge";
+import { FlowEdge } from "@/components/edges/FlowEdge";
 import { ItemPortNode } from "@/components/ItemPortNode";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
@@ -52,6 +56,22 @@ import {
   applyReorderTransitionToNodes,
   type ConnectionDragPreview,
 } from "@/lib/nodeDisplayDecorators";
+import {
+  isRigidSnapFrameType,
+  rigidSnapFramePosition,
+} from "@/lib/rigidPortSnap";
+import {
+  beginVerticalFuseSession,
+  commitFusedOrthogonalEdges,
+  detectIntersectionLocks,
+  endVerticalFuseSession,
+  insertKinkOnSegment,
+  interiorCorners,
+  nearestInteriorCornerIndex,
+  nearestSegmentIndex,
+  removeCornerAt,
+  resolveRoutePoints,
+} from "@/lib/orthogonalEdgePath";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
@@ -63,6 +83,7 @@ import {
   hasEdgeBetweenPorts,
   useDocumentStore,
 } from "@/store/useDocumentStore";
+import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 import { useWorldStore } from "@/store/useWorldStore";
 import type {
   ContainerFrameData,
@@ -84,8 +105,8 @@ const nodeTypes: NodeTypes = {
 };
 
 const edgeTypes: EdgeTypes = {
-  /** Remplace le Bezier par défaut : hitbox large compatible WebKit / clic droit (voir composant). */
-  default: WideHitBezierEdge,
+  /** Routeur courbes / orthogonales (voir FlowEdge). Hitbox large WebKit / clic droit. */
+  default: FlowEdge,
 };
 
 function clientXY(ev: MouseEvent | TouchEvent): { x: number; y: number } {
@@ -125,16 +146,87 @@ function EdgeMenuHost({
   edges,
   onDismiss,
 }: {
-  menu: { x: number; y: number; edgeId: string } | null;
+  menu: {
+    x: number;
+    y: number;
+    edgeId: string;
+    flowX: number;
+    flowY: number;
+  } | null;
   edges: Edge[];
   onDismiss: () => void;
 }) {
   const { fitView, getNode } = useReactFlow();
   const removeEdgeById = useDocumentStore((s) => s.removeEdgeById);
+  const setEdgeBendX = useDocumentStore((s) => s.setEdgeBendX);
+  const setEdgeCorners = useDocumentStore((s) => s.setEdgeCorners);
+  const edgeRoutingMode = useCanvasUiStore((s) => s.edgeRoutingMode);
 
   if (!menu) return null;
 
   const edge = edges.find((e) => e.id === menu.edgeId);
+  const orthogonal = edgeRoutingMode === "orthogonal";
+
+  const handlePositions = (() => {
+    if (!edge) return null;
+    const src = getNode(edge.source);
+    const tgt = getNode(edge.target);
+    if (!src || !tgt) return null;
+    // Port nodes are children of frames; absolute = parent + relative + handle mid
+    const srcParent = src.parentId ? getNode(src.parentId) : undefined;
+    const tgtParent = tgt.parentId ? getNode(tgt.parentId) : undefined;
+    if (!srcParent || !tgtParent) return null;
+    const PORT_ROW = 108;
+    const PORT_W = 96;
+    const srcKind = (src.data as ItemPortData).kind;
+    const tgtKind = (tgt.data as ItemPortData).kind;
+    const sourceX =
+      srcParent.position.x +
+      src.position.x +
+      (srcKind === "out" ? PORT_W : 0);
+    const sourceY =
+      srcParent.position.y + src.position.y + PORT_ROW / 2;
+    const targetX =
+      tgtParent.position.x +
+      tgt.position.x +
+      (tgtKind === "out" ? PORT_W : 0);
+    const targetY =
+      tgtParent.position.y + tgt.position.y + PORT_ROW / 2;
+    return { sourceX, sourceY, targetX, targetY };
+  })();
+
+  const routePoints =
+    edge && handlePositions
+      ? resolveRoutePoints(
+          handlePositions.sourceX,
+          handlePositions.sourceY,
+          handlePositions.targetX,
+          handlePositions.targetY,
+          edge.data,
+          edge.id,
+        )
+      : null;
+
+  const cornerIdx =
+    routePoints && orthogonal
+      ? nearestInteriorCornerIndex(
+          routePoints,
+          { x: menu.flowX, y: menu.flowY },
+          28,
+        )
+      : -1;
+
+  const canRemoveKink =
+    orthogonal &&
+    routePoints &&
+    cornerIdx > 0 &&
+    handlePositions &&
+    removeCornerAt(
+      routePoints,
+      cornerIdx,
+      handlePositions.sourceX,
+      handlePositions.targetX,
+    ) !== null;
 
   const handleBranch = () => {
     if (!edge) return;
@@ -147,6 +239,60 @@ function EdgeMenuHost({
     removeEdgeById(edge.id);
   };
 
+  const handleResetRoute = () => {
+    if (!edge) return;
+    setEdgeBendX(edge.id, undefined);
+  };
+
+  const handleAddKink = () => {
+    if (!edge || !routePoints || !handlePositions) return;
+    const segIdx = nearestSegmentIndex(routePoints, {
+      x: menu.flowX,
+      y: menu.flowY,
+    });
+    const next = insertKinkOnSegment(routePoints, segIdx, {
+      x: menu.flowX,
+      y: menu.flowY,
+    });
+    const { nodes: allNodes, edges: allEdges } = useDocumentStore.getState();
+    const locks = detectIntersectionLocks(edge.id, next, allEdges, allNodes);
+    setEdgeCorners(
+      edge.id,
+      interiorCorners(next),
+      {
+        sx: handlePositions.sourceX,
+        sy: handlePositions.sourceY,
+        tx: handlePositions.targetX,
+        ty: handlePositions.targetY,
+      },
+      locks,
+    );
+  };
+
+  const handleRemoveKink = () => {
+    if (!edge || !routePoints || !handlePositions || cornerIdx < 0) return;
+    const next = removeCornerAt(
+      routePoints,
+      cornerIdx,
+      handlePositions.sourceX,
+      handlePositions.targetX,
+    );
+    if (!next) return;
+    const { nodes: allNodes, edges: allEdges } = useDocumentStore.getState();
+    const locks = detectIntersectionLocks(edge.id, next, allEdges, allNodes);
+    setEdgeCorners(
+      edge.id,
+      interiorCorners(next),
+      {
+        sx: handlePositions.sourceX,
+        sy: handlePositions.sourceY,
+        tx: handlePositions.targetX,
+        ty: handlePositions.targetY,
+      },
+      locks,
+    );
+  };
+
   return createPortal(
     <EdgeContextMenu
       x={menu.x}
@@ -154,6 +300,12 @@ function EdgeMenuHost({
       onClose={onDismiss}
       onBranch={handleBranch}
       onDelete={handleDelete}
+      onResetRoute={handleResetRoute}
+      showResetRoute={orthogonal}
+      onAddKink={handleAddKink}
+      showAddKink={orthogonal && !canRemoveKink}
+      onRemoveKink={handleRemoveKink}
+      showRemoveKink={Boolean(canRemoveKink)}
     />,
     document.body,
   );
@@ -272,6 +424,8 @@ function FlowCanvasInner() {
     x: number;
     y: number;
     edgeId: string;
+    flowX: number;
+    flowY: number;
   } | null>(null);
 
   const [machineMenu, setMachineMenu] = useState<{
@@ -373,6 +527,32 @@ function FlowCanvasInner() {
             } else {
               machineIds.add(n.parentId);
             }
+            continue;
+          }
+        }
+        if (
+          useCanvasUiStore.getState().rigidPortSnap &&
+          change.type === "position" &&
+          change.position &&
+          change.dragging !== undefined
+        ) {
+          const n = useDocumentStore
+            .getState()
+            .nodes.find((node) => node.id === change.id);
+          if (n && isRigidSnapFrameType(n.type)) {
+            const { nodes: list, edges: edgeList } =
+              useDocumentStore.getState();
+            const snapped = rigidSnapFramePosition(
+              change.id,
+              change.position,
+              list,
+              edgeList,
+              {
+                currentPos: n.position,
+                onRelease: change.dragging === false,
+              },
+            );
+            forwarded.push({ ...change, position: snapped });
             continue;
           }
         }
@@ -493,10 +673,17 @@ function FlowCanvasInner() {
           event.preventDefault();
           setMachineMenu(null);
           setRecipePicker(null);
+          const flow =
+            rfRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            }) ?? { x: 0, y: 0 };
           setEdgeMenu({
             x: event.clientX,
             y: event.clientY,
             edgeId: edge.id,
+            flowX: flow.x,
+            flowY: flow.y,
           });
         }}
         nodeDragThreshold={6}
@@ -550,6 +737,9 @@ function FlowCanvasInner() {
         }
         nodesDraggable={!tutorialActive || tutorialGates.allowNodeDrag}
         onNodeDragStart={(event, node) => {
+          const { nodes: list, edges: edgeList } =
+            useDocumentStore.getState();
+          beginVerticalFuseSession(edgeList, list);
           if (
             (node.type !== "machineFrame" &&
               node.type !== "factoryFrame" &&
@@ -562,6 +752,12 @@ function FlowCanvasInner() {
             node.id,
             event.shiftKey ? "add" : "replace",
           );
+        }}
+        onNodeDragStop={() => {
+          const { nodes: list, edges: edgeList, setEdgeCorners } =
+            useDocumentStore.getState();
+          commitFusedOrthogonalEdges(edgeList, list, setEdgeCorners);
+          endVerticalFuseSession();
         }}
         onNodeContextMenu={(event, node) => {
           if (node.type === "itemPort") {
@@ -736,7 +932,7 @@ function FlowCanvasInner() {
         fitView
         fitViewOptions={{ padding: 0.2 }}
         snapToGrid
-        snapGrid={[16, 16]}
+        snapGrid={[SNAP_GRID_SIZE, SNAP_GRID_SIZE]}
         className="bg-[var(--bg)]"
         proOptions={{ hideAttribution: true }}
         elevateEdgesOnSelect
@@ -750,7 +946,7 @@ function FlowCanvasInner() {
           animated: false,
         }}
       >
-        <Background gap={16} color="var(--flow-grid)" />
+        <Background gap={BACKGROUND_GRID_GAP} color="var(--flow-grid)" />
         <Controls className="!bg-[var(--surface)] !border-[var(--border)] !shadow-lg" />
         <MiniMap
           className="!bg-[var(--surface)] !border-[var(--border)]"

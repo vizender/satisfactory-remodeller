@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useRef, useState, type CSSProperties } from "react";
 import { ItemIconSlot } from "@/components/ItemIconSlot";
+import { snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
@@ -16,9 +17,11 @@ import {
   computeVerticalSlotYs,
   nearestSlotIndex,
 } from "@/lib/machinePortLayout";
+import { frameYForPortHorizontalAlign } from "@/lib/rigidPortSnap";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { useTutorialGates } from "@/hooks/useTutorialGates";
 import { useDocumentStore } from "@/store/useDocumentStore";
+import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 import { useTutorialStore } from "@/store/useTutorialStore";
 import {
   itemPortDisplayName,
@@ -223,6 +226,28 @@ export function ItemPortNode(props: NodeProps) {
         swapMachinePortSlots(st.frameId, st.kind, st.recipeIdx, endSlot);
         useTutorialStore.getState().onPortSwapped(st.frameId);
       }
+
+      if (useCanvasUiStore.getState().rigidPortSnap) {
+        const { nodes, edges } = useDocumentStore.getState();
+        const portNode = nodes.find((n) => n.id === id);
+        const portY = portNode?.position.y ?? ys[endSlot] ?? st.origY;
+        const alignedY = frameYForPortHorizontalAlign(
+          st.frameId,
+          id,
+          portY,
+          nodes,
+          edges,
+        );
+        if (alignedY !== null) {
+          const frame = nodes.find((n) => n.id === st.frameId);
+          if (frame && frame.position.y !== alignedY) {
+            setNodePosition(st.frameId, {
+              x: frame.position.x,
+              y: alignedY,
+            });
+          }
+        }
+      }
     },
     [getNode, id, setNodePosition, swapMachinePortSlots],
   );
@@ -365,7 +390,7 @@ export function ItemPortNode(props: NodeProps) {
       const minY = ys[0] ?? st.origY;
       const maxY = ys[ys.length - 1] ?? minY;
       const raw = st.origY + dFlow;
-      const clamped = Math.max(minY, Math.min(maxY, raw));
+      const clamped = snapToGrid(Math.max(minY, Math.min(maxY, raw)));
       const endSlot = nearestSlotIndex(
         clamped + PORT_ROW / 2,
         st.slots,
@@ -389,6 +414,23 @@ export function ItemPortNode(props: NodeProps) {
               x: base.x,
               y: ys[st.startSlot] ?? base.y,
             });
+          }
+        }
+      }
+
+      if (useCanvasUiStore.getState().rigidPortSnap) {
+        const { nodes: allNodes, edges } = useDocumentStore.getState();
+        const alignedY = frameYForPortHorizontalAlign(
+          st.frameId,
+          id,
+          clamped,
+          allNodes,
+          edges,
+        );
+        if (alignedY !== null) {
+          const frame = allNodes.find((n) => n.id === st.frameId);
+          if (frame) {
+            nextPos.set(st.frameId, { x: frame.position.x, y: alignedY });
           }
         }
       }

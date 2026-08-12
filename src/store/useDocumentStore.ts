@@ -14,6 +14,8 @@ import {
   applyContainerItemAssignment,
 } from "@/lib/containerPortAssign";
 import { CONTAINER_DEFAULT_LABEL } from "@/constants/container";
+import { snapPointToGrid } from "@/constants/flowGrid";
+import { snapBuiltFrameToLinkOrigin } from "@/lib/rigidPortSnap";
 import type { ContainerVariant } from "@/types/graph";
 import {
   buildMachineNodes,
@@ -34,6 +36,8 @@ import {
   isPortItemAssigned,
   portItemsCompatible,
 } from "@/types/graph";
+import type { ItemEdgeData } from "@/types/edgeData";
+import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
@@ -49,6 +53,23 @@ export interface DocumentState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdgeById: (edgeId: string) => void;
+  /** Orthogonal mode: set / clear the vertical segment X (undefined = auto). */
+  setEdgeBendX: (edgeId: string, bendX: number | undefined) => void;
+  /**
+   * Orthogonal mode: set / clear multi-segment route.
+   * Pass live handle positions as `anchor` so corners are stored as fractions.
+   */
+  setEdgeCorners: (
+    edgeId: string,
+    corners: import("@/types/edgeData").OrthoPoint[] | undefined,
+    anchor?: import("@/types/edgeData").RouteAnchor,
+    lockedVerticals?: import("@/types/edgeData").LockedVertical[],
+  ) => void;
+  /** Update intersection locks without rewriting the route geometry. */
+  setEdgeLockedVerticalXs: (
+    edgeId: string,
+    lockedVerticals: import("@/types/edgeData").LockedVertical[],
+  ) => void;
   setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
   /** Retire tous les overrides sur les ports d’une machine (cadre). */
   clearForcedOnMachine: (machineFrameId: string) => void;
@@ -262,6 +283,86 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   removeEdgeById: (edgeId) =>
     set({ edges: get().edges.filter((e) => e.id !== edgeId) }),
+  setEdgeBendX: (edgeId, bendX) =>
+    set((s) => ({
+      edges: s.edges.map((e) => {
+        if (e.id !== edgeId) return e;
+        const prev = (e.data ?? {}) as ItemEdgeData;
+        const next: ItemEdgeData = { ...prev };
+        if (bendX === undefined || Number.isNaN(bendX)) {
+          delete next.bendX;
+          delete next.corners;
+          delete next.cornersNorm;
+          delete next.routeAnchor;
+          delete next.lockedVerticalXs;
+          delete next.lockedVerticals;
+        } else {
+          next.bendX = bendX;
+          delete next.corners;
+          delete next.cornersNorm;
+          delete next.routeAnchor;
+          delete next.lockedVerticalXs;
+          delete next.lockedVerticals;
+        }
+        return { ...e, data: next };
+      }),
+    })),
+  setEdgeCorners: (edgeId, corners, anchor, lockedVerticals) =>
+    set((s) => ({
+      edges: s.edges.map((e) => {
+        if (e.id !== edgeId) return e;
+        const prev = (e.data ?? {}) as ItemEdgeData;
+        const next: ItemEdgeData = { ...prev };
+        if (!corners || corners.length < 2 || !anchor) {
+          delete next.corners;
+          delete next.cornersNorm;
+          delete next.bendX;
+          delete next.routeAnchor;
+          delete next.lockedVerticalXs;
+          delete next.lockedVerticals;
+        } else {
+          const dx = anchor.tx - anchor.sx;
+          const dy = anchor.ty - anchor.sy;
+          next.cornersNorm = corners.map((p) => ({
+            u: Math.abs(dx) < 1e-6 ? 0.5 : (p.x - anchor.sx) / dx,
+            v: Math.abs(dy) < 1e-6 ? 0.5 : (p.y - anchor.sy) / dy,
+          }));
+          next.routeAnchor = { ...anchor };
+          if (lockedVerticals && lockedVerticals.length > 0) {
+            next.lockedVerticals = lockedVerticals.map((l) => ({
+              x: l.x,
+              ord: l.ord,
+            }));
+            next.lockedVerticalXs = lockedVerticals.map((l) => l.x);
+          } else {
+            delete next.lockedVerticals;
+            delete next.lockedVerticalXs;
+          }
+          delete next.corners;
+          delete next.bendX;
+        }
+        return { ...e, data: next };
+      }),
+    })),
+  setEdgeLockedVerticalXs: (edgeId, lockedVerticals) =>
+    set((s) => ({
+      edges: s.edges.map((e) => {
+        if (e.id !== edgeId) return e;
+        const prev = (e.data ?? {}) as ItemEdgeData;
+        const next: ItemEdgeData = { ...prev };
+        if (lockedVerticals.length > 0) {
+          next.lockedVerticals = lockedVerticals.map((l) => ({
+            x: l.x,
+            ord: l.ord,
+          }));
+          next.lockedVerticalXs = lockedVerticals.map((l) => l.x);
+        } else {
+          delete next.lockedVerticals;
+          delete next.lockedVerticalXs;
+        }
+        return { ...e, data: next };
+      }),
+    })),
   setForcedPortRate: (portId, ratePerMin) =>
     set((s) => {
       const next = { ...s.forcedPortRates };
@@ -317,7 +418,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
     const position = computeMachineFramePosition(
       recipeKey,
-      flowPosition,
+      snapPointToGrid(flowPosition),
       placement,
     );
 
@@ -329,6 +430,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     };
     const built = buildMachineNodes(bp);
     let extraEdges: Edge[] = [];
+    let connectedPortId: string | null = null;
     if (linkId) {
       const origin = get().nodes.find((n) => n.id === linkId);
       if (origin?.type === "itemPort") {
@@ -341,6 +443,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             !hasEdgeBetweenPorts(get().edges, linkId, targetIn)
           ) {
             extraEdges.push(makeItemEdge(linkId, targetIn, itemId));
+            connectedPortId = targetIn;
           }
         } else {
           const sourceOut = findItemPortIdOnMachine(built, id, "out", itemId);
@@ -349,9 +452,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             !hasEdgeBetweenPorts(get().edges, sourceOut, linkId)
           ) {
             extraEdges.push(makeItemEdge(sourceOut, linkId, itemId));
+            connectedPortId = sourceOut;
           }
         }
       }
+    }
+    if (
+      linkId &&
+      connectedPortId &&
+      useCanvasUiStore.getState().rigidPortSnap
+    ) {
+      snapBuiltFrameToLinkOrigin(
+        built,
+        id,
+        linkId,
+        connectedPortId,
+        get().nodes,
+      );
     }
     set((s) => ({
       nodes: [...s.nodes, ...built],
@@ -360,7 +477,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   addContainer: (variant, flowPosition, options) => {
     const id = nextContainerFrameId(get().nodes);
-    const position = computeContainerFramePosition(variant, flowPosition);
+    const position = computeContainerFramePosition(
+      variant,
+      snapPointToGrid(flowPosition),
+    );
     const bp: ContainerBlueprint = {
       id,
       position,
@@ -370,6 +490,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     };
     const built = buildContainerNodes(bp);
     let extraEdges: Edge[] = [];
+    let connectedPortId: string | null = null;
     const linkId = options?.linkOriginPortId;
     if (linkId) {
       const origin = get().nodes.find((n) => n.id === linkId);
@@ -390,6 +511,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
               !hasEdgeBetweenPorts(get().edges, linkId, targetIn.id)
             ) {
               extraEdges.push(makeItemEdge(linkId, targetIn.id, itemId));
+              connectedPortId = targetIn.id;
             }
           } else {
             const sourceOut = built.find(
@@ -404,10 +526,24 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
               !hasEdgeBetweenPorts(get().edges, sourceOut.id, linkId)
             ) {
               extraEdges.push(makeItemEdge(sourceOut.id, linkId, itemId));
+              connectedPortId = sourceOut.id;
             }
           }
         }
       }
+    }
+    if (
+      linkId &&
+      connectedPortId &&
+      useCanvasUiStore.getState().rigidPortSnap
+    ) {
+      snapBuiltFrameToLinkOrigin(
+        built,
+        id,
+        linkId,
+        connectedPortId,
+        get().nodes,
+      );
     }
     let nextNodes = built;
     for (const e of extraEdges) {
