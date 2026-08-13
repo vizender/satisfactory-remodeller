@@ -16,6 +16,7 @@ import {
   forceOrthogonal,
   fuseRouteOnRelease,
   interiorCorners,
+  isDetourWrapRail,
   locksChanged,
   MIN_PORT_STUB,
   moveCorner2D,
@@ -138,6 +139,7 @@ function applyCornerSnaps(
   networkEdgeId: string,
   heldSnapX: number | null,
   heldSnapY: number | null,
+  openChain = false,
 ): { points: OrthoPoint[]; heldSnapX: number | null; heldSnapY: number | null } {
   if (!points[cornerIndex]) return { points, heldSnapX, heldSnapY };
 
@@ -146,6 +148,7 @@ function applyCornerSnaps(
   let nextHeldX = heldSnapX;
   let nextHeldY = heldSnapY;
   const corner = next[cornerIndex]!;
+  const moveCorner = openChain ? moveCorner2DOpen : moveCorner2D;
 
   // Prefer snapping the corner's X/Y directly (works even for tiny kink jogs).
   const vertSegs = routeSegments(next).filter(
@@ -169,7 +172,7 @@ function applyCornerSnaps(
     CORNER_SNAP_OVERLAP_PAD,
   );
   if (Math.abs(snappedX - corner.x) > 0.5) {
-    next = moveCorner2D(next, cornerIndex, snappedX, next[cornerIndex]!.y);
+    next = moveCorner(next, cornerIndex, snappedX, next[cornerIndex]!.y);
     nextHeldX = snappedX;
   } else if (
     nextHeldX !== null &&
@@ -200,7 +203,7 @@ function applyCornerSnaps(
     CORNER_SNAP_OVERLAP_PAD,
   );
   if (Math.abs(snappedY - cornerAfter.y) > 0.5) {
-    next = moveCorner2D(next, cornerIndex, next[cornerIndex]!.x, snappedY);
+    next = moveCorner(next, cornerIndex, next[cornerIndex]!.x, snappedY);
     nextHeldY = snappedY;
   } else if (
     nextHeldY !== null &&
@@ -386,19 +389,18 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
               pointer.x,
               pointer.y,
             );
-        if (!isSeg) {
-          const snapped = applyCornerSnaps(
-            next,
-            st.cornerIndex,
-            idRef.current,
-            networkEdgeIdRef.current,
-            st.heldSnapX,
-            st.heldSnapY,
-          );
-          next = snapped.points;
-          st.heldSnapX = snapped.heldSnapX;
-          st.heldSnapY = snapped.heldSnapY;
-        }
+        const snapped = applyCornerSnaps(
+          next,
+          st.cornerIndex,
+          idRef.current,
+          networkEdgeIdRef.current,
+          st.heldSnapX,
+          st.heldSnapY,
+          isSeg,
+        );
+        next = snapped.points;
+        st.heldSnapX = snapped.heldSnapX;
+        st.heldSnapY = snapped.heldSnapY;
         st.latestPoints = next;
         setDragPoints(next);
         return;
@@ -442,10 +444,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         st.heldSnapY = newSeg?.horizontal ? newSeg.a.y : null;
       }
 
-      // Shared routing segments stay isolated — no soft-snap onto neighbor
-      // geometry (that was inventing stubs / yanking connected runs).
+      // Soft-snap free H/V onto same-network neighbors (also open routing stubs).
       const movedSeg = routeSegments(next)[st.segmentIndex];
-      if (!isSeg && movedSeg && !movedSeg.horizontal) {
+      if (movedSeg && !movedSeg.horizontal) {
         const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
         const others = collectVerticalSegments(edges, nodes, idRef.current, {
           sameNetworkAs: networkEdgeIdRef.current,
@@ -461,11 +462,13 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         if (Math.abs(snappedX - movedSeg.a.x) > 0.5) {
           const ends = endsRef.current;
           let x = snappedX;
-          if (st.segmentIndex <= 1) {
-            x = Math.max(x, ends.sourceX + MIN_PORT_STUB);
-          }
-          if (st.segmentIndex >= next.length - 3) {
-            x = Math.min(x, ends.targetX - MIN_PORT_STUB);
+          if (!isSeg) {
+            if (st.segmentIndex <= 1) {
+              x = Math.max(x, ends.sourceX + MIN_PORT_STUB);
+            }
+            if (st.segmentIndex >= next.length - 3) {
+              x = Math.min(x, ends.targetX - MIN_PORT_STUB);
+            }
           }
           const pts = next.map((p) => ({ ...p }));
           const i = st.segmentIndex;
@@ -474,7 +477,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[i + 1] = { x, y: pts[i + 1]!.y };
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
-            next = clampPortStubs(forceOrthogonal(pts));
+            next = isSeg
+              ? orthogonalizeOpen(pts)
+              : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapX = x;
         } else if (
@@ -483,7 +488,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         ) {
           st.heldSnapX = null;
         }
-      } else if (!isSeg && movedSeg?.horizontal) {
+      } else if (movedSeg?.horizontal) {
         const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
         const others = collectHorizontalSegments(edges, nodes, idRef.current, {
           sameNetworkAs: networkEdgeIdRef.current,
@@ -504,7 +509,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[i + 1] = { x: pts[i + 1]!.x, y: snappedY };
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
-            next = clampPortStubs(forceOrthogonal(pts));
+            next = isSeg
+              ? orthogonalizeOpen(pts)
+              : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapY = snappedY;
         } else if (
@@ -724,6 +731,11 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       ? routingGraph.segments[id]
       : undefined;
     const pin = openKinkPin(segMeta);
+    // Detour wrap rail: translate Y via segment drag (do not invent a kink).
+    if (isRoutingSegment && isDetourWrapRail(points, segmentIndex, pin)) {
+      beginSegmentDrag(e, segmentIndex);
+      return;
+    }
     const { points: kinked, cornerIndex } = beginMidHandleKink(
       points,
       segmentIndex,

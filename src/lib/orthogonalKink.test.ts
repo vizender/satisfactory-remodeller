@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assembleOpenPolyline,
   beginMidHandleKink,
+  isDetourWrapRail,
   moveCorner2D,
   moveCorner2DOpen,
   moveSegment,
@@ -165,6 +166,67 @@ describe("orthogonal kink placement", () => {
       x: 140,
       y: 80,
     });
+  });
+
+  it("beginMidHandleKink refuses to invent a kink on a detour wrap rail", () => {
+    const start = [
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+      { x: 100, y: 80 },
+      { x: 140, y: 80 },
+    ];
+    expect(isDetourWrapRail(start, 0, "end")).toBe(true);
+    const { cornerIndex, points } = beginMidHandleKink(
+      start,
+      0,
+      { x: 200, y: 240 },
+      "end",
+    );
+    expect(cornerIndex).toBe(-1);
+    expect(points[0]!.y).toBe(200);
+    expect(points[1]!.y).toBe(200);
+  });
+
+  it("output detour wrap rail is the last free horizontal", () => {
+    const start = [
+      { x: 140, y: 80 },
+      { x: 100, y: 80 },
+      { x: 100, y: 200 },
+      { x: 300, y: 200 },
+    ];
+    expect(isDetourWrapRail(start, 2, "start")).toBe(true);
+    const result = moveSegmentOpen(
+      2,
+      { x: 200, y: 260 },
+      start,
+      { x: 200, y: 200 },
+      { pin: "start" },
+    );
+    expect(result.points[2]!.y).toBe(260);
+    expect(result.points[3]!.y).toBe(260);
+    expect(result.points[0]).toEqual({ x: 140, y: 80 });
+  });
+
+  it("moveSegmentOpen soft-collapses a free H onto a sibling H (kink merge)", () => {
+    // U-bend: free H at y=160, stub Hs at y=100 — drag free H within snap range
+    const start = [
+      { x: 100, y: 100 },
+      { x: 140, y: 100 },
+      { x: 140, y: 160 },
+      { x: 220, y: 160 },
+      { x: 220, y: 100 },
+      { x: 300, y: 100 },
+    ];
+    const result = moveSegmentOpen(
+      2,
+      { x: 180, y: 130 },
+      start,
+      { x: 180, y: 160 },
+      { pin: "both" },
+    );
+    // Within engage of y=100 → collapse toward stub row
+    const freeYs = result.points.map((p) => p.y);
+    expect(freeYs.every((y) => Math.abs(y - 100) < 1)).toBe(true);
   });
 
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {

@@ -19,14 +19,16 @@ const { PORT_ROW } = MACHINE_LAYOUT;
 export const FORWARD_MIN_GAP = 24;
 export const BACKWARDS_STUB = 40;
 export const BACKWARDS_BUS_OFFSET = 56;
-export const VERTICAL_SNAP_ENGAGE = 20;
-export const VERTICAL_SNAP_HOLD = 36;
+/** Soft-snap radius when aligning free H/V runs onto neighbors. */
+export const VERTICAL_SNAP_ENGAGE = 48;
+/** Sticky hold after a soft-snap engages (must exceed engage). */
+export const VERTICAL_SNAP_HOLD = 72;
 /** Fuse a free vertical onto an intersection when within this distance. */
-export const VERTICAL_FUSE_ENGAGE = 20;
+export const VERTICAL_FUSE_ENGAGE = 48;
 /** Keep fused until free remapped vertical separates past this. */
-export const VERTICAL_FUSE_HOLD = 36;
+export const VERTICAL_FUSE_HOLD = 72;
 /** Generous pad so short kink jogs still snap onto long foreign trunks. */
-export const CORNER_SNAP_OVERLAP_PAD = 64;
+export const CORNER_SNAP_OVERLAP_PAD = 96;
 /** Min length of the horizontal stub leaving/entering a port (keeps line off the machine). */
 export const MIN_PORT_STUB = 20;
 
@@ -1053,6 +1055,73 @@ export function moveCorner2DOpen(
 export type OpenKinkPin = "start" | "end" | "both";
 
 /**
+ * Around-machine detour wrap rail: the junction-side horizontal whose Y is the
+ * wrap Y (junction already off the port row). Mid-handle must translate this
+ * rail — inventing a kink parks the junction and feels immovable.
+ */
+export function isDetourWrapRail(
+  points: OrthoPoint[],
+  segmentIndex: number,
+  pin: OpenKinkPin = "both",
+): boolean {
+  if (points.length < 4) return false;
+  const base = orthogonalizeOpen(points);
+  const segs = routeSegments(base);
+  const seg = segs[segmentIndex];
+  if (!seg?.horizontal) return false;
+  const junctionOffPortRow =
+    Math.abs(base[0]!.y - base[base.length - 1]!.y) > OPEN_AXIS_EPS;
+  if (!junctionOffPortRow) return false;
+  // Input stub: junction→leave@wrap is segment 0 (pin port at end).
+  if (pin === "end" && segmentIndex === 0) return true;
+  // Output stub: leave@wrap→junction is the last free run (pin port at start).
+  if (pin === "start" && segmentIndex === base.length - 2) return true;
+  return false;
+}
+
+/** Soft-snap a free run onto a sibling axis so kinks collapse sooner. */
+function snapAxisToSiblings(
+  proposed: number,
+  siblings: number[],
+  engage = VERTICAL_SNAP_ENGAGE,
+): number {
+  let best = proposed;
+  let bestDist = engage;
+  for (const s of siblings) {
+    const d = Math.abs(proposed - s);
+    if (d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+  return snapToGrid(best);
+}
+
+function siblingHorizYs(
+  points: OrthoPoint[],
+  segmentIndex: number,
+): number[] {
+  const ys: number[] = [];
+  for (const s of routeSegments(points)) {
+    if (!s.horizontal || s.index === segmentIndex) continue;
+    ys.push(s.a.y);
+  }
+  return ys;
+}
+
+function siblingVertXs(
+  points: OrthoPoint[],
+  segmentIndex: number,
+): number[] {
+  const xs: number[] = [];
+  for (const s of routeSegments(points)) {
+    if (s.horizontal || s.index === segmentIndex) continue;
+    xs.push(s.a.x);
+  }
+  return xs;
+}
+
+/**
  * Drag a segment on an open chain. Endpoints stay fixed — edits are local to
  * this segment so connected stubs/buses are not rewritten.
  * - Straight 2-point runs get a U-offset (parallel free run) instead of moving junctions.
@@ -1128,29 +1197,11 @@ export function moveSegmentOpen(
   }
 
   if (seg.horizontal) {
-    const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
-    const junctionOffPortRow =
-      Math.abs(base[0]!.y - base[base.length - 1]!.y) > 8;
+    let newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
     // Detour wrap rail: junction already sits off the port row — allow moving
     // that horizontal in Y (port stays pinned). Normal stubs start on-row.
     if (
-      junctionOffPortRow &&
-      segmentIndex === 0 &&
-      pin === "end" &&
-      Math.abs(newY - seg.a.y) >= MIN_SEG / 2
-    ) {
-      const pts = base.map((p) => ({ ...p }));
-      pts[0] = { x: pts[0]!.x, y: newY };
-      pts[1] = { x: pts[1]!.x, y: newY };
-      return {
-        points: simplifyOrthoPoints(pts),
-        activeSegmentIndex: 0,
-      };
-    }
-    if (
-      junctionOffPortRow &&
-      segmentIndex === base.length - 2 &&
-      pin === "start" &&
+      isDetourWrapRail(base, segmentIndex, pin) &&
       Math.abs(newY - seg.a.y) >= MIN_SEG / 2
     ) {
       const pts = base.map((p) => ({ ...p }));
@@ -1162,6 +1213,8 @@ export function moveSegmentOpen(
         activeSegmentIndex: i,
       };
     }
+    // Soft-collapse toward sibling H rails (merge kink back to a single line).
+    newY = snapAxisToSiblings(newY, siblingHorizYs(base, segmentIndex));
     if (segmentIndex === 0 || segmentIndex === base.length - 2) {
       // Port-adjacent H: expand a U toward the interior, keep port fixed
       const kinked = beginMidHandleKink(
@@ -1195,7 +1248,8 @@ export function moveSegmentOpen(
     };
   }
 
-  const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+  let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+  newX = snapAxisToSiblings(newX, siblingVertXs(base, segmentIndex));
   if (segmentIndex === 0 || segmentIndex === base.length - 2) {
     const kinked = beginMidHandleKink(
       base,
@@ -1466,6 +1520,10 @@ function beginOpenChainKink(
   if (!seg || seg.length < MIN_SEG) {
     return { points: base, cornerIndex: -1 };
   }
+  // Wrap rails translate as a whole — refuse to invent a mid kink here.
+  if (isDetourWrapRail(base, segmentIndex, pin)) {
+    return { points: base, cornerIndex: -1 };
+  }
   const start = base[0]!;
   const end = base[base.length - 1]!;
 
@@ -1634,7 +1692,9 @@ export function beginMidHandleKink(
   const end = points[points.length - 1]!;
   const openChain =
     Math.abs(start.x - end.x) < 1 || Math.abs(start.y - end.y) < 1;
-  if (openChain) {
+  // Explicit port pin (incl. around-machine detours whose ends differ on both
+  // axes) must use open-chain kink semantics — never forceOrthogonal.
+  if (openChain || pin !== "both") {
     return beginOpenChainKink(orthogonalizeOpen(points), segmentIndex, at, pin);
   }
 
