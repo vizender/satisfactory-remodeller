@@ -609,6 +609,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           ...style,
           strokeLinejoin: "round",
           strokeLinecap: "round",
+          // Visual stroke comes from SharedRoutingOverlay so belts stay visible
+          // even before junction handles are measured by React Flow.
+          ...(isRoutingSegment ? { stroke: "transparent" } : null),
         }}
         markerEnd={markerEnd}
         markerStart={markerStart}

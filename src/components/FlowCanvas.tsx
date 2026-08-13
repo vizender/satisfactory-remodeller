@@ -39,6 +39,7 @@ import { FactoryFrameNode } from "@/components/FactoryFrameNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { ItemPortNode } from "@/components/ItemPortNode";
 import { RoutingJunctionNode } from "@/components/RoutingJunctionNode";
+import { SharedRoutingOverlay } from "@/components/SharedRoutingOverlay";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
@@ -1022,6 +1023,7 @@ function FlowCanvasInner() {
         }}
       >
         <Background gap={BACKGROUND_GRID_GAP} color="var(--flow-grid)" />
+        <SharedRoutingOverlay />
         <Controls className="!bg-[var(--surface)] !border-[var(--border)] !shadow-lg" />
         <MiniMap
           className="!bg-[var(--surface)] !border-[var(--border)]"

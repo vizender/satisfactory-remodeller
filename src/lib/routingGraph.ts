@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import { Position } from "@xyflow/react";
 import { snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import {
@@ -382,8 +383,12 @@ export function endpointNodeId(ep: RoutingEndpoint): string {
   return ep.kind === "port" ? ep.portId : junctionNodeId(ep.junctionId);
 }
 
-export function endpointHandleId(ep: RoutingEndpoint): string {
-  return ep.kind === "port" ? "item" : "j";
+export function endpointHandleId(
+  ep: RoutingEndpoint,
+  role: "source" | "target",
+): string {
+  if (ep.kind === "port") return "item";
+  return role === "source" ? "js" : "jt";
 }
 
 export function resolveEndpointPos(
@@ -551,7 +556,32 @@ export function buildJunctionNodes(graph: RoutingGraph): Node[] {
     focusable: false,
     deletable: false,
     connectable: false,
-    style: { width: 1, height: 1, padding: 0, margin: 0 },
+    // React Flow skips edges until nodes are "initialized" (width + handles).
+    width: 8,
+    height: 8,
+    initialWidth: 8,
+    initialHeight: 8,
+    handles: [
+      {
+        id: "js",
+        type: "source",
+        position: Position.Right,
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 8,
+      },
+      {
+        id: "jt",
+        type: "target",
+        position: Position.Left,
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 8,
+      },
+    ],
+    style: { width: 8, height: 8, padding: 0, margin: 0 },
     zIndex: 0,
   }));
 }
@@ -572,8 +602,8 @@ export function buildSegmentEdges(
       type: "routingSegment",
       source: endpointNodeId(seg.a),
       target: endpointNodeId(seg.b),
-      sourceHandle: endpointHandleId(seg.a),
-      targetHandle: endpointHandleId(seg.b),
+      sourceHandle: endpointHandleId(seg.a, "source"),
+      targetHandle: endpointHandleId(seg.b, "target"),
       data,
       className: conflictSegmentIds?.has(seg.id)
         ? "rf-edge-conflict"

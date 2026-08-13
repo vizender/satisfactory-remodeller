@@ -2,6 +2,8 @@ import type { Edge, Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 import {
   assertNoDuplicateSegmentGeometry,
+  buildJunctionNodes,
+  buildSegmentEdges,
   composeLogicalRoutePoints,
   countSegmentsDrawnOnce,
   rebuildRoutingGraph,
@@ -249,5 +251,41 @@ describe("shared routing graph (N×M)", () => {
     );
     const synced = syncRoutingJunctionPositions(moved, graph);
     expect(synced.junctions["j-in2"]!.y).toBeGreaterThan(graph.junctions["j-in2"]!.y);
+  });
+
+  it("junction nodes are RF-initialized so segment edges can mount", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const jNodes = buildJunctionNodes(graph);
+    expect(jNodes.length).toBeGreaterThan(0);
+    for (const n of jNodes) {
+      expect(n.width ?? n.initialWidth).toBeGreaterThan(0);
+      expect(n.handles?.length).toBe(2);
+      expect(n.handles?.some((h) => h.id === "js" && h.type === "source")).toBe(
+        true,
+      );
+      expect(n.handles?.some((h) => h.id === "jt" && h.type === "target")).toBe(
+        true,
+      );
+    }
+    const segs = buildSegmentEdges(graph);
+    expect(segs.length).toBeGreaterThan(0);
+    for (const s of segs) {
+      expect(s.sourceHandle).toBeTruthy();
+      expect(s.targetHandle).toBeTruthy();
+      // Port↔junction stubs use item + js/jt; bus uses js→jt
+      if (s.source.startsWith("rj-")) expect(s.sourceHandle).toBe("js");
+      if (s.target.startsWith("rj-")) expect(s.targetHandle).toBe("jt");
+    }
   });
 });
