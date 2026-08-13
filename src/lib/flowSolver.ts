@@ -83,12 +83,13 @@ function findRecycleEdgeIds(
   const GRAY = 1;
   const BLACK = 2;
   const color = new Map<string, number>();
+  const backEdges = new Set<string>();
 
   function dfs(u: string) {
     color.set(u, GRAY);
     for (const { to, id } of adj.get(u) ?? []) {
       const c = color.get(to) ?? 0;
-      if (c === GRAY) recycle.add(id);
+      if (c === GRAY) backEdges.add(id);
       else if (c === 0) dfs(to);
     }
     color.set(u, BLACK);
@@ -100,6 +101,17 @@ function findRecycleEdgeIds(
   }
   for (const id of [...machineSet].sort()) {
     if ((color.get(id) ?? 0) === 0) dfs(id);
+  }
+
+  /**
+   * Un back-edge n’est un recyclage que s’il fusionne avec une autre arrivée
+   * (sous-produit + apport externe). Un lien unique qui referme un cycle DFS
+   * reste un flux principal — sinon un split 48+60 est marqué recycle à tort.
+   */
+  for (const id of backEdges) {
+    const e = realEdges.find((x) => x.id === id);
+    if (!e) continue;
+    if (incomingTo(realEdges, e.target).length > 1) recycle.add(id);
   }
 
   return recycle;
@@ -332,7 +344,10 @@ function partitionEdgesByContainerTarget(
   return { regular, containerIn };
 }
 
-/** Recyclage d’abord, puis externes : chaque cible prend min(besoin restant, offre). */
+/**
+ * Recyclage d’abord, puis externes : chaque cible prend min(besoin restant, offre),
+ * au prorata des offres s’il y a fusion. Ne pas écrire `0` : un passage suivant peut encore servir l’arête.
+ */
 function fillMachineInputsFromEdges(
   nodes: Node[],
   edges: Edge[],
@@ -348,20 +363,10 @@ function fillMachineInputsFromEdges(
   }
   for (const [tgt, es] of byTarget) {
     const need = remainingNeed[tgt] ?? 0;
-    if (need <= EPS) {
-      for (const e of es) {
-        if (edgeFlow[e.id] === undefined) edgeFlow[e.id] = 0;
-      }
-      continue;
-    }
+    if (need <= EPS) continue;
     const supplies = es.map((e) => Math.max(remainingSupply[e.source] ?? 0, 0));
     const sumS = supplies.reduce((a, b) => a + b, 0);
-    if (sumS <= EPS) {
-      for (const e of es) {
-        if (edgeFlow[e.id] === undefined) edgeFlow[e.id] = 0;
-      }
-      continue;
-    }
+    if (sumS <= EPS) continue;
     const totalTake = Math.min(need, sumS);
     for (let i = 0; i < es.length; i++) {
       const e = es[i]!;
@@ -513,8 +518,9 @@ function rebalanceDeficitDownstream(
       const supply = effectiveRate[src] ?? 0;
       if (supply <= EPS) continue;
 
-      const needs = es.map((ed) =>
-        allocatedDemandOnEdge(
+      const rows = es.map((ed) => {
+        const mid = machineOf.get(ed.target);
+        const need = allocatedDemandOnEdge(
           ed,
           nodes,
           effectiveRate,
@@ -522,25 +528,34 @@ function rebalanceDeficitDownstream(
           base,
           forcedPortRates,
           recycleIds,
-        ),
-      );
-      const sumNeed = needs.reduce((a, b) => a + b, 0);
+        );
+        const locked =
+          !mid ||
+          machineHasForcedRate(mid, portsOfMachine, forcedPortRates) ||
+          isContainerMachineId(nodes, mid);
+        return { ed, mid, need, locked };
+      });
+      const sumNeed = rows.reduce((a, r) => a + r.need, 0);
       if (sumNeed <= EPS) continue;
 
       if (sumNeed > supply + EPS) {
-        const factor = supply / sumNeed;
+        const lockedNeed = rows
+          .filter((r) => r.locked)
+          .reduce((a, r) => a + r.need, 0);
+        const unlockedNeed = rows
+          .filter((r) => !r.locked)
+          .reduce((a, r) => a + r.need, 0);
+        if (unlockedNeed <= EPS) continue;
+        const free = Math.max(0, supply - lockedNeed);
+        const factor = Math.min(1, free / unlockedNeed);
+        if (factor >= 1 - EPS) continue;
         const seenMid = new Set<string>();
-        for (const ed of es) {
-          const mid = machineOf.get(ed.target);
-          if (!mid || seenMid.has(mid)) continue;
-          seenMid.add(mid);
-          if (machineHasForcedRate(mid, portsOfMachine, forcedPortRates)) {
-            continue;
-          }
-          if (isContainerMachineId(nodes, mid)) continue;
-          const prev = m[mid] ?? 1;
+        for (const r of rows) {
+          if (r.locked || !r.mid || seenMid.has(r.mid)) continue;
+          seenMid.add(r.mid);
+          const prev = m[r.mid] ?? 1;
           const next = Math.max(prev * factor, 1e-12);
-          m[mid] = next;
+          m[r.mid] = next;
           if (Math.abs(next - prev) > EPS * (1e-9 + Math.abs(prev))) {
             changed = true;
           }
@@ -682,6 +697,20 @@ export function solveFlow(
   const realEdges = edges.filter((e) => !e.data?.suggested);
   const recycleIds = findRecycleEdgeIds(nodes, realEdges, machineOf);
 
+  /** Split : plusieurs départs machine depuis le même port → pas de ratio 1:1 (chaque aval prendrait 100 % de la sortie). */
+  const splitSourcePorts = new Set<string>();
+  const outMachineCount = new Map<string, number>();
+  for (const e of realEdges) {
+    if (recycleIds.has(e.id)) continue;
+    if (edgeTouchesContainer(nodes, e.source, e.target)) continue;
+    const ma = machineOf.get(e.source);
+    const mb = machineOf.get(e.target);
+    if (!ma || !mb || ma === mb) continue;
+    const n = (outMachineCount.get(e.source) ?? 0) + 1;
+    outMachineCount.set(e.source, n);
+    if (n >= 2) splitSourcePorts.add(e.source);
+  }
+
   const machLinks: MachLink[] = [];
   for (const e of realEdges) {
     const bo = base.get(e.source) ?? 0;
@@ -690,6 +719,7 @@ export function solveFlow(
     if (!ma || !mb || ma === mb || bo <= 0) continue;
     if (edgeTouchesContainer(nodes, e.source, e.target)) continue;
     if (recycleIds.has(e.id)) continue;
+    if (splitSourcePorts.has(e.source)) continue;
     const recycleAvailBase = recycleAvailableOnInput(
       e.target,
       realEdges,
@@ -873,17 +903,26 @@ export function solveFlow(
 
   for (const e of realEdges) {
     if (edgeFlow[e.id] !== undefined) continue;
-    const supply = effectiveRate[e.source] ?? 0;
-    const need = allocatedDemandOnEdge(
-      e,
-      nodes,
-      effectiveRate,
-      realEdges,
-      base,
-      forcedPortRates,
-      recycleIds,
-    );
-    edgeFlow[e.id] = Math.min(supply, need);
+    const left = remainingSupply[e.source] ?? effectiveRate[e.source] ?? 0;
+    const need =
+      remainingNeed[e.target] ??
+      allocatedDemandOnEdge(
+        e,
+        nodes,
+        effectiveRate,
+        realEdges,
+        base,
+        forcedPortRates,
+        recycleIds,
+      );
+    const take = Math.min(left, Math.max(0, need));
+    edgeFlow[e.id] = take;
+    if (remainingSupply[e.source] !== undefined) {
+      remainingSupply[e.source] = Math.max(0, remainingSupply[e.source]! - take);
+    }
+    if (remainingNeed[e.target] !== undefined) {
+      remainingNeed[e.target] = Math.max(0, remainingNeed[e.target]! - take);
+    }
   }
 
   /** 2) Sommes entrantes / sortantes par port (évite double comptage sur fusion). */

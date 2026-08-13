@@ -146,3 +146,94 @@ describe("solveFlow recycle loops", () => {
     expect(r.portDelta["E2-out"]).toBeCloseTo(0, 2);
   });
 });
+
+/** Iron Wire 12.5 → 22.5, forced 60 ingot → 4.8 machines / 108 wire. */
+function ironWireSplitGraph(opts?: { cycleBackToWire?: boolean }) {
+  const WIRE = "Desc_Wire_C";
+  const PLATE = "Desc_IronPlate_C";
+  const INGOT = "Desc_IronIngot_C";
+  const STITCHED = "Desc_IronPlateReinforced_C";
+  const CABLE = "Desc_Cable_C";
+
+  const nodes: Node[] = [
+    frame("W"),
+    port("W-in", "W", "in", 12.5, INGOT),
+    port("W-out", "W", "out", 22.5, WIRE),
+    frame("P"),
+    port("P-in", "P", "in", 30, INGOT),
+    port("P-out", "P", "out", 20, PLATE),
+    frame("A"),
+    port("A-plate", "A", "in", 18.75, PLATE),
+    port("A-wire", "A", "in", 37.5, WIRE),
+    port("A-out", "A", "out", 5.625, STITCHED),
+    frame("C"),
+    port("C-in", "C", "in", 30, WIRE),
+    port("C-out", "C", "out", 10, CABLE),
+    frame("SinkC"),
+    port("SinkC-in", "SinkC", "in", 10, CABLE),
+    frame("SinkA"),
+    port("SinkA-in", "SinkA", "in", 5.625, STITCHED),
+  ];
+  const edges: Edge[] = [
+    edge("plate", "P-out", "A-plate"),
+    edge("wire-a", "W-out", "A-wire"),
+    edge("wire-c", "W-out", "C-in"),
+    edge("cable-sink", "C-out", "SinkC-in"),
+  ];
+  if (opts?.cycleBackToWire) {
+    nodes.push(
+      frame("X"),
+      port("X-in", "X", "in", 5.625, STITCHED),
+      port("X-out", "X", "out", 30, INGOT),
+    );
+    edges.push(
+      edge("a-to-x", "A-out", "X-in"),
+      edge("x-to-p", "X-out", "P-in"),
+    );
+  } else {
+    edges.push(edge("stitch-sink", "A-out", "SinkA-in"));
+  }
+  return { nodes, edges };
+}
+
+describe("solveFlow balanced splits", () => {
+  it("forced 108 wire split 48 + 60 is not a deficit", () => {
+    const { nodes, edges } = ironWireSplitGraph();
+    const r = solveFlow(nodes, edges, {
+      "W-in": 60,
+      "SinkC-in": 20,
+      "SinkA-in": 7.2,
+    });
+
+    expect(r.machineMultiplier.A).toBeCloseTo(1.28, 3);
+    expect(r.machineMultiplier.C).toBeCloseTo(2, 3);
+    expect(r.effectiveRate["W-out"]).toBeCloseTo(108, 3);
+    expect(r.effectiveRate["A-wire"]).toBeCloseTo(48, 3);
+    expect(r.effectiveRate["C-in"]).toBeCloseTo(60, 3);
+    expect(r.edgeFlow["wire-a"]).toBeCloseTo(48, 3);
+    expect(r.edgeFlow["wire-c"]).toBeCloseTo(60, 3);
+    expect(r.portDelta["A-wire"]).toBeCloseTo(0, 2);
+    expect(r.portDelta["C-in"]).toBeCloseTo(0, 2);
+    expect(r.portDelta["W-out"]).toBeCloseTo(0, 2);
+    expect(r.portDelta["SinkC-in"]).toBeCloseTo(0, 2);
+    expect(r.hardConflict).toBe(false);
+  });
+
+  it("same split stays balanced when a downstream cycle exists", () => {
+    const { nodes, edges } = ironWireSplitGraph({ cycleBackToWire: true });
+    const r = solveFlow(nodes, edges, {
+      "W-in": 60,
+      "A-wire": 48,
+      "C-in": 60,
+    });
+
+    expect(r.effectiveRate["W-out"]).toBeCloseTo(108, 3);
+    expect(r.effectiveRate["A-wire"]).toBeCloseTo(48, 3);
+    expect(r.effectiveRate["C-in"]).toBeCloseTo(60, 3);
+    expect(r.edgeFlow["wire-a"]).toBeCloseTo(48, 3);
+    expect(r.edgeFlow["wire-c"]).toBeCloseTo(60, 3);
+    expect(r.portDelta["A-wire"]).toBeCloseTo(0, 2);
+    expect(r.portDelta["C-in"]).toBeCloseTo(0, 2);
+    expect(r.hardConflict).toBe(false);
+  });
+});

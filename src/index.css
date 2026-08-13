@@ -115,6 +115,11 @@ body {
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--conflict-edge-stroke) 45%, transparent));
 }
 
+/* Au-dessus des traits SVG (y compris conflits) pour que les poignées de kink restent cliquables. */
+.react-flow__edgelabel-renderer {
+  z-index: 1002;
+}
+
 .rf-ortho-bend-handle,
 .rf-ortho-corner-handle {
   touch-action: none;
