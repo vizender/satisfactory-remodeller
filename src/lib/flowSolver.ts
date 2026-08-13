@@ -197,6 +197,43 @@ function portForcedRate(
   return fv;
 }
 
+/** Le débit affiché / d’offre d’un port forcé est la valeur imposée, pas m × nominal. */
+function applyForcedPortRates(
+  effectiveRate: Record<string, number>,
+  forcedPortRates: Record<string, number | undefined>,
+  portIds: Iterable<string>,
+): void {
+  for (const pid of portIds) {
+    const fv = portForcedRate(pid, forcedPortRates);
+    if (fv !== undefined) effectiveRate[pid] = fv;
+  }
+}
+
+function outgoingDemandOnPort(
+  pid: string,
+  nodes: Node[],
+  effectiveRate: Record<string, number>,
+  realEdges: Edge[],
+  base: Map<string, number>,
+  forcedPortRates: Record<string, number | undefined>,
+  recycleIds: Set<string>,
+): number {
+  let demand = 0;
+  for (const e of realEdges) {
+    if (e.source !== pid) continue;
+    demand += allocatedDemandOnEdge(
+      e,
+      nodes,
+      effectiveRate,
+      realEdges,
+      base,
+      forcedPortRates,
+      recycleIds,
+    );
+  }
+  return demand;
+}
+
 function allocatedDemandOnEdge(
   e: Edge,
   nodes: Node[],
@@ -814,6 +851,7 @@ export function solveFlow(
     const b = base.get(pid) ?? 0;
     effectiveRate[pid] = mid ? m[mid] * b : b;
   }
+  applyForcedPortRates(effectiveRate, forcedPortRates, base.keys());
 
   const edgeFlow: Record<string, number> = {};
 
@@ -926,11 +964,9 @@ export function solveFlow(
   }
 
   /** 2) Sommes entrantes / sortantes par port (évite double comptage sur fusion). */
-  const sumOut = new Map<string, number>();
   const sumIn = new Map<string, number>();
   for (const e of realEdges) {
     const f = edgeFlow[e.id] ?? 0;
-    sumOut.set(e.source, (sumOut.get(e.source) ?? 0) + f);
     sumIn.set(e.target, (sumIn.get(e.target) ?? 0) + f);
   }
 
@@ -942,8 +978,26 @@ export function solveFlow(
     const kind = (n.data as ItemPortData).kind;
     const nominal = effectiveRate[pid] ?? 0;
     if (kind === "out") {
-      const sent = sumOut.get(pid) ?? 0;
-      portDelta[pid] = nominal - sent;
+      const demand = outgoingDemandOnPort(
+        pid,
+        nodes,
+        effectiveRate,
+        realEdges,
+        base,
+        forcedPortRates,
+        recycleIds,
+      );
+      const fv = portForcedRate(pid, forcedPortRates);
+      if (fv !== undefined) {
+        /** Forcé : surplus ou déficit par rapport à la demande aval (50 vs 40+60). */
+        portDelta[pid] = fv - demand;
+      } else {
+        /**
+         * Surplus d’offre non consommé (108 produits, 100 pris) : pas un overflow.
+         * Déficit si la demande aval dépasse l’offre.
+         */
+        portDelta[pid] = Math.min(0, nominal - demand);
+      }
     } else {
       const recv = sumIn.get(pid) ?? 0;
       portDelta[pid] = recv - nominal;

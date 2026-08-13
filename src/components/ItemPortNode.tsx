@@ -121,7 +121,6 @@ export function ItemPortNode(props: NodeProps) {
   const isForced = forced !== undefined && !Number.isNaN(forced);
 
   const balanced = Math.abs(delta) <= EPS;
-  const showDelta = !balanced;
   const surplus = delta > EPS;
   const deficit = delta < -EPS;
 
@@ -549,12 +548,10 @@ export function ItemPortNode(props: NodeProps) {
             >
               {eff.toFixed(1)}/min
             </div>
-            {showDelta ? (
-              <div className={deltaClass}>
-                {surplus ? "+" : ""}
-                {delta.toFixed(1)}/min
-              </div>
-            ) : null}
+            <div className={deltaClass}>
+              {surplus ? "+" : ""}
+              {delta.toFixed(1)}/min
+            </div>
             <div className="text-[9px] text-[var(--muted)]">
               ×{d.amountPerCraft} / craft
             </div>

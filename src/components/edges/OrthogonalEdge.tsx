@@ -512,7 +512,11 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         labelBgStyle={labelBgStyle}
         labelBgPadding={labelBgPadding}
         labelBgBorderRadius={labelBgBorderRadius}
-        style={style}
+        style={{
+          ...style,
+          strokeLinejoin: "round",
+          strokeLinecap: "round",
+        }}
         markerEnd={markerEnd}
         markerStart={markerStart}
         interactionWidth={0}

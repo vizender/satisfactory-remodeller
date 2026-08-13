@@ -236,4 +236,32 @@ describe("solveFlow balanced splits", () => {
     expect(r.portDelta["C-in"]).toBeCloseTo(0, 2);
     expect(r.hardConflict).toBe(false);
   });
+
+  it("unconsumed split leftover on an output is not an overflow", () => {
+    const { nodes, edges } = ironWireSplitGraph();
+    const r = solveFlow(nodes, edges, {
+      "W-in": 60,
+      "A-wire": 40,
+      "C-in": 60,
+    });
+
+    expect(r.effectiveRate["W-out"]).toBeCloseTo(108, 3);
+    expect(r.edgeFlow["wire-a"] + r.edgeFlow["wire-c"]).toBeCloseTo(100, 2);
+    expect(r.portDelta["W-out"]).toBeCloseTo(0, 2);
+    expect(r.hardConflict).toBe(false);
+  });
+
+  it("forced output shows the forced rate and deficit vs downstream demand", () => {
+    const { nodes, edges } = ironWireSplitGraph();
+    const r = solveFlow(nodes, edges, {
+      "W-in": 60,
+      "W-out": 50,
+      "A-wire": 40,
+      "C-in": 60,
+    });
+
+    expect(r.effectiveRate["W-out"]).toBeCloseTo(50, 3);
+    expect(r.portDelta["W-out"]).toBeCloseTo(-50, 2);
+    expect(r.hardConflict).toBe(true);
+  });
 });

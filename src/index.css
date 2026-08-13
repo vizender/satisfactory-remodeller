@@ -110,9 +110,8 @@ body {
 
 .react-flow__edge.rf-edge-conflict .react-flow__edge-path {
   stroke: var(--conflict-edge-stroke) !important;
-  stroke-width: 3.5px !important;
+  stroke-linejoin: round;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--conflict-edge-stroke) 45%, transparent));
 }
 
 /* Au-dessus des traits SVG (y compris conflits) pour que les poignées de kink restent cliquables. */
