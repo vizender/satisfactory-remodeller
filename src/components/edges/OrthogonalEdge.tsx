@@ -38,6 +38,11 @@ import {
   subscribeOrthoDragPreview,
 } from "@/lib/orthoDragPreview";
 import {
+  composeLogicalRoutePoints,
+  resolveSegmentPoints,
+  segmentNetworkEdgeId,
+} from "@/lib/routingGraph";
+import {
   getEdgeBendX,
   getEdgeCorners,
   getEdgeCornersNorm,
@@ -45,6 +50,7 @@ import {
   type OrthoPoint,
 } from "@/types/edgeData";
 import { useDocumentStore } from "@/store/useDocumentStore";
+import type { RoutingSegmentEdgeData } from "@/types/routingGraph";
 
 const HIT_STROKE_SCREEN_PX = 21;
 const HANDLE_HIT_PX = 28;
@@ -88,14 +94,18 @@ function clientToFlow(
 }
 
 /** Same-network segments only — foreign feeds must not snap/fuse trunks. */
-function cornerSnapTargets(edgeId: string) {
-  const { nodes, edges } = useDocumentStore.getState();
+function cornerSnapTargets(edgeId: string, networkEdgeId: string) {
+  const { nodes, edges, routingGraph } = useDocumentStore.getState();
+  const resolvePoints = (e: typeof edges[number]) =>
+    composeLogicalRoutePoints(e, nodes, routingGraph);
   return {
     othersV: collectVerticalSegments(edges, nodes, edgeId, {
-      sameNetworkAs: edgeId,
+      sameNetworkAs: networkEdgeId,
+      resolvePoints,
     }),
     othersH: collectHorizontalSegments(edges, nodes, edgeId, {
-      sameNetworkAs: edgeId,
+      sameNetworkAs: networkEdgeId,
+      resolvePoints,
     }),
   };
 }
@@ -104,12 +114,13 @@ function applyCornerSnaps(
   points: OrthoPoint[],
   cornerIndex: number,
   edgeId: string,
+  networkEdgeId: string,
   heldSnapX: number | null,
   heldSnapY: number | null,
 ): { points: OrthoPoint[]; heldSnapX: number | null; heldSnapY: number | null } {
   if (!points[cornerIndex]) return { points, heldSnapX, heldSnapY };
 
-  const { othersV, othersH } = cornerSnapTargets(edgeId);
+  const { othersV, othersH } = cornerSnapTargets(edgeId, networkEdgeId);
   let next = points;
   let nextHeldX = heldSnapX;
   let nextHeldY = heldSnapY;
@@ -216,8 +227,21 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   );
   const docNodes = useDocumentStore((s) => s.nodes);
   const docEdges = useDocumentStore((s) => s.edges);
+  const routingGraph = useDocumentStore((s) => s.routingGraph);
   const [dragPoints, setDragPoints] = useState<OrthoPoint[] | null>(null);
   const dragRef = useRef<DragState | null>(null);
+
+  const isRoutingSegment =
+    (data as RoutingSegmentEdgeData | undefined)?.kind === "routingSegment";
+  const networkEdgeId =
+    (isRoutingSegment
+      ? segmentNetworkEdgeId(id, docEdges)
+      : undefined) ?? id;
+  const networkEdgeIdRef = useRef(networkEdgeId);
+  networkEdgeIdRef.current = networkEdgeId;
+
+  const resolveLogicalPoints = (e: (typeof docEdges)[number]) =>
+    composeLogicalRoutePoints(e, docNodes, routingGraph);
 
   /** Re-render when another edge’s drag preview moves (live bridges). */
   useSyncExternalStore(
@@ -226,16 +250,47 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     getOrthoDragPreviewVersion,
   );
 
-  const basePoints = resolveRoutePoints(
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    data,
-    id,
-  );
+  const segmentData =
+    isRoutingSegment && routingGraph.segments[id]
+      ? {
+          itemId: routingGraph.segments[id]!.itemId,
+          cornersNorm: routingGraph.segments[id]!.cornersNorm,
+        }
+      : data;
+
+  const basePoints = (() => {
+    if (isRoutingSegment) {
+      const seg = routingGraph.segments[id];
+      if (seg) {
+        const resolved = resolveSegmentPoints(seg, docNodes, routingGraph, id);
+        if (resolved) return resolved;
+      }
+      // Axis-aligned default for display-only segment edges
+      if (
+        !getEdgeCornersNorm(segmentData) &&
+        (Math.abs(sourceY - targetY) < 0.51 ||
+          Math.abs(sourceX - targetX) < 0.51)
+      ) {
+        return [
+          { x: sourceX, y: sourceY },
+          { x: targetX, y: targetY },
+        ];
+      }
+    }
+    return resolveRoutePoints(
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      segmentData,
+      id,
+    );
+  })();
   const points = dragPoints ?? basePoints;
-  const bridgeCrossings = findBridgeCrossings(id, points, docEdges, docNodes);
+  const bridgeCrossings = findBridgeCrossings(id, points, docEdges, docNodes, {
+    networkEdgeId,
+    resolvePoints: resolveLogicalPoints,
+  });
   const path = pointsToSvgPathWithBridges(points, bridgeCrossings);
   /** Hit testing stays on the straight ortholinear spine. */
   const hitPath = pointsToSvgPath(points);
@@ -244,7 +299,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     sourceY,
     targetX,
     targetY,
-    data,
+    segmentData,
   );
   const segs = routeSegments(points);
   const showHandles = selected || dragPoints !== null;
@@ -259,6 +314,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   }, [id, dragPoints]);
 
   useEffect(() => {
+    if (isRoutingSegment) return;
     if (getEdgeCornersNorm(data)) return;
     if (!getEdgeCorners(data) && getEdgeBendX(data) === undefined) return;
     const pts = resolveRoutePoints(sourceX, sourceY, targetX, targetY, data);
@@ -269,7 +325,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       ty: targetY,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- migrate once per edge data shape
-  }, [id, data]);
+  }, [id, data, isRoutingSegment]);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -293,6 +349,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           next,
           st.cornerIndex,
           idRef.current,
+          networkEdgeIdRef.current,
           st.heldSnapX,
           st.heldSnapY,
         );
@@ -327,9 +384,10 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
       const movedSeg = routeSegments(next)[st.segmentIndex];
       if (movedSeg && !movedSeg.horizontal) {
-        const { nodes, edges } = useDocumentStore.getState();
+        const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
         const others = collectVerticalSegments(edges, nodes, idRef.current, {
-          sameNetworkAs: idRef.current,
+          sameNetworkAs: networkEdgeIdRef.current,
+          resolvePoints: (ed) => composeLogicalRoutePoints(ed, nodes, rg),
         });
         const snappedX = snapVerticalX(
           movedSeg.a.x,
@@ -364,9 +422,10 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           st.heldSnapX = null;
         }
       } else if (movedSeg?.horizontal) {
-        const { nodes, edges } = useDocumentStore.getState();
+        const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
         const others = collectHorizontalSegments(edges, nodes, idRef.current, {
-          sameNetworkAs: idRef.current,
+          sameNetworkAs: networkEdgeIdRef.current,
+          resolvePoints: (ed) => composeLogicalRoutePoints(ed, nodes, rg),
         });
         const snappedY = snapHorizontalY(
           movedSeg.a.y,

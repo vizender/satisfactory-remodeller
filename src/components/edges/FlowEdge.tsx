@@ -6,10 +6,14 @@ import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 
 /**
  * Chooses Bezier vs orthogonal rendering from the global canvas UI preference.
+ * Shared routing segments always use orthogonal geometry.
  */
 function FlowEdgeImpl(props: EdgeProps) {
   const mode = useCanvasUiStore((s) => s.edgeRoutingMode);
-  if (mode === "orthogonal") {
+  const isSegment =
+    props.type === "routingSegment" ||
+    (props.data as { kind?: string } | undefined)?.kind === "routingSegment";
+  if (mode === "orthogonal" || isSegment) {
     return <OrthogonalEdge {...props} />;
   }
   return <WideHitBezierEdge {...props} />;

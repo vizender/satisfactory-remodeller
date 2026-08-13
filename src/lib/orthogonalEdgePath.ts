@@ -1331,15 +1331,27 @@ export function collectVerticalSegments(
   edges: Edge[],
   nodes: Node[],
   excludeEdgeId?: string,
-  opts?: { sameNetworkAs?: string },
+  opts?: {
+    sameNetworkAs?: string;
+    resolvePoints?: (edge: Edge) => OrthoPoint[] | null;
+  },
 ): VerticalSegInfo[] {
   const out: VerticalSegInfo[] = [];
   for (const e of edges) {
     if (e.id === excludeEdgeId) continue;
-    const src = portAbsPos(nodes, e.source);
-    const tgt = portAbsPos(nodes, e.target);
-    if (!src || !tgt) continue;
-    const pts = resolveRoutePoints(src.x, src.y, tgt.x, tgt.y, e.data, e.id);
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
+      continue;
+    }
+    let pts: OrthoPoint[] | null = null;
+    if (opts?.resolvePoints) {
+      pts = opts.resolvePoints(e);
+    }
+    if (!pts) {
+      const src = portAbsPos(nodes, e.source);
+      const tgt = portAbsPos(nodes, e.target);
+      if (!src || !tgt) continue;
+      pts = resolveRoutePoints(src.x, src.y, tgt.x, tgt.y, e.data, e.id);
+    }
     for (const s of routeSegments(pts)) {
       if (s.horizontal || s.length < 4) continue;
       out.push({
@@ -1360,15 +1372,27 @@ export function collectHorizontalSegments(
   edges: Edge[],
   nodes: Node[],
   excludeEdgeId?: string,
-  opts?: { sameNetworkAs?: string },
+  opts?: {
+    sameNetworkAs?: string;
+    resolvePoints?: (edge: Edge) => OrthoPoint[] | null;
+  },
 ): HorizontalSegInfo[] {
   const out: HorizontalSegInfo[] = [];
   for (const e of edges) {
     if (e.id === excludeEdgeId) continue;
-    const src = portAbsPos(nodes, e.source);
-    const tgt = portAbsPos(nodes, e.target);
-    if (!src || !tgt) continue;
-    const pts = resolveRoutePoints(src.x, src.y, tgt.x, tgt.y, e.data, e.id);
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
+      continue;
+    }
+    let pts: OrthoPoint[] | null = null;
+    if (opts?.resolvePoints) {
+      pts = opts.resolvePoints(e);
+    }
+    if (!pts) {
+      const src = portAbsPos(nodes, e.source);
+      const tgt = portAbsPos(nodes, e.target);
+      if (!src || !tgt) continue;
+      pts = resolveRoutePoints(src.x, src.y, tgt.x, tgt.y, e.data, e.id);
+    }
     for (const s of routeSegments(pts)) {
       if (!s.horizontal || s.length < 4) continue;
       out.push({
@@ -1547,9 +1571,14 @@ export type BridgeCrossing = {
 function resolveEdgePointsLive(
   edge: Edge,
   nodes: Node[],
+  resolvePoints?: (edge: Edge) => OrthoPoint[] | null,
 ): OrthoPoint[] | null {
   const preview = getOrthoDragPreview(edge.id);
   if (preview && preview.length >= 2) return preview;
+  if (resolvePoints) {
+    const custom = resolvePoints(edge);
+    if (custom && custom.length >= 2) return custom;
+  }
   const src = portAbsPos(nodes, edge.source);
   const tgt = portAbsPos(nodes, edge.target);
   if (!src || !tgt) return null;
@@ -1577,11 +1606,19 @@ export function buildEdgeNetworkIds(edges: Edge[]): Map<string, string> {
   };
   for (const e of edges) {
     if (e.data?.suggested) continue;
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
+      continue;
+    }
+    // Ignore display-only junction endpoints
+    if (e.source.startsWith("rj-") || e.target.startsWith("rj-")) continue;
     union(e.source, e.target);
   }
   const edgeNet = new Map<string, string>();
   for (const e of edges) {
     if (e.data?.suggested) continue;
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
+      continue;
+    }
     edgeNet.set(e.id, find(e.source));
   }
   return edgeNet;
@@ -1597,6 +1634,13 @@ function edgesShareNetwork(
   return na !== undefined && nb !== undefined && na === nb;
 }
 
+export type BridgeCrossingOpts = {
+  /** Logical edge id used for network membership (segment edges). */
+  networkEdgeId?: string;
+  /** Override point resolution (e.g. compose shared routePath). */
+  resolvePoints?: (edge: Edge) => OrthoPoint[] | null;
+};
+
 /**
  * Points where this edge’s vertical segments cross a horizontal from another
  * network. Horizontals stay straight; these y-positions get an arch on the V.
@@ -1606,9 +1650,11 @@ export function findBridgeCrossings(
   points: OrthoPoint[],
   edges: Edge[],
   nodes: Node[],
+  opts?: BridgeCrossingOpts,
 ): BridgeCrossing[] {
   const edgeNet = buildEdgeNetworkIds(edges);
-  const myNet = edgeNet.get(edgeId);
+  const probeId = opts?.networkEdgeId ?? edgeId;
+  const myNet = edgeNet.get(probeId);
   const crossings: BridgeCrossing[] = [];
   const seen = new Set<string>();
 
@@ -1619,10 +1665,13 @@ export function findBridgeCrossings(
 
   for (const e of edges) {
     if (e.id === edgeId || e.data?.suggested) continue;
-    if (myNet !== undefined && edgesShareNetwork(edgeNet, edgeId, e.id)) {
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
       continue;
     }
-    const otherPts = resolveEdgePointsLive(e, nodes);
+    if (myNet !== undefined && edgesShareNetwork(edgeNet, probeId, e.id)) {
+      continue;
+    }
+    const otherPts = resolveEdgePointsLive(e, nodes, opts?.resolvePoints);
     if (!otherPts) continue;
     for (const h of routeSegments(otherPts)) {
       if (!h.horizontal || h.length < 4) continue;

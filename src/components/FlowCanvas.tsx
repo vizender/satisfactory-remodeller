@@ -38,6 +38,7 @@ import { ContainerContextMenu } from "@/components/ContainerContextMenu";
 import { FactoryFrameNode } from "@/components/FactoryFrameNode";
 import { FlowEdge } from "@/components/edges/FlowEdge";
 import { ItemPortNode } from "@/components/ItemPortNode";
+import { RoutingJunctionNode } from "@/components/RoutingJunctionNode";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
@@ -72,6 +73,13 @@ import {
   removeCornerAt,
   resolveRoutePoints,
 } from "@/lib/orthogonalEdgePath";
+import {
+  applySharedRouteVisibility,
+  buildJunctionNodes,
+  buildSegmentEdges,
+  conflictSegmentIdsFromLogical,
+  resolveSegmentPoints,
+} from "@/lib/routingGraph";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
@@ -102,11 +110,13 @@ const nodeTypes: NodeTypes = {
   itemPort: ItemPortNode,
   factoryFrame: FactoryFrameNode,
   containerFrame: ContainerFrameNode,
+  routingJunction: RoutingJunctionNode,
 };
 
 const edgeTypes: EdgeTypes = {
   /** Routeur courbes / orthogonales (voir FlowEdge). Hitbox large WebKit / clic droit. */
   default: FlowEdge,
+  routingSegment: FlowEdge,
 };
 
 function clientXY(ev: MouseEvent | TouchEvent): { x: number; y: number } {
@@ -160,52 +170,77 @@ function EdgeMenuHost({
   const removeEdgeById = useDocumentStore((s) => s.removeEdgeById);
   const setEdgeBendX = useDocumentStore((s) => s.setEdgeBendX);
   const setEdgeCorners = useDocumentStore((s) => s.setEdgeCorners);
+  const routingGraph = useDocumentStore((s) => s.routingGraph);
   const edgeRoutingMode = useCanvasUiStore((s) => s.edgeRoutingMode);
 
   if (!menu) return null;
 
   const edge = edges.find((e) => e.id === menu.edgeId);
   const orthogonal = edgeRoutingMode === "orthogonal";
+  const isSegment =
+    (edge?.data as { kind?: string } | undefined)?.kind === "routingSegment";
 
   const handlePositions = (() => {
     if (!edge) return null;
     const src = getNode(edge.source);
     const tgt = getNode(edge.target);
     if (!src || !tgt) return null;
-    // Port nodes are children of frames; absolute = parent + relative + handle mid
-    const srcParent = src.parentId ? getNode(src.parentId) : undefined;
-    const tgtParent = tgt.parentId ? getNode(tgt.parentId) : undefined;
-    if (!srcParent || !tgtParent) return null;
-    const PORT_ROW = 108;
-    const PORT_W = 96;
-    const srcKind = (src.data as ItemPortData).kind;
-    const tgtKind = (tgt.data as ItemPortData).kind;
-    const sourceX =
-      srcParent.position.x +
-      src.position.x +
-      (srcKind === "out" ? PORT_W : 0);
-    const sourceY =
-      srcParent.position.y + src.position.y + PORT_ROW / 2;
-    const targetX =
-      tgtParent.position.x +
-      tgt.position.x +
-      (tgtKind === "out" ? PORT_W : 0);
-    const targetY =
-      tgtParent.position.y + tgt.position.y + PORT_ROW / 2;
-    return { sourceX, sourceY, targetX, targetY };
+
+    const absHandle = (node: NonNullable<ReturnType<typeof getNode>>) => {
+      if (node.type === "routingJunction") {
+        return { x: node.position.x, y: node.position.y };
+      }
+      const parent = node.parentId ? getNode(node.parentId) : undefined;
+      if (!parent) return null;
+      const PORT_ROW = 108;
+      const PORT_W = 96;
+      const kind = (node.data as ItemPortData).kind;
+      return {
+        x: parent.position.x + node.position.x + (kind === "out" ? PORT_W : 0),
+        y: parent.position.y + node.position.y + PORT_ROW / 2,
+      };
+    };
+    const s = absHandle(src);
+    const t = absHandle(tgt);
+    if (!s || !t) return null;
+    return {
+      sourceX: s.x,
+      sourceY: s.y,
+      targetX: t.x,
+      targetY: t.y,
+    };
   })();
 
-  const routePoints =
-    edge && handlePositions
-      ? resolveRoutePoints(
-          handlePositions.sourceX,
-          handlePositions.sourceY,
-          handlePositions.targetX,
-          handlePositions.targetY,
-          edge.data,
+  const routeData =
+    isSegment && routingGraph.segments[menu.edgeId]
+      ? {
+          itemId: routingGraph.segments[menu.edgeId]!.itemId,
+          cornersNorm: routingGraph.segments[menu.edgeId]!.cornersNorm,
+        }
+      : edge?.data;
+
+  const routePoints = (() => {
+    if (!edge || !handlePositions) return null;
+    if (isSegment) {
+      const seg = routingGraph.segments[menu.edgeId];
+      if (seg) {
+        return resolveSegmentPoints(
+          seg,
+          useDocumentStore.getState().nodes,
+          routingGraph,
           edge.id,
-        )
-      : null;
+        );
+      }
+    }
+    return resolveRoutePoints(
+      handlePositions.sourceX,
+      handlePositions.sourceY,
+      handlePositions.targetX,
+      handlePositions.targetY,
+      routeData,
+      edge.id,
+    );
+  })();
 
   const cornerIdx =
     routePoints && orthogonal
@@ -236,11 +271,33 @@ function EdgeMenuHost({
 
   const handleDelete = () => {
     if (!edge) return;
+    if (isSegment) {
+      const logical = useDocumentStore.getState().edges.filter((e) => {
+        const path = (e.data as { routePath?: string[] } | undefined)?.routePath;
+        return Array.isArray(path) && path.includes(edge.id);
+      });
+      const stubUsers = logical.filter((e) => {
+        const path = (e.data as { routePath?: string[] }).routePath!;
+        return path[0] === edge.id || path[path.length - 1] === edge.id;
+      });
+      const toRemove =
+        stubUsers.length === 1
+          ? stubUsers
+          : logical.length === 1
+            ? logical
+            : [];
+      for (const e of toRemove) removeEdgeById(e.id);
+      return;
+    }
     removeEdgeById(edge.id);
   };
 
   const handleResetRoute = () => {
     if (!edge) return;
+    if (isSegment) {
+      setEdgeCorners(edge.id, undefined);
+      return;
+    }
     setEdgeBendX(edge.id, undefined);
   };
 
@@ -320,6 +377,8 @@ function FlowCanvasInner() {
   const nodes = useDocumentStore((s) => s.nodes);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
   const edges = useDocumentStore((s) => s.edges);
+  const routingGraph = useDocumentStore((s) => s.routingGraph);
+  const syncRoutingJunctions = useDocumentStore((s) => s.syncRoutingJunctions);
   const onNodesChange = useDocumentStore((s) => s.onNodesChange);
   const applyEdgesChange = useDocumentStore((s) => s.onEdgesChange);
   const storeOnConnect = useDocumentStore((s) => s.onConnect);
@@ -330,18 +389,33 @@ function FlowCanvasInner() {
   const solve = useFlowSolveResult();
   const tutorialGates = useTutorialGates();
   const tutorialActive = useTutorialStore((s) => s.active);
+  const edgeRoutingMode = useCanvasUiStore((s) => s.edgeRoutingMode);
 
   const displayNodes = useMemo(() => {
     let next = nodes;
     next = applyConnectionPreviewToNodes(next, connectionPreview);
     next = applyReorderTransitionToNodes(next, reorderDragSession);
+    if (
+      edgeRoutingMode === "orthogonal" &&
+      Object.keys(routingGraph.junctions).length > 0
+    ) {
+      next = [...next, ...buildJunctionNodes(routingGraph)];
+    }
     return next;
-  }, [nodes, connectionPreview, reorderDragSession]);
+  }, [nodes, connectionPreview, reorderDragSession, routingGraph, edgeRoutingMode]);
 
-  const displayEdges = useMemo(
-    () => applySolverConflictToEdges(edges, solve.conflictEdgeIds),
-    [edges, solve.conflictEdgeIds],
-  );
+  const displayEdges = useMemo(() => {
+    let next = applySolverConflictToEdges(edges, solve.conflictEdgeIds);
+    if (edgeRoutingMode === "orthogonal") {
+      next = applySharedRouteVisibility(next);
+      const conflictSegs = conflictSegmentIdsFromLogical(
+        edges,
+        solve.conflictEdgeIds,
+      );
+      next = [...next, ...buildSegmentEdges(routingGraph, conflictSegs)];
+    }
+    return next;
+  }, [edges, solve.conflictEdgeIds, routingGraph, edgeRoutingMode]);
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -756,6 +830,7 @@ function FlowCanvasInner() {
         onNodeDragStop={() => {
           const { nodes: list, edges: edgeList, setEdgeCorners } =
             useDocumentStore.getState();
+          syncRoutingJunctions();
           commitFusedOrthogonalEdges(edgeList, list, setEdgeCorners);
           endVerticalFuseSession();
         }}
@@ -978,7 +1053,7 @@ function FlowCanvasInner() {
         </Panel>
         <EdgeMenuHost
           menu={edgeMenu}
-          edges={edges}
+          edges={displayEdges}
           onDismiss={() => setEdgeMenu(null)}
         />
       </ReactFlow>

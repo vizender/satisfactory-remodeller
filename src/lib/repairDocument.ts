@@ -14,12 +14,14 @@ import {
   isPortItemAssigned,
   type ItemPortData,
 } from "@/types/graph";
+import { isRoutingGraph, type RoutingGraph } from "@/types/routingGraph";
 
 const KNOWN_NODE_TYPES = new Set([
   "machineFrame",
   "itemPort",
   "factoryFrame",
   "containerFrame",
+  "routingJunction",
 ]);
 
 /** Réaligne les libellés ports sur `formatItemClassId` (ex. Steel Plate → Steel Beam). */
@@ -92,6 +94,11 @@ function sanitizeForcedPortRates(
   return out;
 }
 
+function sanitizeRoutingGraph(raw: unknown): RoutingGraph | undefined {
+  if (!isRoutingGraph(raw)) return undefined;
+  return structuredClone(raw);
+}
+
 function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
   const base = createEmptyWorldCanvas();
   if (!raw || typeof raw !== "object") {
@@ -100,10 +107,15 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
   const r = raw as Partial<CanvasRecord>;
   const id = typeof r.id === "string" && r.id ? r.id : fallbackId;
   const name = typeof r.name === "string" && r.name.trim() ? r.name : id;
-  const nodes = sanitizeNodes(r.nodes);
+  // Junction nodes are display-only; strip any that were persisted by mistake
+  const nodes = sanitizeNodes(r.nodes).filter((n) => n.type !== "routingJunction");
   const nodeIds = new Set(nodes.map((n) => n.id));
-  const edges = sanitizeEdges(r.edges, nodeIds);
+  const edges = sanitizeEdges(r.edges, nodeIds).filter((e) => {
+    const d = e.data as { kind?: string } | undefined;
+    return d?.kind !== "routingSegment";
+  });
   const forcedPortRates = sanitizeForcedPortRates(r.forcedPortRates, nodes);
+  const routingGraph = sanitizeRoutingGraph(r.routingGraph);
 
   const record: CanvasRecord = {
     id,
@@ -112,6 +124,7 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
     edges,
     forcedPortRates,
   };
+  if (routingGraph) record.routingGraph = routingGraph;
 
   if (r.parent && typeof r.parent === "object") {
     const p = r.parent as CanvasRecord["parent"];

@@ -71,7 +71,8 @@ function persistActiveSlice(
   activeCanvasId: CanvasId,
   clone = false,
 ): Record<CanvasId, CanvasRecord> {
-  const { nodes, edges, forcedPortRates } = useDocumentStore.getState();
+  const { nodes, edges, forcedPortRates, routingGraph } =
+    useDocumentStore.getState();
   const prev = canvasMap[activeCanvasId] ?? createEmptyWorldCanvas();
   return {
     ...canvasMap,
@@ -86,6 +87,9 @@ function persistActiveSlice(
       forcedPortRates: clone
         ? { ...forcedPortRates }
         : forcedPortRates,
+      routingGraph: clone
+        ? structuredClone(routingGraph)
+        : routingGraph,
     },
   };
 }
@@ -107,12 +111,14 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   flushActiveCanvas: () => {
     set((s) => {
-      const { nodes, edges, forcedPortRates } = useDocumentStore.getState();
+      const { nodes, edges, forcedPortRates, routingGraph } =
+        useDocumentStore.getState();
       const prev = s.canvasMap[s.activeCanvasId];
       if (
         prev?.nodes === nodes &&
         prev?.edges === edges &&
-        prev?.forcedPortRates === forcedPortRates
+        prev?.forcedPortRates === forcedPortRates &&
+        prev?.routingGraph === routingGraph
       ) {
         return s;
       }
@@ -135,6 +141,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
           nodes: slice.nodes,
           edges: slice.edges,
           forcedPortRates: slice.forcedPortRates,
+          routingGraph: slice.routingGraph,
         },
       },
     }));
@@ -159,6 +166,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
           nodes: slice.nodes,
           edges: slice.edges,
           forcedPortRates: slice.forcedPortRates,
+          routingGraph: slice.routingGraph,
         },
       },
     }));

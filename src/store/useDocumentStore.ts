@@ -36,15 +36,33 @@ import {
   isPortItemAssigned,
   portItemsCompatible,
 } from "@/types/graph";
-import type { ItemEdgeData } from "@/types/edgeData";
+import type { ItemEdgeData, OrthoPoint, RouteAnchor, LockedVertical } from "@/types/edgeData";
+import {
+  emptyRoutingGraph,
+  rebuildRoutingGraph,
+  setSegmentCornersNorm,
+  syncRoutingJunctionPositions,
+} from "@/lib/routingGraph";
+import type { RoutingGraph } from "@/types/routingGraph";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
+function applyRoutingRebuild(
+  nodes: Node[],
+  edges: Edge[],
+  prev: RoutingGraph | undefined,
+): { edges: Edge[]; routingGraph: RoutingGraph } {
+  const { graph, edges: nextEdges } = rebuildRoutingGraph(nodes, edges, prev);
+  return { edges: nextEdges, routingGraph: graph };
+}
+
 export interface DocumentState {
   nodes: Node[];
   edges: Edge[];
+  /** Shared routing graph for multi-link item networks. */
+  routingGraph: RoutingGraph;
   /** Débit /min forcé par id de port (undefined = nomina recette). */
   forcedPortRates: Record<string, number | undefined>;
   solverReady: boolean;
@@ -53,6 +71,16 @@ export interface DocumentState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdgeById: (edgeId: string) => void;
+  /** Rebuild shared routes after topology or large geometry changes. */
+  rebuildRouting: () => void;
+  /** Sync junction Y to live port positions (after machine drag). */
+  syncRoutingJunctions: () => void;
+  /** Persist corners on a shared routing segment. */
+  setSegmentCorners: (
+    segmentId: string,
+    corners: OrthoPoint[] | undefined,
+    anchor?: RouteAnchor,
+  ) => void;
   /** Orthogonal mode: set / clear the vertical segment X (undefined = auto). */
   setEdgeBendX: (edgeId: string, bendX: number | undefined) => void;
   /**
@@ -61,14 +89,14 @@ export interface DocumentState {
    */
   setEdgeCorners: (
     edgeId: string,
-    corners: import("@/types/edgeData").OrthoPoint[] | undefined,
-    anchor?: import("@/types/edgeData").RouteAnchor,
-    lockedVerticals?: import("@/types/edgeData").LockedVertical[],
+    corners: OrthoPoint[] | undefined,
+    anchor?: RouteAnchor,
+    lockedVerticals?: LockedVertical[],
   ) => void;
   /** Update intersection locks without rewriting the route geometry. */
   setEdgeLockedVerticalXs: (
     edgeId: string,
-    lockedVerticals: import("@/types/edgeData").LockedVertical[],
+    lockedVerticals: LockedVertical[],
   ) => void;
   setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
   /** Retire tous les overrides sur les ports d’une machine (cadre). */
@@ -134,6 +162,7 @@ export interface DocumentState {
     nodes: Node[];
     edges: Edge[];
     forcedPortRates: Record<string, number | undefined>;
+    routingGraph?: RoutingGraph;
   }) => void;
 }
 
@@ -225,11 +254,32 @@ export function hasEdgeBetweenPorts(
 export const useDocumentStore = create<DocumentState>((set, get) => ({
   nodes: initialNodes,
   edges: initialEdges,
+  routingGraph: emptyRoutingGraph(),
   forcedPortRates: {},
   solverReady: false,
   reorderDragSession: null,
   setReorderDragSession: (session) => set({ reorderDragSession: session }),
   setSolverReady: (solverReady) => set({ solverReady }),
+  rebuildRouting: () => {
+    const { nodes, edges, routingGraph } = get();
+    const next = applyRoutingRebuild(nodes, edges, routingGraph);
+    set(next);
+  },
+  syncRoutingJunctions: () => {
+    const { nodes, routingGraph } = get();
+    const next = syncRoutingJunctionPositions(nodes, routingGraph);
+    if (next !== routingGraph) set({ routingGraph: next });
+  },
+  setSegmentCorners: (segmentId, corners, anchor) => {
+    set((s) => ({
+      routingGraph: setSegmentCornersNorm(
+        s.routingGraph,
+        segmentId,
+        corners,
+        anchor,
+      ),
+    }));
+  },
   onNodesChange: (changes) => {
     set({
       nodes: applyNodeChanges(changes, get().nodes),
@@ -279,10 +329,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       connection.target!,
       itemId,
     );
-    set({ nodes: nextNodes, edges: [...get().edges, edge] });
+    const edges = [...get().edges, edge];
+    const routed = applyRoutingRebuild(nextNodes, edges, get().routingGraph);
+    set({ nodes: nextNodes, ...routed });
   },
-  removeEdgeById: (edgeId) =>
-    set({ edges: get().edges.filter((e) => e.id !== edgeId) }),
+  removeEdgeById: (edgeId) => {
+    const edges = get().edges.filter((e) => e.id !== edgeId);
+    const routed = applyRoutingRebuild(get().nodes, edges, get().routingGraph);
+    set(routed);
+  },
   setEdgeBendX: (edgeId, bendX) =>
     set((s) => ({
       edges: s.edges.map((e) => {
@@ -307,7 +362,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         return { ...e, data: next };
       }),
     })),
-  setEdgeCorners: (edgeId, corners, anchor, lockedVerticals) =>
+  setEdgeCorners: (edgeId, corners, anchor, lockedVerticals) => {
+    // Shared routing segment ids start with rs-
+    if (edgeId.startsWith("rs-") || get().routingGraph.segments[edgeId]) {
+      get().setSegmentCorners(edgeId, corners, anchor);
+      return;
+    }
     set((s) => ({
       edges: s.edges.map((e) => {
         if (e.id !== edgeId) return e;
@@ -343,7 +403,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         }
         return { ...e, data: next };
       }),
-    })),
+    }));
+  },
   setEdgeLockedVerticalXs: (edgeId, lockedVerticals) =>
     set((s) => ({
       edges: s.edges.map((e) => {
@@ -392,11 +453,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return { forcedPortRates: next };
     }),
   addResolvedEdge: (edge) =>
-    set((s) =>
-      hasEdgeBetweenPorts(s.edges, edge.source, edge.target)
-        ? s
-        : { edges: [...s.edges, edge] },
-    ),
+    set((s) => {
+      if (hasEdgeBetweenPorts(s.edges, edge.source, edge.target)) return s;
+      const edges = [...s.edges, edge];
+      return applyRoutingRebuild(s.nodes, edges, s.routingGraph);
+    }),
   addMachine: (recipeKey, flowPosition, options) => {
     const recipe = findRecipeByKey(recipeKey);
     const id = nextMachineFrameId(get().nodes);
@@ -470,10 +531,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         get().nodes,
       );
     }
-    set((s) => ({
-      nodes: [...s.nodes, ...built],
-      edges: extraEdges.length ? [...s.edges, ...extraEdges] : s.edges,
-    }));
+    set((s) => {
+      const nodes = [...s.nodes, ...built];
+      const edges = extraEdges.length ? [...s.edges, ...extraEdges] : s.edges;
+      return {
+        nodes,
+        ...applyRoutingRebuild(nodes, edges, s.routingGraph),
+      };
+    });
   },
   addContainer: (variant, flowPosition, options) => {
     const id = nextContainerFrameId(get().nodes);
@@ -554,10 +619,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         e.data?.itemId as string,
       );
     }
-    set((s) => ({
-      nodes: [...s.nodes, ...nextNodes],
-      edges: extraEdges.length ? [...s.edges, ...extraEdges] : s.edges,
-    }));
+    set((s) => {
+      const nodes = [...s.nodes, ...nextNodes];
+      const edges = extraEdges.length ? [...s.edges, ...extraEdges] : s.edges;
+      return {
+        nodes,
+        ...applyRoutingRebuild(nodes, edges, s.routingGraph),
+      };
+    });
   },
   removeMachine: (machineFrameId) => {
     const portIds = new Set(portIdsForMachine(get().nodes, machineFrameId));
@@ -570,7 +639,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       );
       const forcedPortRates = { ...s.forcedPortRates };
       for (const pid of portIds) delete forcedPortRates[pid];
-      return { nodes, edges, forcedPortRates };
+      return {
+        nodes,
+        forcedPortRates,
+        ...applyRoutingRebuild(nodes, edges, s.routingGraph),
+      };
     });
   },
   removeContainer: (containerFrameId) => {
@@ -584,7 +657,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       );
       const forcedPortRates = { ...s.forcedPortRates };
       for (const pid of portIds) delete forcedPortRates[pid];
-      return { nodes, edges, forcedPortRates };
+      return {
+        nodes,
+        forcedPortRates,
+        ...applyRoutingRebuild(nodes, edges, s.routingGraph),
+      };
     });
   },
   setContainerOutputEnabled: (containerFrameId, outputEnabled) => {
@@ -733,17 +810,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   replaceDocument: (doc) => {
     const { nodes, edges, forcedPortRates } = loadFactoryDocument(doc);
+    const routed = applyRoutingRebuild(nodes, edges, undefined);
     set({
       nodes,
-      edges,
+      ...routed,
       forcedPortRates,
       reorderDragSession: null,
     });
   },
   replaceActiveCanvas: (slice) => {
+    const routed = applyRoutingRebuild(
+      slice.nodes,
+      slice.edges,
+      slice.routingGraph,
+    );
     set({
       nodes: slice.nodes,
-      edges: slice.edges,
+      ...routed,
       forcedPortRates: slice.forcedPortRates,
       reorderDragSession: null,
     });

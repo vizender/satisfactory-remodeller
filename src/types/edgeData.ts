@@ -46,6 +46,11 @@ export type ItemEdgeData = {
    * so a free vertical approaching the lock cannot steal it.
    */
   lockedVerticals?: LockedVertical[];
+  /**
+   * Shared routing: ordered segment ids from the canvas routing graph.
+   * When set, the edge is drawn via those segments (not a private polyline).
+   */
+  routePath?: string[];
   suggested?: boolean;
 };
 
