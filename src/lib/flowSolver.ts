@@ -39,6 +39,88 @@ interface MachLink {
   mb: string;
   fwd: number;
   rev: number;
+  /** Cible déjà alimentée par un recyclage : ne pas propager m depuis l’externe. */
+  recycleFedTarget: boolean;
+}
+
+/**
+ * Arêtes recycle : boucle sur la même machine, ou retour vers un ancêtre
+ * (sous-produit plus bas dans la chaîne). DFS depuis les sources du graphe dirigé.
+ */
+function findRecycleEdgeIds(
+  nodes: Node[],
+  realEdges: Edge[],
+  machineOf: Map<string, string>,
+): Set<string> {
+  const recycle = new Set<string>();
+  const machineEdges: { id: string; ma: string; mb: string }[] = [];
+
+  for (const e of realEdges) {
+    const ma = machineOf.get(e.source);
+    const mb = machineOf.get(e.target);
+    if (!ma || !mb) continue;
+    if (edgeTouchesContainer(nodes, e.source, e.target)) continue;
+    if (ma === mb) {
+      recycle.add(e.id);
+      continue;
+    }
+    machineEdges.push({ id: e.id, ma, mb });
+  }
+
+  const adj = new Map<string, { to: string; id: string }[]>();
+  const incomingCount = new Map<string, number>();
+  const machineSet = new Set<string>();
+  for (const me of machineEdges) {
+    machineSet.add(me.ma);
+    machineSet.add(me.mb);
+    if (!adj.has(me.ma)) adj.set(me.ma, []);
+    adj.get(me.ma)!.push({ to: me.mb, id: me.id });
+    incomingCount.set(me.mb, (incomingCount.get(me.mb) ?? 0) + 1);
+    if (!incomingCount.has(me.ma)) incomingCount.set(me.ma, 0);
+  }
+
+  const sources = [...machineSet].filter((id) => (incomingCount.get(id) ?? 0) === 0);
+  const GRAY = 1;
+  const BLACK = 2;
+  const color = new Map<string, number>();
+
+  function dfs(u: string) {
+    color.set(u, GRAY);
+    for (const { to, id } of adj.get(u) ?? []) {
+      const c = color.get(to) ?? 0;
+      if (c === GRAY) recycle.add(id);
+      else if (c === 0) dfs(to);
+    }
+    color.set(u, BLACK);
+  }
+
+  const start = sources.length > 0 ? sources : [...machineSet].sort();
+  for (const s of start) {
+    if ((color.get(s) ?? 0) === 0) dfs(s);
+  }
+  for (const id of [...machineSet].sort()) {
+    if ((color.get(id) ?? 0) === 0) dfs(id);
+  }
+
+  return recycle;
+}
+
+function incomingTo(realEdges: Edge[], targetPortId: string): Edge[] {
+  return realEdges.filter((e) => e.target === targetPortId);
+}
+
+function recycleAvailableOnInput(
+  tgt: string,
+  realEdges: Edge[],
+  recycleIds: Set<string>,
+  rateOfSource: (sourcePortId: string) => number,
+): number {
+  let rec = 0;
+  for (const e of incomingTo(realEdges, tgt)) {
+    if (!recycleIds.has(e.id)) continue;
+    rec += Math.max(0, rateOfSource(e.source));
+  }
+  return rec;
 }
 
 /** Union-find pour composantes connexes (machines reliées par au moins une arête item). */
@@ -110,6 +192,7 @@ function allocatedDemandOnEdge(
   realEdges: Edge[],
   base: Map<string, number>,
   forcedPortRates: Record<string, number | undefined>,
+  recycleIds: Set<string>,
 ): number {
   const tgt = e.target;
   if (isContainerInputPort(nodes, tgt)) {
@@ -117,14 +200,24 @@ function allocatedDemandOnEdge(
     if (forced !== undefined) return forced;
     return 0;
   }
+  if (recycleIds.has(e.id)) return 0;
+
   const totalNeed = effectiveRate[tgt] ?? 0;
-  const incoming = realEdges.filter((x) => x.target === tgt);
-  if (incoming.length <= 1) return totalNeed;
-  const weights = incoming.map((x) => Math.max(base.get(x.source) ?? 0, EPS));
+  const incoming = incomingTo(realEdges, tgt);
+  const recycleAvail = recycleAvailableOnInput(
+    tgt,
+    realEdges,
+    recycleIds,
+    (src) => effectiveRate[src] ?? 0,
+  );
+  const externalNeed = Math.max(0, totalNeed - recycleAvail);
+  const externals = incoming.filter((x) => !recycleIds.has(x.id));
+  if (externals.length <= 1) return externalNeed;
+  const weights = externals.map((x) => Math.max(base.get(x.source) ?? 0, EPS));
   const sumW = weights.reduce((a, b) => a + b, 0);
-  const idx = incoming.findIndex((x) => x.id === e.id);
-  if (idx < 0 || sumW <= EPS) return totalNeed / incoming.length;
-  return totalNeed * (weights[idx]! / sumW);
+  const idx = externals.findIndex((x) => x.id === e.id);
+  if (idx < 0 || sumW <= EPS) return externalNeed / externals.length;
+  return externalNeed * (weights[idx]! / sumW);
 }
 
 const SCALE_UP_ITERS = 64;
@@ -142,6 +235,7 @@ function scaleMachinesToMeetOutgoingDemand(
   base: Map<string, number>,
   machineOf: Map<string, string>,
   forcedPortRates: Record<string, number | undefined>,
+  recycleIds: Set<string>,
 ): void {
   for (let iter = 0; iter < SCALE_UP_ITERS; iter++) {
     const effectiveRate: Record<string, number> = {};
@@ -171,6 +265,7 @@ function scaleMachinesToMeetOutgoingDemand(
             realEdges,
             base,
             forcedPortRates,
+            recycleIds,
           );
         }
         const bp = base.get(pid) ?? 0;
@@ -237,7 +332,90 @@ function partitionEdgesByContainerTarget(
   return { regular, containerIn };
 }
 
-/** Répartit l’offre d’un port sortie : machines d’abord, puis surplus vers conteneurs. */
+/** Recyclage d’abord, puis externes : chaque cible prend min(besoin restant, offre). */
+function fillMachineInputsFromEdges(
+  nodes: Node[],
+  edges: Edge[],
+  remainingNeed: Record<string, number>,
+  remainingSupply: Record<string, number>,
+  edgeFlow: Record<string, number>,
+): void {
+  const byTarget = new Map<string, Edge[]>();
+  for (const e of edges) {
+    if (isContainerInputPort(nodes, e.target)) continue;
+    if (!byTarget.has(e.target)) byTarget.set(e.target, []);
+    byTarget.get(e.target)!.push(e);
+  }
+  for (const [tgt, es] of byTarget) {
+    const need = remainingNeed[tgt] ?? 0;
+    if (need <= EPS) {
+      for (const e of es) {
+        if (edgeFlow[e.id] === undefined) edgeFlow[e.id] = 0;
+      }
+      continue;
+    }
+    const supplies = es.map((e) => Math.max(remainingSupply[e.source] ?? 0, 0));
+    const sumS = supplies.reduce((a, b) => a + b, 0);
+    if (sumS <= EPS) {
+      for (const e of es) {
+        if (edgeFlow[e.id] === undefined) edgeFlow[e.id] = 0;
+      }
+      continue;
+    }
+    const totalTake = Math.min(need, sumS);
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i]!;
+      const take = totalTake * (supplies[i]! / sumS);
+      edgeFlow[e.id] = take;
+      remainingSupply[e.source] = Math.max(
+        0,
+        (remainingSupply[e.source] ?? 0) - take,
+      );
+    }
+    remainingNeed[tgt] = Math.max(0, need - totalTake);
+  }
+}
+
+function allocateRemainingToContainers(
+  containerIn: Edge[],
+  remaining: number,
+  forcedPortRates: Record<string, number | undefined>,
+  edgeFlow: Record<string, number>,
+): void {
+  if (containerIn.length === 0) return;
+
+  const forcedEdges: Edge[] = [];
+  const flexEdges: Edge[] = [];
+  for (const ed of containerIn) {
+    if (portForcedRate(ed.target, forcedPortRates) !== undefined) {
+      forcedEdges.push(ed);
+    } else {
+      flexEdges.push(ed);
+    }
+  }
+
+  let left = remaining;
+  for (const ed of forcedEdges) {
+    const need = portForcedRate(ed.target, forcedPortRates)!;
+    const f = Math.min(left, need);
+    edgeFlow[ed.id] = f;
+    left = Math.max(0, left - f);
+  }
+
+  if (flexEdges.length === 0) return;
+
+  if (flexEdges.length === 1) {
+    edgeFlow[flexEdges[0]!.id] = left;
+    return;
+  }
+
+  const share = left / flexEdges.length;
+  for (const ed of flexEdges) {
+    edgeFlow[ed.id] = share;
+  }
+}
+
+/** Sorties conteneur (et repli) : machines selon la demande nette, surplus vers conteneurs. */
 function allocateFlowsFromSourcePort(
   nodes: Node[],
   supply: number,
@@ -247,6 +425,7 @@ function allocateFlowsFromSourcePort(
   base: Map<string, number>,
   forcedPortRates: Record<string, number | undefined>,
   edgeFlow: Record<string, number>,
+  recycleIds: Set<string>,
 ): void {
   const { regular, containerIn } = partitionEdgesByContainerTarget(nodes, edges);
 
@@ -260,6 +439,7 @@ function allocateFlowsFromSourcePort(
         realEdges,
         base,
         forcedPortRates,
+        recycleIds,
       ),
     );
     const sumNeed = needsAlloc.reduce((a, b) => a + b, 0);
@@ -285,41 +465,16 @@ function allocateFlowsFromSourcePort(
 
   assignRegular(regular);
 
-  let remaining = Math.max(
+  const remaining = Math.max(
     0,
     supply - regular.reduce((s, ed) => s + (edgeFlow[ed.id] ?? 0), 0),
   );
-
-  if (containerIn.length === 0) return;
-
-  const forcedEdges: Edge[] = [];
-  const flexEdges: Edge[] = [];
-  for (const ed of containerIn) {
-    if (portForcedRate(ed.target, forcedPortRates) !== undefined) {
-      forcedEdges.push(ed);
-    } else {
-      flexEdges.push(ed);
-    }
-  }
-
-  for (const ed of forcedEdges) {
-    const need = portForcedRate(ed.target, forcedPortRates)!;
-    const f = Math.min(remaining, need);
-    edgeFlow[ed.id] = f;
-    remaining = Math.max(0, remaining - f);
-  }
-
-  if (flexEdges.length === 0) return;
-
-  if (flexEdges.length === 1) {
-    edgeFlow[flexEdges[0]!.id] = remaining;
-    return;
-  }
-
-  const share = remaining / flexEdges.length;
-  for (const ed of flexEdges) {
-    edgeFlow[ed.id] = share;
-  }
+  allocateRemainingToContainers(
+    containerIn,
+    remaining,
+    forcedPortRates,
+    edgeFlow,
+  );
 }
 
 /**
@@ -335,6 +490,7 @@ function rebalanceDeficitDownstream(
   machineOf: Map<string, string>,
   portsOfMachine: Map<string, string[]>,
   forcedPortRates: Record<string, number | undefined>,
+  recycleIds: Set<string>,
 ): void {
   for (let iter = 0; iter < 48; iter++) {
     let changed = false;
@@ -365,6 +521,7 @@ function rebalanceDeficitDownstream(
           realEdges,
           base,
           forcedPortRates,
+          recycleIds,
         ),
       );
       const sumNeed = needs.reduce((a, b) => a + b, 0);
@@ -523,24 +680,37 @@ export function solveFlow(
   }
 
   const realEdges = edges.filter((e) => !e.data?.suggested);
+  const recycleIds = findRecycleEdgeIds(nodes, realEdges, machineOf);
+
   const machLinks: MachLink[] = [];
   for (const e of realEdges) {
     const bo = base.get(e.source) ?? 0;
-    const bi = base.get(e.target) ?? 0;
     const ma = machineOf.get(e.source);
     const mb = machineOf.get(e.target);
-    if (!ma || !mb || ma === mb || bi <= EPS || bo <= 0) continue;
+    if (!ma || !mb || ma === mb || bo <= 0) continue;
     if (edgeTouchesContainer(nodes, e.source, e.target)) continue;
+    if (recycleIds.has(e.id)) continue;
+    const recycleAvailBase = recycleAvailableOnInput(
+      e.target,
+      realEdges,
+      recycleIds,
+      (src) => base.get(src) ?? 0,
+    );
+    const biFull = base.get(e.target) ?? 0;
+    const bi = Math.max(0, biFull - recycleAvailBase);
+    if (bi <= EPS) continue;
     machLinks.push({
       ma,
       mb,
       fwd: bo / bi,
       rev: bi / bo,
+      recycleFedTarget: recycleAvailBase > EPS,
     });
   }
 
-  /** Ancrage : sans aucun débit forcé dans la composante, une seule « source » → m = 1 ; plusieurs sources → conflit. */
-  const comps = componentsOf(machines, machLinks);
+  /** Ancrage : les liaisons vers un port déjà recyclé ne fusionnent pas les composantes (l’externe ne dicte pas m). */
+  const ratioLinks = machLinks.filter((L) => !L.recycleFedTarget);
+  const comps = componentsOf(machines, ratioLinks);
   for (const members of comps) {
     const compSet = new Set(members);
     const hasForced = members.some((mid) =>
@@ -548,7 +718,7 @@ export function solveFlow(
     );
     if (hasForced) continue;
 
-    const sources = sourceMachinesInComponent(compSet, machLinks);
+    const sources = sourceMachinesInComponent(compSet, ratioLinks);
     if (sources.length === 1) {
       m[sources[0]!] = 1;
     } else if (sources.length === 0) {
@@ -563,7 +733,7 @@ export function solveFlow(
   for (let iter = 0; iter < 64; iter++) {
     let changed = false;
     for (const L of machLinks) {
-      if (!Number.isNaN(m[L.ma])) {
+      if (!L.recycleFedTarget && !Number.isNaN(m[L.ma])) {
         const candMb = m[L.ma] * L.fwd;
         if (Number.isNaN(m[L.mb])) {
           m[L.mb] = candMb;
@@ -594,6 +764,7 @@ export function solveFlow(
     base,
     machineOf,
     forcedPortRates,
+    recycleIds,
   );
 
   rebalanceDeficitDownstream(
@@ -604,6 +775,7 @@ export function solveFlow(
     machineOf,
     portsOfMachine,
     forcedPortRates,
+    recycleIds,
   );
 
   const effectiveRate: Record<string, number> = {};
@@ -621,16 +793,47 @@ export function solveFlow(
     bySource.get(e.source)!.push(e);
   }
 
-  /** 1a) Flux amont → machines / entrées conteneur (pas depuis sortie conteneur). */
+  const remainingSupply: Record<string, number> = {};
+  const remainingNeed: Record<string, number> = {};
+  for (const n of portNodes) {
+    const d = n.data as ItemPortData;
+    if (d.kind === "out") {
+      if (!isContainerOutputPort(nodes, n.id)) {
+        remainingSupply[n.id] = effectiveRate[n.id] ?? 0;
+      }
+    } else if (!isContainerInputPort(nodes, n.id)) {
+      remainingNeed[n.id] = effectiveRate[n.id] ?? 0;
+    }
+  }
+
+  /** 1a) Recyclage d’abord, puis alimentations externes, puis surplus vers conteneurs. */
+  const machineEdges = realEdges.filter(
+    (e) =>
+      !isContainerOutputPort(nodes, e.source) &&
+      !isContainerInputPort(nodes, e.target),
+  );
+  fillMachineInputsFromEdges(
+    nodes,
+    machineEdges.filter((e) => recycleIds.has(e.id)),
+    remainingNeed,
+    remainingSupply,
+    edgeFlow,
+  );
+  fillMachineInputsFromEdges(
+    nodes,
+    machineEdges.filter((e) => !recycleIds.has(e.id)),
+    remainingNeed,
+    remainingSupply,
+    edgeFlow,
+  );
+
   for (const [src, es] of bySource) {
     if (isContainerOutputPort(nodes, src)) continue;
-    allocateFlowsFromSourcePort(
-      nodes,
-      effectiveRate[src] ?? 0,
-      es,
-      effectiveRate,
-      realEdges,
-      base,
+    const { containerIn } = partitionEdgesByContainerTarget(nodes, es);
+    if (containerIn.length === 0) continue;
+    allocateRemainingToContainers(
+      containerIn,
+      remainingSupply[src] ?? 0,
       forcedPortRates,
       edgeFlow,
     );
@@ -664,6 +867,7 @@ export function solveFlow(
       base,
       forcedPortRates,
       edgeFlow,
+      recycleIds,
     );
   }
 
@@ -677,6 +881,7 @@ export function solveFlow(
       realEdges,
       base,
       forcedPortRates,
+      recycleIds,
     );
     edgeFlow[e.id] = Math.min(supply, need);
   }

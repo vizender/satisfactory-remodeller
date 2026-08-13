@@ -2,9 +2,8 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 const pkg = JSON.parse(
@@ -19,6 +18,10 @@ export default defineConfig(async () => ({
     __APP_BUILD_ISO__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [tailwindcss(), react()],
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
