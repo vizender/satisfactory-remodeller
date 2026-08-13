@@ -1,7 +1,7 @@
 {
   "name": "satisfactory-remodeller",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "description": "Satisfactory : Remodeller — planificateur d’usines (web + React, Tauri optionnel)",
   "author": "vizender",
