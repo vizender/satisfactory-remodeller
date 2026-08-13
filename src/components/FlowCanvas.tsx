@@ -876,16 +876,16 @@ function FlowCanvasInner() {
           }
         }}
         onNodeDragStop={() => {
-          const { nodes: list, edges: edgeList, setEdgeCorners, routingGraph } =
-            useDocumentStore.getState();
+          const { setEdgeCorners, routingGraph } = useDocumentStore.getState();
           syncRoutingJunctions();
           // Final rebuild so forward ↔ backwards wrap matches settled positions.
           if (Object.keys(routingGraph.segments).length > 0) {
             rebuildRouting();
           }
+          const fresh = useDocumentStore.getState();
           commitFusedOrthogonalEdges(
-            useDocumentStore.getState().edges,
-            useDocumentStore.getState().nodes,
+            fresh.edges,
+            fresh.nodes,
             setEdgeCorners,
           );
           endVerticalFuseSession();
