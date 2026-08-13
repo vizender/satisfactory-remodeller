@@ -20,15 +20,15 @@ export const FORWARD_MIN_GAP = 24;
 export const BACKWARDS_STUB = 40;
 export const BACKWARDS_BUS_OFFSET = 56;
 /** Soft-snap radius when aligning free H/V runs onto neighbors. */
-export const VERTICAL_SNAP_ENGAGE = 48;
+export const VERTICAL_SNAP_ENGAGE = 34;
 /** Sticky hold after a soft-snap engages (must exceed engage). */
-export const VERTICAL_SNAP_HOLD = 72;
+export const VERTICAL_SNAP_HOLD = 54;
 /** Fuse a free vertical onto an intersection when within this distance. */
-export const VERTICAL_FUSE_ENGAGE = 48;
+export const VERTICAL_FUSE_ENGAGE = 34;
 /** Keep fused until free remapped vertical separates past this. */
-export const VERTICAL_FUSE_HOLD = 72;
+export const VERTICAL_FUSE_HOLD = 54;
 /** Generous pad so short kink jogs still snap onto long foreign trunks. */
-export const CORNER_SNAP_OVERLAP_PAD = 96;
+export const CORNER_SNAP_OVERLAP_PAD = 80;
 /** Min length of the horizontal stub leaving/entering a port (keeps line off the machine). */
 export const MIN_PORT_STUB = 20;
 

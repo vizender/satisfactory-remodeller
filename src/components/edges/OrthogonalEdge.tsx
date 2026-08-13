@@ -39,12 +39,14 @@ import {
 } from "@/lib/orthogonalEdgePath";
 import {
   clearOrthoDragPreview,
+  getOrthoDragPreview,
   getOrthoDragPreviewVersion,
   setOrthoDragPreview,
   subscribeOrthoDragPreview,
 } from "@/lib/orthoDragPreview";
 import {
   composeLogicalRoutePoints,
+  previewSegmentsForJunctionY,
   resolveEndpointPos,
   resolveSegmentPoints,
   segmentNetworkEdgeId,
@@ -81,6 +83,10 @@ type SegmentDragState = {
     latestPoints: OrthoPoint[];
     segmentIndex: number;
   }[];
+  /** Junction whose Y follows a wrap-rail drag — neighbor previews stay attached. */
+  wrapJunctionId?: string;
+  /** Segment ids that received live junction-Y previews (cleared on release). */
+  junctionPreviewIds?: string[];
 };
 
 type CornerDragState = {
@@ -297,6 +303,8 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       : data;
 
   const basePoints = (() => {
+    const live = getOrthoDragPreview(id);
+    if (live && live.length >= 2 && !dragPoints) return live;
     if (isRoutingSegment) {
       const seg = routingGraph.segments[id];
       if (seg) {
@@ -525,6 +533,35 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       st.latestPoints = next;
       setDragPoints(next);
 
+      // Wrap-rail drag: slide the shared junction Y on neighbor previews so the
+      // bus V stays attached during the pointer move (commit still on release).
+      if (
+        isSeg &&
+        st.mode === "segment" &&
+        st.wrapJunctionId &&
+        next.length >= 2
+      ) {
+        const { nodes, routingGraph: rg } = useDocumentStore.getState();
+        const pin = openKinkPin(rg.segments[idRef.current]);
+        const wrapY =
+          pin === "start" ? next[next.length - 1]!.y : next[0]!.y;
+        const previews = previewSegmentsForJunctionY(
+          rg,
+          nodes,
+          st.wrapJunctionId,
+          wrapY,
+          idRef.current,
+        );
+        const prevIds = st.junctionPreviewIds ?? [];
+        for (const [sid, pts] of previews) {
+          setOrthoDragPreview(sid, pts);
+        }
+        for (const sid of prevIds) {
+          if (!previews.has(sid)) clearOrthoDragPreview(sid);
+        }
+        st.junctionPreviewIds = [...previews.keys()];
+      }
+
       // Shift-multi-select: mirror the same pointer delta onto other selected
       // same-axis routing segments — never rewrite unselected neighbors.
       if (isSeg && st.mode === "segment" && st.companions.length > 0) {
@@ -557,8 +594,13 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       const companions =
         st.mode === "segment" ? st.companions.map((c) => ({ ...c })) : [];
+      const junctionPreviewIds =
+        st.mode === "segment" ? [...(st.junctionPreviewIds ?? [])] : [];
       dragRef.current = null;
       setDragPoints(null);
+      for (const sid of junctionPreviewIds) {
+        clearOrthoDragPreview(sid);
+      }
 
       let anchor = {
         sx: endsRef.current.sourceX,
@@ -653,15 +695,22 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     const startPoints = points.map((p) => ({ ...p }));
 
     const companions: SegmentDragState["companions"] = [];
+    let wrapJunctionId: string | undefined;
     if (isRoutingSegment) {
       const selectedNow = storeApi.getState().edges;
       const { nodes, routingGraph: rg } = useDocumentStore.getState();
+      const meta = rg.segments[id];
+      const pin = openKinkPin(meta);
+      if (meta && isDetourWrapRail(startPoints, segmentIndex, pin)) {
+        if (meta.a.kind === "junction") wrapJunctionId = meta.a.junctionId;
+        else if (meta.b.kind === "junction") wrapJunctionId = meta.b.junctionId;
+      }
       for (const ed of selectedNow) {
         if (!ed.selected || ed.id === id) continue;
         if (!ed.id.startsWith("rs-")) continue;
-        const meta = rg.segments[ed.id];
-        if (!meta) continue;
-        const resolved = resolveSegmentPoints(meta, nodes, rg, ed.id);
+        const otherMeta = rg.segments[ed.id];
+        if (!otherMeta) continue;
+        const resolved = resolveSegmentPoints(otherMeta, nodes, rg, ed.id);
         if (!resolved || resolved.length < 2) continue;
         const otherSegs = routeSegments(resolved);
         // Only mirror onto same-orientation free runs so H stubs aren't
@@ -691,6 +740,8 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       latestPoints: startPoints,
       expanded: false,
       companions,
+      wrapJunctionId,
+      junctionPreviewIds: [],
     };
     setDragPoints(startPoints);
   };

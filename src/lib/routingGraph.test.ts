@@ -15,6 +15,7 @@ import {
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
   translateRailJunctions,
+  previewSegmentsForJunctionY,
 } from "@/lib/routingGraph";
 import type { OrthoPoint } from "@/types/edgeData";
 
@@ -834,5 +835,47 @@ describe("shared routing graph (N×M)", () => {
       graph,
     )!;
     expect(resolved.some((p) => Math.abs(p.x - (a.x - 40)) < 1)).toBe(true);
+  });
+
+  it("previewSegmentsForJunctionY keeps bus V attached when wrap Y moves", () => {
+    const nodes: Node[] = [
+      frame("feeder", 400, 0),
+      port("out", "feeder", "out", 96, 0),
+      frame("left", -200, 0),
+      port("inLeft", "left", "in", 0, 0),
+      frame("right", 400, 200),
+      port("inRight", "right", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "inLeft"),
+      edge("e2", "out", "inRight"),
+    ]);
+    const leftStub = Object.keys(graph.segments).find((id) =>
+      id.includes("p:inLeft"),
+    )!;
+    const jid = "j-inLeft";
+    const wrapY = graph.junctions[jid]!.y;
+    // Bus hangs off colocated j-out (same point, no jj to j-inLeft).
+    const busId = Object.keys(graph.segments).find((id) => {
+      const s = graph.segments[id]!;
+      return s.a.kind === "junction" && s.b.kind === "junction";
+    });
+    expect(busId).toBeTruthy();
+    const newY = wrapY + 40;
+    const previews = previewSegmentsForJunctionY(
+      graph,
+      nodes,
+      jid,
+      newY,
+      leftStub,
+    );
+    expect(previews.has(busId!)).toBe(true);
+    const busPts = previews.get(busId!)!;
+    const atJunction = busPts.some(
+      (p) =>
+        Math.abs(p.x - graph.junctions[jid]!.x) < 1 &&
+        Math.abs(p.y - newY) < 1,
+    );
+    expect(atJunction).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ import {
   interiorCorners,
   MIN_PORT_STUB,
   resolveRoutePoints,
+  simplifyOrthoPoints,
 } from "@/lib/orthogonalEdgePath";
 import type { OrthoNorm, OrthoPoint, RouteAnchor } from "@/types/edgeData";
 import { isItemEdgeData, type ItemEdgeData } from "@/types/edgeData";
@@ -1084,6 +1085,60 @@ export function moveRoutingJunctions(
 }
 
 /**
+ * Live previews for segments that touch a junction whose Y is moving (e.g. wrap
+ * rail drag). Keeps the shared bus V attached to the wrap H during pointer move.
+ * Also covers colocated merge junctions (same x/y, no jj segment between them).
+ */
+export function previewSegmentsForJunctionY(
+  graph: RoutingGraph,
+  nodes: Node[],
+  junctionId: string,
+  newY: number,
+  excludeSegmentId: string,
+): Map<string, OrthoPoint[]> {
+  const seed = graph.junctions[junctionId];
+  if (!seed) return new Map();
+  const y = snapToGrid(newY);
+  const movedIds = new Set<string>([junctionId]);
+  // Colocated bus merges share a point without a jj edge — move them together.
+  for (const [id, j] of Object.entries(graph.junctions)) {
+    if (id === junctionId) continue;
+    if (Math.abs(j.x - seed.x) > 0.51) continue;
+    if (Math.abs(j.y - seed.y) > 0.51) continue;
+    movedIds.add(id);
+  }
+
+  const out = new Map<string, OrthoPoint[]>();
+  for (const seg of Object.values(graph.segments)) {
+    if (seg.id === excludeSegmentId) continue;
+    const atA =
+      seg.a.kind === "junction" && movedIds.has(seg.a.junctionId);
+    const atB =
+      seg.b.kind === "junction" && movedIds.has(seg.b.junctionId);
+    if (!atA && !atB) continue;
+    const pts = resolveSegmentPoints(seg, nodes, graph, seg.id);
+    if (!pts || pts.length < 2) continue;
+    const next = pts.map((p) => ({ ...p }));
+    if (atA) {
+      next[0] = { x: next[0]!.x, y };
+      if (next[1] && Math.abs(next[0]!.x - next[1].x) > 1.5) {
+        next[1] = { x: next[1].x, y };
+      }
+    }
+    if (atB) {
+      const last = next.length - 1;
+      next[last] = { x: next[last]!.x, y };
+      const prev = last - 1;
+      if (prev >= 0 && Math.abs(next[last]!.x - next[prev]!.x) > 1.5) {
+        next[prev] = { x: next[prev]!.x, y };
+      }
+    }
+    out.set(seg.id, simplifyOrthoPoints(next));
+  }
+  return out;
+}
+
+/**
  * Translate a junction↔junction rail/wrap: move every colinear connected
  * junction together and clear leftover U-bend cornersAbs on those bus runs.
  */
@@ -1232,10 +1287,16 @@ export function setSegmentCornersNorm(
             : next.cornersAbs[0]!.y;
         const j = junctions[jEp.junctionId];
         if (j && Math.abs(j.y - wrapY) > 0.01) {
-          junctions = {
-            ...junctions,
-            [jEp.junctionId]: { ...j, y: snapToGrid(wrapY) },
-          };
+          const snapped = snapToGrid(wrapY);
+          junctions = { ...junctions };
+          junctions[jEp.junctionId] = { ...j, y: snapped };
+          // Colocated merge points share the bus joint with no jj edge.
+          for (const [id, other] of Object.entries(junctions)) {
+            if (id === jEp.junctionId) continue;
+            if (Math.abs(other.x - j.x) > 0.51) continue;
+            if (Math.abs(other.y - j.y) > 0.51) continue;
+            junctions[id] = { ...other, y: snapped };
+          }
         }
       }
     }
