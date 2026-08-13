@@ -3,7 +3,6 @@
 /* Thème système : clair par défaut, sombre si prefers-color-scheme: dark */
 :root {
   color-scheme: light dark;
-  --machine-select-scale: 1.035;
   --machine-select-bg: color-mix(in srgb, var(--accent) 10%, var(--surface));
   --machine-select-ring: color-mix(in srgb, var(--accent) 22%, transparent);
   --machine-conflict-bg: color-mix(in srgb, #ef4444 10%, var(--surface));
@@ -82,14 +81,11 @@ body {
 /* Drag de connexion : machine sans port compatible, ports invalides */
 .rf-machine-body {
   transition:
-    transform 0.18s ease,
     background-color 0.18s ease,
     box-shadow 0.18s ease;
-  transform-origin: center center;
 }
 
 .rf-machine-body-selected {
-  transform: scale(var(--machine-select-scale));
   background-color: var(--machine-select-bg);
   box-shadow:
     inset 0 0 0 1px var(--machine-select-ring),
@@ -122,10 +118,6 @@ body {
 .rf-ortho-corner-handle {
   touch-action: none;
   user-select: none;
-}
-
-.rf-machine-port {
-  transition: transform 0.18s ease;
 }
 
 .react-flow__node.rf-machine-dim {
