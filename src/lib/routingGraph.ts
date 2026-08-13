@@ -985,9 +985,11 @@ export function resolveSegmentPoints(
     const portPos = portAbsPos(nodes, portEp.portId);
     const kind = portKind(nodes, portEp.portId);
     if (portPos && kind) {
+      const jx = segment.a.kind === "junction" ? a.x : b.x;
       const hasDetour =
         !!segment.cornersAbs &&
-        looksLikeAroundDetour(segment.cornersAbs, kind, portPos, a.x === portPos.x ? b.x : a.x);
+        portWrongSideOfBus(kind, portPos.x, jx) &&
+        looksLikeAroundDetour(segment.cornersAbs, kind, portPos, jx);
       if (hasDetour && segment.cornersAbs) {
         // Junction sits on the wrap rail; port stays at port Y.
         const wrapY =
@@ -1101,18 +1103,26 @@ export function translateRailJunctions(
   const oldValue = axis === "x" ? seedA.x : seedA.y;
 
   const ids = new Set<string>();
-  const queue = [seg.a.junctionId, seg.b.junctionId];
-  while (queue.length > 0) {
-    const id = queue.pop()!;
-    if (ids.has(id)) continue;
-    const j = graph.junctions[id];
-    if (!j) continue;
-    if (Math.abs((axis === "x" ? j.x : j.y) - oldValue) > 0.51) continue;
-    ids.add(id);
-    for (const s of Object.values(graph.segments)) {
-      if (s.a.kind !== "junction" || s.b.kind !== "junction") continue;
-      if (s.a.junctionId === id) queue.push(s.b.junctionId);
-      if (s.b.junctionId === id) queue.push(s.a.junctionId);
+  if (axis === "x") {
+    // Vertical column: every junction on this X moves together — including
+    // colocated ports that share a point (no jj segment between them).
+    for (const [id, j] of Object.entries(graph.junctions)) {
+      if (Math.abs(j.x - oldValue) <= 0.51) ids.add(id);
+    }
+  } else {
+    const queue = [seg.a.junctionId, seg.b.junctionId];
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      if (ids.has(id)) continue;
+      const j = graph.junctions[id];
+      if (!j) continue;
+      if (Math.abs(j.y - oldValue) > 0.51) continue;
+      ids.add(id);
+      for (const s of Object.values(graph.segments)) {
+        if (s.a.kind !== "junction" || s.b.kind !== "junction") continue;
+        if (s.a.junctionId === id) queue.push(s.b.junctionId);
+        if (s.b.junctionId === id) queue.push(s.a.junctionId);
+      }
     }
   }
 
@@ -1172,7 +1182,7 @@ export function setSegmentCornersNorm(
   graph: RoutingGraph,
   segmentId: string,
   corners: OrthoPoint[] | undefined,
-  _anchor?: RouteAnchor,
+  anchor?: RouteAnchor,
 ): RoutingGraph {
   const seg = graph.segments[segmentId];
   if (!seg) return graph;
@@ -1186,7 +1196,9 @@ export function setSegmentCornersNorm(
     delete next.cornersNorm;
   }
   let junctions = graph.junctions;
-  // Keep the bus junction on the wrap rail when the user drags a detour stub.
+  // Only park the bus junction on a wrap rail for *around-machine* leave
+  // columns (outside the port↔junction span). Normal U-bends / mid kinks
+  // must not move the junction or the network disconnects on drag commit.
   const portEp =
     seg.a.kind === "port"
       ? seg.a
@@ -1199,21 +1211,32 @@ export function setSegmentCornersNorm(
       : seg.b.kind === "junction"
         ? seg.b
         : null;
-  if (portEp && jEp && next.cornersAbs && next.cornersAbs.length >= 2) {
-    const wrapY =
-      seg.a.kind === "port"
-        ? next.cornersAbs[next.cornersAbs.length - 1]!.y
-        : next.cornersAbs[0]!.y;
-    // Only snap junction for leave-column shaped detours (same X on first two).
+  if (
+    portEp &&
+    jEp &&
+    anchor &&
+    next.cornersAbs &&
+    next.cornersAbs.length >= 2
+  ) {
     const c0 = next.cornersAbs[0]!;
     const c1 = next.cornersAbs[1]!;
     if (Math.abs(c0.x - c1.x) < 1.5) {
-      const j = junctions[jEp.junctionId];
-      if (j && Math.abs(j.y - wrapY) > 0.01) {
-        junctions = {
-          ...junctions,
-          [jEp.junctionId]: { ...j, y: snapToGrid(wrapY) },
-        };
+      const leaveX = c0.x;
+      const lo = Math.min(anchor.sx, anchor.tx);
+      const hi = Math.max(anchor.sx, anchor.tx);
+      const outside = leaveX < lo - 1 || leaveX > hi + 1;
+      if (outside) {
+        const wrapY =
+          seg.a.kind === "port"
+            ? next.cornersAbs[next.cornersAbs.length - 1]!.y
+            : next.cornersAbs[0]!.y;
+        const j = junctions[jEp.junctionId];
+        if (j && Math.abs(j.y - wrapY) > 0.01) {
+          junctions = {
+            ...junctions,
+            [jEp.junctionId]: { ...j, y: snapToGrid(wrapY) },
+          };
+        }
       }
     }
   }

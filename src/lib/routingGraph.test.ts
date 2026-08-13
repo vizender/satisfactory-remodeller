@@ -744,8 +744,50 @@ describe("shared routing graph (N×M)", () => {
     );
     expect(graph.segments[busId]!.cornersAbs?.length).toBe(2);
     graph = translateRailJunctions(graph, busId, "x", before + 60);
-    expect(graph.junctions[ja!.id]!.x).toBe(before + 60);
-    expect(graph.junctions[jb!.id]!.x).toBe(before + 60);
+    // Entire vertical column moves — including colocated same-Y junctions
+    // that share a point and have no jj segment between them.
+    for (const id of ["j-out", "j-in1", "j-in2"]) {
+      expect(graph.junctions[id]!.x).toBe(before + 60);
+    }
     expect(graph.segments[busId]!.cornersAbs).toBeUndefined();
+  });
+
+  it("normal stub U-bend commit does not move the bus junction Y", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const stubId = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    const a = resolveEndpointPos(graph.segments[stubId]!.a, nodes, graph)!;
+    const b = resolveEndpointPos(graph.segments[stubId]!.b, nodes, graph)!;
+    const jY = graph.junctions["j-in1"]!.y;
+    graph = setSegmentCornersNorm(
+      graph,
+      stubId,
+      [
+        { x: a.x, y: a.y + 80 },
+        { x: b.x, y: a.y + 80 },
+      ],
+      { sx: a.x, sy: a.y, tx: b.x, ty: b.y },
+    );
+    expect(graph.junctions["j-in1"]!.y).toBe(jY);
+    const resolved = resolveSegmentPoints(
+      graph.segments[stubId]!,
+      nodes,
+      graph,
+    )!;
+    expect(resolved.some((p) => Math.abs(p.y - (a.y + 80)) < 1)).toBe(true);
+    expect(resolved[0]).toEqual(a);
+    expect(resolved[resolved.length - 1]).toEqual(b);
   });
 });
