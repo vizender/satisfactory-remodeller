@@ -868,6 +868,37 @@ export type MoveSegmentResult = {
 };
 
 /**
+ * Clamp interior corners so they don't overshoot past axis-aligned endpoints
+ * (the classic "excroissance" past a T-junction).
+ * - Same-Y ends: keep every corner X inside [minX, maxX]
+ * - Same-X ends: keep every corner Y inside [minY, maxY]
+ */
+export function clampOpenCorners(
+  start: OrthoPoint,
+  corners: OrthoPoint[],
+  end: OrthoPoint,
+): OrthoPoint[] {
+  if (corners.length === 0) return [];
+  if (sameY(start, end)) {
+    const lo = Math.min(start.x, end.x);
+    const hi = Math.max(start.x, end.x);
+    return corners.map((p) => ({
+      x: snapToGrid(Math.max(lo, Math.min(hi, p.x))),
+      y: p.y,
+    }));
+  }
+  if (sameX(start, end)) {
+    const lo = Math.min(start.y, end.y);
+    const hi = Math.max(start.y, end.y);
+    return corners.map((p) => ({
+      x: p.x,
+      y: snapToGrid(Math.max(lo, Math.min(hi, p.y))),
+    }));
+  }
+  return corners.map((p) => ({ ...p }));
+}
+
+/**
  * Assemble an open orthogonal polyline from fixed endpoints + absolute corners.
  * Unlike forceOrthogonal, does not assume port→port H–V–H — no stub tails.
  */
@@ -876,9 +907,10 @@ export function assembleOpenPolyline(
   corners: OrthoPoint[],
   end: OrthoPoint,
 ): OrthoPoint[] {
+  const clamped = clampOpenCorners(start, corners, end);
   const raw: OrthoPoint[] = [
     { ...start },
-    ...corners.map((p) => ({ x: p.x, y: p.y })),
+    ...clamped.map((p) => ({ x: p.x, y: p.y })),
     { ...end },
   ];
   const pts: OrthoPoint[] = [{ ...raw[0]! }];
@@ -901,7 +933,19 @@ export function assembleOpenPolyline(
   }
   pts[0] = { ...start };
   pts[pts.length - 1] = { ...end };
-  return simplifyOrthoPoints(pts);
+  // Re-clamp after bend insertion so closing jogs can't overshoot
+  const simplified = simplifyOrthoPoints(pts);
+  if (simplified.length <= 2) return simplified;
+  const mid = clampOpenCorners(
+    simplified[0]!,
+    simplified.slice(1, -1),
+    simplified[simplified.length - 1]!,
+  );
+  return simplifyOrthoPoints([
+    { ...simplified[0]! },
+    ...mid,
+    { ...simplified[simplified.length - 1]! },
+  ]);
 }
 
 /**
@@ -970,9 +1014,10 @@ export function moveCorner2DOpen(
 export type OpenKinkPin = "start" | "end" | "both";
 
 /**
- * Drag a segment on an open chain.
- * - Junction↔junction axis-aligned runs translate (caller persists junction moves).
- * - Port stubs kink with the free run on the junction side (pin=port end).
+ * Drag a segment on an open chain. Endpoints stay fixed — edits are local to
+ * this segment so connected stubs/buses are not rewritten.
+ * - Straight 2-point runs get a U-offset (parallel free run) instead of moving junctions.
+ * - Port stubs use `pin` so mid-handle kinks face the junction.
  */
 export function moveSegmentOpen(
   segmentIndex: number,
@@ -980,7 +1025,7 @@ export function moveSegmentOpen(
   startPoints: OrthoPoint[],
   startPointer: { x: number; y: number },
   options?: {
-    /** Translate a straight 2-point bus instead of inserting a kink. */
+    /** @deprecated Junction translation removed — kept for call-site compat. */
     translateStraight?: boolean;
     /** Pin the port side so the kink's free run faces the junction. */
     pin?: OpenKinkPin;
@@ -992,48 +1037,38 @@ export function moveSegmentOpen(
   if (!seg) return { points: base, activeSegmentIndex: 0 };
   const pin = options?.pin ?? "both";
 
-  if (base.length === 2 && options?.translateStraight) {
+  // Straight stub/bus: offset with a U-bend, endpoints pinned (no junction move).
+  if (base.length === 2) {
     if (seg.horizontal) {
       const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
-      return {
-        points: [
-          { x: base[0]!.x, y: newY },
-          { x: base[1]!.x, y: newY },
-        ],
-        activeSegmentIndex: 0,
-      };
+      if (Math.abs(newY - seg.a.y) < MIN_SEG / 2) {
+        return { points: base, activeSegmentIndex: 0 };
+      }
+      const pts = simplifyOrthoPoints([
+        { ...base[0]! },
+        { x: base[0]!.x, y: newY },
+        { x: base[1]!.x, y: newY },
+        { ...base[1]! },
+      ]);
+      return { points: pts, activeSegmentIndex: Math.min(1, pts.length - 3) };
     }
     const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
-    return {
-      points: [
-        { x: newX, y: base[0]!.y },
-        { x: newX, y: base[1]!.y },
-      ],
-      activeSegmentIndex: 0,
-    };
-  }
-
-  if (base.length === 2) {
-    const kinked = beginMidHandleKink(base, 0, pointerFlow, pin);
-    if (kinked.cornerIndex < 0) {
+    if (Math.abs(newX - seg.a.x) < MIN_SEG / 2) {
       return { points: base, activeSegmentIndex: 0 };
     }
-    const moved = moveCorner2DOpen(
-      kinked.points,
-      kinked.cornerIndex,
-      pointerFlow.x,
-      pointerFlow.y,
-    );
-    const free = routeSegments(moved).filter((s) => s.length >= 4);
-    const active =
-      free.find((s) => (seg.horizontal ? s.horizontal : !s.horizontal))
-        ?.index ?? 1;
-    return { points: moved, activeSegmentIndex: active };
+    const pts = simplifyOrthoPoints([
+      { ...base[0]! },
+      { x: newX, y: base[0]!.y },
+      { x: newX, y: base[1]!.y },
+      { ...base[1]! },
+    ]);
+    return { points: pts, activeSegmentIndex: Math.min(1, pts.length - 3) };
   }
 
   if (seg.horizontal) {
     const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
     if (segmentIndex === 0 || segmentIndex === base.length - 2) {
+      // Endpoint-adjacent H: expand a U toward the interior, keep port/junction fixed
       const kinked = beginMidHandleKink(
         base,
         segmentIndex,

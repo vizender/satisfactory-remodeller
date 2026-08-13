@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assembleOpenPolyline,
   beginMidHandleKink,
   moveCorner2D,
   moveCorner2DOpen,
@@ -92,23 +93,6 @@ describe("orthogonal kink placement", () => {
     expect(kinked.length).toBeGreaterThan(2);
   });
 
-  it("moveSegmentOpen translateStraight moves a vertical bus without kinking", () => {
-    const start = [
-      { x: 220, y: 50 },
-      { x: 220, y: 250 },
-    ];
-    const result = moveSegmentOpen(
-      0,
-      { x: 280, y: 150 },
-      start,
-      { x: 220, y: 150 },
-      { translateStraight: true },
-    );
-    expect(result.points).toHaveLength(2);
-    expect(result.points[0]!.x).toBeGreaterThan(220);
-    expect(result.points[0]!.x).toBe(result.points[1]!.x);
-  });
-
   it("moveCorner2DOpen keeps endpoints fixed on a stub kink", () => {
     const points = [
       { x: 100, y: 100 },
@@ -120,5 +104,42 @@ describe("orthogonal kink placement", () => {
     const next = moveCorner2DOpen(points, 2, 180, 200);
     expect(next[0]).toEqual({ x: 100, y: 100 });
     expect(next[next.length - 1]).toEqual({ x: 220, y: 100 });
+  });
+
+  it("moveSegmentOpen offsets a straight vertical with a U-bend (endpoints fixed)", () => {
+    const start = [
+      { x: 220, y: 50 },
+      { x: 220, y: 250 },
+    ];
+    const result = moveSegmentOpen(
+      0,
+      { x: 280, y: 150 },
+      start,
+      { x: 220, y: 150 },
+    );
+    expect(result.points[0]).toEqual({ x: 220, y: 50 });
+    expect(result.points[result.points.length - 1]).toEqual({
+      x: 220,
+      y: 250,
+    });
+    expect(result.points.length).toBeGreaterThan(2);
+    expect(result.points.some((p) => p.x > 220)).toBe(true);
+  });
+
+  it("assembleOpenPolyline clamps horizontal overshoot past a same-Y stub", () => {
+    const start = { x: 280, y: 100 };
+    const end = { x: 400, y: 100 };
+    const pts = assembleOpenPolyline(
+      start,
+      [
+        { x: 200, y: 100 },
+        { x: 200, y: 140 },
+        { x: 350, y: 140 },
+      ],
+      end,
+    );
+    expect(pts[0]).toEqual(start);
+    expect(pts[pts.length - 1]).toEqual(end);
+    expect(pts.every((p) => p.x >= 280 - 0.51)).toBe(true);
   });
 });
