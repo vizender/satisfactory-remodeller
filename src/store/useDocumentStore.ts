@@ -289,6 +289,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         segmentId,
         corners,
         anchor,
+        s.nodes,
       ),
     }));
   },

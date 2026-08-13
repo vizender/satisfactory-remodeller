@@ -9,7 +9,7 @@ import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   beginMidHandleKink,
   clampPortStubs,
-  clampPortAdjacentVerticalX,
+  clampOpenVerticalX,
   collectHorizontalSegments,
   collectVerticalSegments,
   detectIntersectionLocks,
@@ -26,6 +26,7 @@ import {
   moveSegment,
   moveSegmentOpen,
   type OpenKinkPin,
+  type PortFrameBounds,
   orthogonalizeOpen,
   orthogonalLabelPosition,
   partnerIdsNeedingLockRefresh,
@@ -157,6 +158,8 @@ function applyCornerSnaps(
   heldSnapX: number | null,
   heldSnapY: number | null,
   openChain = false,
+  openPin: OpenKinkPin = "both",
+  portFrame: PortFrameBounds | null = null,
 ): { points: OrthoPoint[]; heldSnapX: number | null; heldSnapY: number | null } {
   if (!points[cornerIndex]) return { points, heldSnapX, heldSnapY };
 
@@ -165,7 +168,10 @@ function applyCornerSnaps(
   let nextHeldX = heldSnapX;
   let nextHeldY = heldSnapY;
   const corner = next[cornerIndex]!;
-  const moveCorner = openChain ? moveCorner2DOpen : moveCorner2D;
+  const moveCorner = openChain
+    ? (pts: OrthoPoint[], idx: number, x: number, y: number) =>
+        moveCorner2DOpen(pts, idx, x, y, openPin, portFrame)
+    : moveCorner2D;
 
   // Prefer snapping the corner's X/Y directly (works even for tiny kink jogs).
   const vertSegs = routeSegments(next).filter(
@@ -314,7 +320,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     selectThisEdge("replace");
   };
 
-  const portFrameForSeg = () => {
+  const portFrameForSeg = (): PortFrameBounds | null => {
     const { nodes, routingGraph: rg } = useDocumentStore.getState();
     const meta = rg.segments[idRef.current];
     if (!meta) return null;
@@ -324,7 +330,25 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         : meta.b.kind === "port"
           ? meta.b.portId
           : null;
-    return portId ? frameBoundsForPort(nodes, portId) : null;
+    if (portId) return frameBoundsForPort(nodes, portId);
+
+    // Junction↔junction: use any connected port's machine frame so a bus V
+    // cannot be dragged through that machine body.
+    const jids = new Set<string>();
+    if (meta.a.kind === "junction") jids.add(meta.a.junctionId);
+    if (meta.b.kind === "junction") jids.add(meta.b.junctionId);
+    for (const s of Object.values(rg.segments)) {
+      const jp =
+        s.a.kind === "port" && s.b.kind === "junction"
+          ? { portId: s.a.portId, jid: s.b.junctionId }
+          : s.b.kind === "port" && s.a.kind === "junction"
+            ? { portId: s.b.portId, jid: s.a.junctionId }
+            : null;
+      if (!jp || !jids.has(jp.jid)) continue;
+      const frame = frameBoundsForPort(nodes, jp.portId);
+      if (frame) return frame;
+    }
+    return null;
   };
 
   const resolveLogicalPoints = (e: (typeof docEdges)[number]) =>
@@ -453,10 +477,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           st.heldSnapX,
           st.heldSnapY,
           isSeg,
+          pin,
+          frame,
         );
         next = snapped.points;
         if (isSeg) {
-          next = enforcePortStubElbow(next, pin);
+          next = enforcePortStubElbow(next, pin, frame);
         }
         st.heldSnapX = snapped.heldSnapX;
         st.heldSnapY = snapped.heldSnapY;
@@ -533,8 +559,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             const pin = openKinkPin(
               useDocumentStore.getState().routingGraph.segments[idRef.current],
             );
-            // Always clamp against the port — never snap into the machine.
-            x = clampPortAdjacentVerticalX(x, next, pin, portFrameForSeg());
+            // Always clamp against the port / machine — never snap into the body.
+            x = clampOpenVerticalX(
+              x,
+              next,
+              st.segmentIndex,
+              pin,
+              portFrameForSeg(),
+            );
           }
           const pts = next.map((p) => ({ ...p }));
           const i = st.segmentIndex;
@@ -549,7 +581,11 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
                   idRef.current
                 ],
               );
-              next = enforcePortStubElbow(orthogonalizeOpen(pts), pin);
+              next = enforcePortStubElbow(
+                orthogonalizeOpen(pts),
+                pin,
+                portFrameForSeg(),
+              );
             } else {
               next = clampPortStubs(forceOrthogonal(pts));
             }
@@ -590,6 +626,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
                       idRef.current
                     ],
                   ),
+                  portFrameForSeg(),
                 )
               : clampPortStubs(forceOrthogonal(pts));
           }
@@ -667,6 +704,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             st.mode === "corner"
               ? (st.openPin ?? "both")
               : openKinkPin(rg.segments[edgeId]),
+            portFrameForSeg(),
           )
         : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       const companions =

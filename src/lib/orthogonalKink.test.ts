@@ -283,6 +283,71 @@ describe("orthogonal kink placement", () => {
     ).toBe(true);
   });
 
+  it("AABB frame blocks V through the machine even when not port-adjacent", () => {
+    // Junction left, port on left edge of machine; a mid kink V sits inside the card.
+    const frame = { left: 140, right: 340, top: 40, bottom: 200 };
+    const inside = [
+      { x: 80, y: 100 },
+      { x: 80, y: 160 },
+      { x: 200, y: 160 }, // inside frame
+      { x: 200, y: 100 }, // inside frame (V through node)
+      { x: 140, y: 100 }, // port
+    ];
+    const fixed = enforcePortStubElbow(inside, "end", frame);
+    expect(
+      fixed.some(
+        (p) =>
+          p.x > frame.left + 1 &&
+          p.x < frame.right - 1 &&
+          p.y > frame.top + 1 &&
+          p.y < frame.bottom - 1,
+      ),
+    ).toBe(false);
+  });
+
+  it("moveSegmentOpen cannot drag a V into the machine AABB", () => {
+    const frame = { left: 140, right: 340, top: 40, bottom: 200 };
+    const start = [
+      { x: 80, y: 200 },
+      { x: 80, y: 100 },
+      { x: 140, y: 100 },
+    ];
+    // Drag the leave V rightward into the Iron Ingot card
+    const result = moveSegmentOpen(
+      0,
+      { x: 220, y: 150 },
+      start,
+      { x: 80, y: 150 },
+      { pin: "end", portFrame: frame },
+    );
+    for (let i = 1; i < result.points.length - 1; i++) {
+      const p = result.points[i]!;
+      const inside =
+        p.x > frame.left + 1 &&
+        p.x < frame.right - 1 &&
+        p.y > frame.top + 1 &&
+        p.y < frame.bottom - 1;
+      expect(inside).toBe(false);
+    }
+    // Short stub still allowed — V can sit close outside the left edge
+    const close = moveSegmentOpen(
+      0,
+      { x: 120, y: 150 },
+      start,
+      { x: 80, y: 150 },
+      { pin: "end", portFrame: frame },
+    );
+    for (const p of close.points.slice(1, -1)) {
+      expect(p.x).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
+      const inside =
+        p.x > frame.left + 1 &&
+        p.x < frame.right - 1 &&
+        p.y > frame.top + 1 &&
+        p.y < frame.bottom - 1;
+      expect(inside).toBe(false);
+    }
+  });
+
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {
     // Junction at bus X, port to the right — leave column sits left of the bus
     const start = { x: 280, y: 100 };

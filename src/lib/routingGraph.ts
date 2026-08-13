@@ -7,6 +7,7 @@ import {
   BACKWARDS_BUS_OFFSET,
   BACKWARDS_STUB,
   buildEdgeNetworkIds,
+  enforcePortStubElbow,
   FORWARD_MIN_GAP,
   interiorCorners,
   MIN_PORT_STUB,
@@ -488,6 +489,33 @@ export function applyLocalStubDetours(
         delete next.cornersAbs;
         segments[seg.id] = next;
         changed = true;
+      } else if (seg.cornersAbs && seg.cornersAbs.length >= 1) {
+        // User kinks on the correct-side stub: eject anything inside the body.
+        const frame = frameBoundsForPort(nodes, ends.portId);
+        if (frame) {
+          const pin = kind === "out" ? "start" : "end";
+          const a = kind === "out" ? portPos : { x: j.x, y: portPos.y };
+          const b = kind === "out" ? { x: j.x, y: portPos.y } : portPos;
+          const raw = assembleOpenPolyline(a, seg.cornersAbs, b);
+          const fixed = enforcePortStubElbow(raw, pin, frame);
+          const nextCorners = interiorCorners(fixed);
+          const same =
+            nextCorners.length === seg.cornersAbs.length &&
+            nextCorners.every(
+              (p, i) =>
+                Math.abs(p.x - seg.cornersAbs![i]!.x) < 0.01 &&
+                Math.abs(p.y - seg.cornersAbs![i]!.y) < 0.01,
+            );
+          if (!same) {
+            const next: RoutingSegment = {
+              ...seg,
+              cornersAbs: nextCorners,
+            };
+            delete next.cornersNorm;
+            segments[seg.id] = next;
+            changed = true;
+          }
+        }
       }
     }
   }
@@ -1238,6 +1266,7 @@ export function setSegmentCornersNorm(
   segmentId: string,
   corners: OrthoPoint[] | undefined,
   anchor?: RouteAnchor,
+  nodes?: Node[],
 ): RoutingGraph {
   const seg = graph.segments[segmentId];
   if (!seg) return graph;
@@ -1247,7 +1276,30 @@ export function setSegmentCornersNorm(
     delete next.cornersNorm;
   } else {
     // Always store absolute corners — norms collapse on axis-aligned segments.
-    next.cornersAbs = corners.map((p) => ({ x: p.x, y: p.y }));
+    let sanitized = corners.map((p) => ({ x: p.x, y: p.y }));
+    // Port stubs: never persist a leave column / kink vertex inside the body.
+    const portEp =
+      seg.a.kind === "port"
+        ? seg.a
+        : seg.b.kind === "port"
+          ? seg.b
+          : null;
+    if (portEp && anchor) {
+      const pin =
+        seg.a.kind === "port" ? ("start" as const) : ("end" as const);
+      const frame =
+        nodes && nodes.length > 0
+          ? frameBoundsForPort(nodes, portEp.portId)
+          : null;
+      const raw = assembleOpenPolyline(
+        { x: anchor.sx, y: anchor.sy },
+        sanitized,
+        { x: anchor.tx, y: anchor.ty },
+      );
+      const fixed = enforcePortStubElbow(raw, pin, frame);
+      sanitized = interiorCorners(fixed);
+    }
+    next.cornersAbs = sanitized;
     delete next.cornersNorm;
   }
   let junctions = graph.junctions;

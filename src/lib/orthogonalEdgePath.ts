@@ -1031,16 +1031,23 @@ export function moveCorner2DOpen(
     Math.abs(prev.y - pts[cornerIndex]!.y) <=
     Math.abs(prev.x - pts[cornerIndex]!.x) + EPS;
 
-  // If this corner sits on the port-adjacent V, keep X outside the machine.
+  // Any corner that moves a vertical column must stay outside the machine.
   const segs = routeSegments(points);
-  const onPortAdjV = segs.some(
+  const vertOnCorner = segs.find(
     (s) =>
       !s.horizontal &&
-      (s.index === cornerIndex - 1 || s.index === cornerIndex) &&
-      isPortAdjacentVertical(points, s.index, pin),
+      (s.index === cornerIndex - 1 || s.index === cornerIndex),
   );
-  if (onPortAdjV) {
-    nx = clampPortAdjacentVerticalX(nx, points, pin, frame);
+  if (vertOnCorner) {
+    nx = clampOpenVerticalX(nx, points, vertOnCorner.index, pin, frame);
+  } else if (frame && pointInsidePortFrame({ x: nx, y: ny }, frame)) {
+    nx = clampXOutsidePortFrame(
+      nx,
+      ny,
+      ny,
+      frame,
+      preferFrameEscapeSide(pin),
+    );
   }
 
   if (wasH) {
@@ -1064,7 +1071,7 @@ export function moveCorner2DOpen(
   // Never move pinned endpoints — local simplify only (avoids reshape stutter)
   pts[0] = start;
   pts[pts.length - 1] = end;
-  return enforcePortStubElbow(simplifyOrthoPoints(pts), pin);
+  return enforcePortStubElbow(simplifyOrthoPoints(pts), pin, frame);
 }
 
 /** Which endpoint is the port attachment on a shared stub (pin that side). */
@@ -1110,101 +1117,252 @@ export function isPortAdjacentVertical(
 }
 
 /**
- * Hard limit for the port-adjacent V / stub elbow X:
- * never cross the port into the machine (that creates the H excroissance).
- * Min stub length is MIN_PORT_STUB so the V can sit close to the node.
+ * Outside half-plane for a port stub:
+ * - pin start (output on the right): leave X ≥ port.x + MIN_PORT_STUB
+ * - pin end (input on the left): leave X ≤ port.x - MIN_PORT_STUB
+ * Never enter the port card / machine past the handle.
+ */
+export function portStubOutsideLimitX(
+  portX: number,
+  pin: Exclude<OpenKinkPin, "both">,
+): { minX: number; maxX: number } {
+  if (pin === "start") {
+    return { minX: portX + MIN_PORT_STUB, maxX: Infinity };
+  }
+  return { minX: -Infinity, maxX: portX - MIN_PORT_STUB };
+}
+
+export function clampXToPortStubOutside(
+  proposedX: number,
+  portX: number,
+  pin: OpenKinkPin,
+): number {
+  if (pin === "both") return snapToGrid(proposedX);
+  const { minX, maxX } = portStubOutsideLimitX(portX, pin);
+  return snapToGrid(Math.max(minX, Math.min(maxX, proposedX)));
+}
+
+/** Prefer which side of a machine frame a vertical should escape to. */
+export function preferFrameEscapeSide(
+  pin: OpenKinkPin,
+): "left" | "right" {
+  if (pin === "end") return "left";
+  if (pin === "start") return "right";
+  return "left";
+}
+
+export function pointInsidePortFrame(
+  p: OrthoPoint,
+  frame: PortFrameBounds,
+  inset = 0.5,
+): boolean {
+  return (
+    p.x > frame.left + inset &&
+    p.x < frame.right - inset &&
+    p.y > frame.top + inset &&
+    p.y < frame.bottom - inset
+  );
+}
+
+/** True when a vertical at x spanning [y1,y2] cuts through the machine body. */
+export function verticalHitsPortFrame(
+  x: number,
+  y1: number,
+  y2: number,
+  frame: PortFrameBounds,
+  inset = 0.5,
+): boolean {
+  if (x <= frame.left + inset || x >= frame.right - inset) return false;
+  const lo = Math.min(y1, y2);
+  const hi = Math.max(y1, y2);
+  return hi > frame.top + inset && lo < frame.bottom - inset;
+}
+
+/**
+ * Push a vertical X just outside the machine AABB (short clearance).
+ * Used while dragging any V that would otherwise cut through the node.
+ */
+export function clampXOutsidePortFrame(
+  proposedX: number,
+  y1: number,
+  y2: number,
+  frame: PortFrameBounds | null | undefined,
+  side: "left" | "right",
+): number {
+  if (!frame) return snapToGrid(proposedX);
+  let x = proposedX;
+  if (verticalHitsPortFrame(x, y1, y2, frame)) {
+    x =
+      side === "left"
+        ? frame.left - MIN_PORT_STUB
+        : frame.right + MIN_PORT_STUB;
+  }
+  return snapToGrid(x);
+}
+
+/**
+ * Hard limit for port-adjacent V / stub elbow X:
+ * short min H stub (port±MIN_PORT_STUB) and never through the machine AABB.
  */
 export function clampPortAdjacentVerticalX(
   proposedX: number,
   points: OrthoPoint[],
   pin: OpenKinkPin,
-  _frame?: PortFrameBounds | null,
+  frame?: PortFrameBounds | null,
+  segmentIndex?: number,
 ): number {
-  if (pin === "both") return snapToGrid(proposedX);
-  const port = pin === "start" ? points[0]! : points[points.length - 1]!;
-  void _frame;
-  if (pin === "start") {
-    // Output: V stays to the right of the port by ≥ MIN_PORT_STUB
-    return snapToGrid(Math.max(proposedX, port.x + MIN_PORT_STUB));
+  let x = snapToGrid(proposedX);
+  if (pin === "start" || pin === "end") {
+    const port = pin === "start" ? points[0]! : points[points.length - 1]!;
+    x = clampXToPortStubOutside(x, port.x, pin);
   }
-  // Input: V stays to the left of the port by ≥ MIN_PORT_STUB
-  return snapToGrid(Math.min(proposedX, port.x - MIN_PORT_STUB));
+  if (frame) {
+    let y1 = points[0]!.y;
+    let y2 = points[points.length - 1]!.y;
+    if (
+      segmentIndex != null &&
+      segmentIndex >= 0 &&
+      segmentIndex < points.length - 1
+    ) {
+      y1 = points[segmentIndex]!.y;
+      y2 = points[segmentIndex + 1]!.y;
+    }
+    x = clampXOutsidePortFrame(
+      x,
+      y1,
+      y2,
+      frame,
+      preferFrameEscapeSide(pin),
+    );
+    if (pin === "start" || pin === "end") {
+      const port = pin === "start" ? points[0]! : points[points.length - 1]!;
+      x = clampXToPortStubOutside(x, port.x, pin);
+    }
+  }
+  return x;
 }
 
 /**
- * After any open-stub edit: keep the stub elbow on the outside of the port and
- * align the port-adjacent V to that elbow so it cannot poke into the node.
+ * Clamp any open-chain vertical (leave column, kink V, bus U-bend) so it
+ * cannot sit inside the connected machine during drag.
+ */
+export function clampOpenVerticalX(
+  proposedX: number,
+  points: OrthoPoint[],
+  segmentIndex: number,
+  pin: OpenKinkPin,
+  frame?: PortFrameBounds | null,
+): number {
+  const a = points[segmentIndex] ?? points[0]!;
+  const b = points[segmentIndex + 1] ?? points[points.length - 1]!;
+  if (isPortAdjacentVertical(points, segmentIndex, pin)) {
+    return clampPortAdjacentVerticalX(proposedX, points, pin, frame, segmentIndex);
+  }
+  if (frame) {
+    let x = clampXOutsidePortFrame(
+      proposedX,
+      a.y,
+      b.y,
+      frame,
+      preferFrameEscapeSide(pin),
+    );
+    // If this V still reaches a pinned port via only H runs, keep the stub side.
+    if (pin === "start" || pin === "end") {
+      const port = pin === "start" ? points[0]! : points[points.length - 1]!;
+      // Only apply half-plane when the vertical shares the port row elbow X
+      // after a short H — otherwise wrap-rail kinks may cross past the port X
+      // above/below the body (allowed) as long as they miss the AABB.
+      if (
+        Math.abs(a.y - port.y) <= OPEN_AXIS_EPS ||
+        Math.abs(b.y - port.y) <= OPEN_AXIS_EPS
+      ) {
+        x = clampXToPortStubOutside(x, port.x, pin);
+      }
+    }
+    return x;
+  }
+  return snapToGrid(proposedX);
+}
+
+function pushPointOutsideFrame(
+  p: OrthoPoint,
+  frame: PortFrameBounds,
+  side: "left" | "right",
+): OrthoPoint {
+  if (!pointInsidePortFrame(p, frame)) return p;
+  const x =
+    side === "left" ? frame.left - MIN_PORT_STUB : frame.right + MIN_PORT_STUB;
+  return { x: snapToGrid(x), y: p.y };
+}
+
+/**
+ * After any open-stub edit (and on resolve/sync):
+ * - keep the port-row elbow on the short outside H stub
+ * - lock the leave V to that elbow
+ * - eject any vertex that landed inside the machine AABB
  */
 export function enforcePortStubElbow(
   points: OrthoPoint[],
   pin: OpenKinkPin,
+  frame?: PortFrameBounds | null,
 ): OrthoPoint[] {
-  if (pin === "both" || points.length < 3) {
+  if (points.length < 3) {
     return simplifyOrthoPoints(points);
   }
   const pts = points.map((p) => ({ ...p }));
   const start = { ...pts[0]! };
   const end = { ...pts[pts.length - 1]! };
+  const side = preferFrameEscapeSide(pin);
 
-  if (pin === "start") {
-    const port = start;
-    const minX = port.x + MIN_PORT_STUB;
-    // Elbow is the first interior on the port row (end of H stub).
+  // 1) Eject vertices that sit inside the machine body (V-through-node).
+  if (frame) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      pts[i] = pushPointOutsideFrame(pts[i]!, frame, side);
+    }
+  }
+
+  // 2) Port-row elbow + leave column (pinned stubs only).
+  if (pin === "start" || pin === "end") {
+    const port = pin === "start" ? start : end;
+    const { minX, maxX } = portStubOutsideLimitX(port.x, pin);
     let elbowIdx = -1;
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
-        elbowIdx = i;
-        break;
+    if (pin === "start") {
+      for (let i = 1; i < pts.length - 1; i++) {
+        if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
+          elbowIdx = i;
+          break;
+        }
       }
-    }
-    if (elbowIdx < 0) {
-      pts[0] = start;
-      pts[pts.length - 1] = end;
-      return simplifyOrthoPoints(pts);
-    }
-    const elbowX = Math.max(pts[elbowIdx]!.x, minX);
-    const oldX = pts[elbowIdx]!.x;
-    pts[elbowIdx] = { x: elbowX, y: port.y };
-    // Keep the V column that shared the old elbow X aligned to the new elbow.
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (i === elbowIdx) continue;
-      if (Math.abs(pts[i]!.x - oldX) < 1.5 || Math.abs(pts[i]!.x - elbowX) < 1.5) {
-        // Only pull points that form the vertical off the elbow
-        const prev = pts[i - 1]!;
-        const next = pts[i + 1]!;
-        const colinearV =
-          Math.abs(prev.x - pts[i]!.x) < 1.5 || Math.abs(next.x - pts[i]!.x) < 1.5;
-        if (colinearV || Math.abs(pts[i]!.x - oldX) < 1.5) {
-          pts[i] = { x: elbowX, y: pts[i]!.y };
+    } else {
+      for (let i = pts.length - 2; i >= 1; i--) {
+        if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
+          elbowIdx = i;
+          break;
         }
       }
     }
-  } else {
-    const port = end;
-    const maxX = port.x - MIN_PORT_STUB;
-    let elbowIdx = -1;
-    for (let i = pts.length - 2; i >= 1; i--) {
-      if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
-        elbowIdx = i;
-        break;
+
+    if (elbowIdx >= 0) {
+      let elbowX = Math.max(minX, Math.min(maxX, pts[elbowIdx]!.x));
+      if (frame) {
+        elbowX = clampXOutsidePortFrame(
+          elbowX,
+          port.y,
+          pts[elbowIdx]!.y,
+          frame,
+          side,
+        );
+        elbowX = Math.max(minX, Math.min(maxX, elbowX));
       }
-    }
-    if (elbowIdx < 0) {
-      pts[0] = start;
-      pts[pts.length - 1] = end;
-      return simplifyOrthoPoints(pts);
-    }
-    const elbowX = Math.min(pts[elbowIdx]!.x, maxX);
-    const oldX = pts[elbowIdx]!.x;
-    pts[elbowIdx] = { x: elbowX, y: port.y };
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (i === elbowIdx) continue;
-      if (Math.abs(pts[i]!.x - oldX) < 1.5 || Math.abs(pts[i]!.x - elbowX) < 1.5) {
-        const prev = pts[i - 1]!;
-        const next = pts[i + 1]!;
-        const colinearV =
-          Math.abs(prev.x - pts[i]!.x) < 1.5 || Math.abs(next.x - pts[i]!.x) < 1.5;
-        if (colinearV || Math.abs(pts[i]!.x - oldX) < 1.5) {
+      elbowX = snapToGrid(elbowX);
+      const oldX = pts[elbowIdx]!.x;
+      pts[elbowIdx] = { x: elbowX, y: port.y };
+      for (let i = 1; i < pts.length - 1; i++) {
+        if (i === elbowIdx) continue;
+        if (
+          Math.abs(pts[i]!.x - oldX) < 1.5 ||
+          Math.abs(pts[i]!.x - elbowX) < 1.5
+        ) {
           pts[i] = { x: elbowX, y: pts[i]!.y };
         }
       }
@@ -1313,7 +1471,7 @@ export function moveSegmentOpen(
     points: OrthoPoint[],
     activeSegmentIndex: number,
   ): MoveSegmentResult => ({
-    points: enforcePortStubElbow(simplifyOrthoPoints(points), pin),
+    points: enforcePortStubElbow(simplifyOrthoPoints(points), pin, frame),
     activeSegmentIndex,
   });
 
@@ -1331,9 +1489,7 @@ export function moveSegmentOpen(
       );
     }
     let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
-    if (isPortAdjacentVertical(base, 0, pin)) {
-      newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
-    }
+    newX = clampOpenVerticalX(newX, base, 0, pin, frame);
     return finish(
       [
         { x: newX, y: base[0]!.y },
@@ -1359,7 +1515,7 @@ export function moveSegmentOpen(
       return finish(pts, Math.min(1, pts.length - 3));
     }
     let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
-    newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
+    newX = clampOpenVerticalX(newX, base, 0, pin, frame);
     if (Math.abs(newX - seg.a.x) < MIN_SEG / 2) {
       return finish(base, 0);
     }
@@ -1422,10 +1578,8 @@ export function moveSegmentOpen(
 
   let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
   newX = snapAxisToSiblings(newX, siblingVertXs(base, segmentIndex));
-  // Port-adjacent V stays on the H-stub elbow and cannot enter the machine.
-  if (isPortAdjacentVertical(base, segmentIndex, pin)) {
-    newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
-  }
+  // Any V on a port stub / with a machine frame stays outside the node body.
+  newX = clampOpenVerticalX(newX, base, segmentIndex, pin, frame);
   if (segmentIndex === 0 || segmentIndex === base.length - 2) {
     const kinked = beginMidHandleKink(
       base,
