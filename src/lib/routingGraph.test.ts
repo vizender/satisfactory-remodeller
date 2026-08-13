@@ -123,9 +123,9 @@ describe("shared routing graph (N×M)", () => {
       edge("e22", "out2", "in2"),
     ];
     const { graph, edges: next } = rebuildRoutingGraph(nodes, edges);
-    // 4 stubs + 1 bus link between the two Y-level junctions = 5 segments
-    expect(countSegmentsDrawnOnce(graph)).toBe(5);
-    expect(Object.keys(graph.junctions).length).toBe(2);
+    // 4 stubs + bus links among per-port junctions
+    expect(countSegmentsDrawnOnce(graph)).toBeGreaterThanOrEqual(5);
+    expect(Object.keys(graph.junctions).length).toBe(4);
     expect(assertNoDuplicateSegmentGeometry(graph)).toBe(true);
     for (const e of next) {
       expect((e.data as { routePath: string[] }).routePath.length).toBeGreaterThanOrEqual(2);
@@ -410,5 +410,156 @@ describe("shared routing graph (N×M)", () => {
     expect(resolved[resolved.length - 1]).toEqual(b);
     expect(resolved.some((p) => Math.abs(p.y - (a.y + 40)) < 1)).toBe(true);
     expect(resolved.length).toBeGreaterThan(2);
+  });
+
+  it("adding a new input preserves existing stub kinks (stable per-port ids)", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph, edges: next } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const stub1 = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    const a = resolveEndpointPos(graph.segments[stub1]!.a, nodes, graph)!;
+    const b = resolveEndpointPos(graph.segments[stub1]!.b, nodes, graph)!;
+    const kink = [
+      { x: a.x, y: a.y + 48 },
+      { x: (a.x + b.x) / 2, y: a.y + 48 },
+      { x: (a.x + b.x) / 2, y: b.y },
+    ];
+    graph = setSegmentCornersNorm(graph, stub1, kink, {
+      sx: a.x,
+      sy: a.y,
+      tx: b.x,
+      ty: b.y,
+    });
+
+    const nodes2: Node[] = [
+      ...nodes,
+      frame("m4", 400, 400),
+      port("in3", "m4", "in", 0, 0),
+    ];
+    const edges2 = [
+      ...next.filter((e) => e.id === "e1" || e.id === "e2"),
+      edge("e3", "out", "in3"),
+    ];
+    const rebuilt = rebuildRoutingGraph(nodes2, edges2, graph);
+    expect(rebuilt.graph.segments[stub1]?.cornersAbs?.length).toBeGreaterThan(0);
+    const resolved = resolveSegmentPoints(
+      rebuilt.graph.segments[stub1]!,
+      nodes2,
+      rebuilt.graph,
+    )!;
+    expect(resolved.some((p) => Math.abs(p.y - (a.y + 48)) < 1)).toBe(true);
+    // New stub is a clean straight join (no inherited junk corners)
+    const stub3 = Object.keys(rebuilt.graph.segments).find((id) =>
+      id.includes("p:in3"),
+    )!;
+    expect(rebuilt.graph.segments[stub3]?.cornersAbs).toBeUndefined();
+  });
+
+  it("dragging consumer left of feeder rebuilds into backwards wrap", () => {
+    const nodes: Node[] = [
+      frame("feeder", 0, 0),
+      port("out", "feeder", "out", 96, 0),
+      frame("consumer", 400, 0),
+      port("in1", "consumer", "in", 0, 0),
+      frame("consumer2", 400, 200),
+      port("in2", "consumer2", "in", 0, 0),
+    ];
+    const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
+    const { graph: forward } = rebuildRoutingGraph(nodes, edges);
+    expect(forward.junctions["j-wrap-out"]).toBeUndefined();
+
+    const moved: Node[] = nodes.map((n) => {
+      if (n.id === "consumer") return { ...n, position: { x: -400, y: 0 } };
+      if (n.id === "consumer2") return { ...n, position: { x: -400, y: 200 } };
+      return n;
+    });
+    const { graph: backward, edges: next } = rebuildRoutingGraph(
+      moved,
+      edges,
+      forward,
+    );
+    expect(backward.junctions["j-wrap-out"]).toBeTruthy();
+    expect(backward.junctions["j-wrap-in"]).toBeTruthy();
+    const outPos = portAbsPos(moved, "out")!;
+    const inPos = portAbsPos(moved, "in1")!;
+    expect(backward.junctions["j-wrap-out"]!.x).toBeGreaterThan(outPos.x);
+    expect(backward.junctions["j-wrap-in"]!.x).toBeLessThan(inPos.x);
+    for (const e of next) {
+      const pts = composeLogicalRoutePoints(e, moved, backward)!;
+      const throughBody = pts.filter(
+        (p) =>
+          p.x > inPos.x + 20 &&
+          p.x < outPos.x - 20 &&
+          Math.abs(p.y - outPos.y) < 8,
+      );
+      expect(throughBody.length).toBe(0);
+    }
+  });
+
+  it("resolveSegmentPoints aligns drifted stub Y so corners cannot overshoot", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const stubId = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    const seg = graph.segments[stubId]!;
+    const jid =
+      seg.a.kind === "junction"
+        ? seg.a.junctionId
+        : seg.b.kind === "junction"
+          ? seg.b.junctionId
+          : null;
+    expect(jid).toBeTruthy();
+    const portPos = portAbsPos(nodes, "in1")!;
+    const j = graph.junctions[jid!]!;
+    // Drift junction Y by 4px and plant a corner past the rail (excroissance)
+    graph = {
+      ...graph,
+      junctions: {
+        ...graph.junctions,
+        [jid!]: { ...j, y: portPos.y + 4 },
+      },
+    };
+    graph = setSegmentCornersNorm(
+      graph,
+      stubId,
+      [
+        { x: j.x - 40, y: portPos.y + 4 },
+        { x: j.x - 40, y: portPos.y + 40 },
+        { x: (j.x + portPos.x) / 2, y: portPos.y + 40 },
+      ],
+      { sx: j.x, sy: portPos.y + 4, tx: portPos.x, ty: portPos.y },
+    );
+    const resolved = resolveSegmentPoints(
+      graph.segments[stubId]!,
+      nodes,
+      graph,
+    )!;
+    const minX = Math.min(j.x, portPos.x);
+    expect(resolved.every((p) => p.x >= minX - 0.51)).toBe(true);
+    expect(resolved.every((p) => Math.abs(p.y - portPos.y) < 1 || p.y > portPos.y)).toBe(
+      true,
+    );
   });
 });

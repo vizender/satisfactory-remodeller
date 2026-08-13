@@ -867,11 +867,14 @@ export type MoveSegmentResult = {
   activeSegmentIndex: number;
 };
 
+/** Loose axis match for open stubs (junction Y can drift a few px from port row). */
+const OPEN_AXIS_EPS = 8;
+
 /**
  * Clamp interior corners so they don't overshoot past axis-aligned endpoints
  * (the classic "excroissance" past a T-junction).
- * - Same-Y ends: keep every corner X inside [minX, maxX]
- * - Same-X ends: keep every corner Y inside [minY, maxY]
+ * - Near-same-Y ends: keep every corner X inside [minX, maxX]
+ * - Near-same-X ends: keep every corner Y inside [minY, maxY]
  */
 export function clampOpenCorners(
   start: OrthoPoint,
@@ -879,19 +882,22 @@ export function clampOpenCorners(
   end: OrthoPoint,
 ): OrthoPoint[] {
   if (corners.length === 0) return [];
-  if (sameY(start, end)) {
+  if (Math.abs(start.y - end.y) <= OPEN_AXIS_EPS) {
     const lo = Math.min(start.x, end.x);
     const hi = Math.max(start.x, end.x);
+    const y = (start.y + end.y) / 2;
     return corners.map((p) => ({
       x: snapToGrid(Math.max(lo, Math.min(hi, p.x))),
-      y: p.y,
+      // Keep free-axis motion; only pin X into the stub span
+      y: Math.abs(p.y - y) <= OPEN_AXIS_EPS ? snapToGrid(y) : p.y,
     }));
   }
-  if (sameX(start, end)) {
+  if (Math.abs(start.x - end.x) <= OPEN_AXIS_EPS) {
     const lo = Math.min(start.y, end.y);
     const hi = Math.max(start.y, end.y);
+    const x = (start.x + end.x) / 2;
     return corners.map((p) => ({
-      x: p.x,
+      x: Math.abs(p.x - x) <= OPEN_AXIS_EPS ? snapToGrid(x) : p.x,
       y: snapToGrid(Math.max(lo, Math.min(hi, p.y))),
     }));
   }

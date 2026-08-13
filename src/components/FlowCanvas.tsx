@@ -80,6 +80,7 @@ import {
   buildSegmentEdges,
   conflictSegmentIdsFromLogical,
   resolveSegmentPoints,
+  routingLayoutNeedsRebuild,
 } from "@/lib/routingGraph";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
@@ -380,6 +381,7 @@ function FlowCanvasInner() {
   const edges = useDocumentStore((s) => s.edges);
   const routingGraph = useDocumentStore((s) => s.routingGraph);
   const syncRoutingJunctions = useDocumentStore((s) => s.syncRoutingJunctions);
+  const rebuildRouting = useDocumentStore((s) => s.rebuildRouting);
   const onNodesChange = useDocumentStore((s) => s.onNodesChange);
   const applyEdgesChange = useDocumentStore((s) => s.onEdgesChange);
   const storeOnConnect = useDocumentStore((s) => s.onConnect);
@@ -862,11 +864,30 @@ function FlowCanvasInner() {
             event.shiftKey ? "add" : "replace",
           );
         }}
+        onNodeDrag={() => {
+          // Keep stub Y tracking the machine while dragging.
+          syncRoutingJunctions();
+          const { nodes: list, edges: edgeList, routingGraph } =
+            useDocumentStore.getState();
+          // Flip to wrap (or back) as soon as the corridor crosses the threshold
+          // so the belt does not stay punched through the machine until mouse-up.
+          if (routingLayoutNeedsRebuild(list, edgeList, routingGraph)) {
+            rebuildRouting();
+          }
+        }}
         onNodeDragStop={() => {
-          const { nodes: list, edges: edgeList, setEdgeCorners } =
+          const { nodes: list, edges: edgeList, setEdgeCorners, routingGraph } =
             useDocumentStore.getState();
           syncRoutingJunctions();
-          commitFusedOrthogonalEdges(edgeList, list, setEdgeCorners);
+          // Final rebuild so forward ↔ backwards wrap matches settled positions.
+          if (Object.keys(routingGraph.segments).length > 0) {
+            rebuildRouting();
+          }
+          commitFusedOrthogonalEdges(
+            useDocumentStore.getState().edges,
+            useDocumentStore.getState().nodes,
+            setEdgeCorners,
+          );
           endVerticalFuseSession();
         }}
         onNodeContextMenu={(event, node) => {

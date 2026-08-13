@@ -865,15 +865,16 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
               </div>
             );
           })}
-          {segs.map((s) => {
-            // Mid-handle only on spans long enough that the center is visually
-            // distinct from the corner handles at each end.
-            if (s.length < 24) return null;
-            const midX = s.a.x + (s.b.x - s.a.x) / 2;
-            const midY = s.a.y + (s.b.y - s.a.y) / 2;
+          {(() => {
+            // One mid-handle on the longest run — short port-adjacent jogs were
+            // getting their own "center" dots that looked offset on input stubs.
+            const primary = [...segs].sort((a, b) => b.length - a.length)[0];
+            if (!primary || primary.length < 24) return null;
+            const midX = primary.a.x + (primary.b.x - primary.a.x) / 2;
+            const midY = primary.a.y + (primary.b.y - primary.a.y) / 2;
             return (
               <div
-                key={`mid-${id}-${s.index}`}
+                key={`mid-${id}-${primary.index}`}
                 className="nodrag nopan rf-ortho-bend-handle"
                 style={{
                   position: "absolute",
@@ -888,7 +889,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
                   alignItems: "center",
                   justifyContent: "center",
                 }}
-                onPointerDown={(e) => beginMidHandleDrag(e, s.index)}
+                onPointerDown={(e) => beginMidHandleDrag(e, primary.index)}
                 title="Drag to add kink"
               >
                 <span
@@ -905,7 +906,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
                 />
               </div>
             );
-          })}
+          })()}
         </EdgeLabelRenderer>
       ) : null}
     </>
