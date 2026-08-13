@@ -386,6 +386,10 @@ function FlowCanvasInner() {
 
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
+  /** Selection for display-only routing segment edges (not in the document store). */
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const solve = useFlowSolveResult();
   const tutorialGates = useTutorialGates();
@@ -413,10 +417,22 @@ function FlowCanvasInner() {
         edges,
         solve.conflictEdgeIds,
       );
-      next = [...next, ...buildSegmentEdges(routingGraph, conflictSegs)];
+      next = [
+        ...next,
+        ...buildSegmentEdges(routingGraph, conflictSegs).map((e) => ({
+          ...e,
+          selected: selectedSegmentIds.has(e.id),
+        })),
+      ];
     }
     return next;
-  }, [edges, solve.conflictEdgeIds, routingGraph, edgeRoutingMode]);
+  }, [
+    edges,
+    solve.conflictEdgeIds,
+    routingGraph,
+    edgeRoutingMode,
+    selectedSegmentIds,
+  ]);
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -565,9 +581,27 @@ function FlowCanvasInner() {
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      if (changes.length > 0) applyEdgesChange(changes);
+      if (changes.length === 0) return;
+      const docChanges: EdgeChange[] = [];
+      let segSelection: Set<string> | null = null;
+      for (const c of changes) {
+        const id = "id" in c ? c.id : undefined;
+        const isSeg = typeof id === "string" && id.startsWith("rs-");
+        if (isSeg && c.type === "select") {
+          if (!segSelection) segSelection = new Set(selectedSegmentIds);
+          if (c.selected) segSelection.add(id!);
+          else segSelection.delete(id!);
+          continue;
+        }
+        if (isSeg && (c.type === "remove" || c.type === "add")) {
+          continue;
+        }
+        if (!isSeg) docChanges.push(c);
+      }
+      if (segSelection) setSelectedSegmentIds(segSelection);
+      if (docChanges.length > 0) applyEdgesChange(docChanges);
     },
-    [applyEdgesChange],
+    [applyEdgesChange, selectedSegmentIds],
   );
 
   const onNodesChangeHandler = useCallback(

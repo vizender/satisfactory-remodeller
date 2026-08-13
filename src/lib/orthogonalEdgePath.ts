@@ -613,6 +613,11 @@ export function clampPortStubs(points: OrthoPoint[]): OrthoPoint[] {
   const start = pts[0]!;
   const end = pts[pts.length - 1]!;
 
+  // Vertical buses / same-X segment ends (shared routing) have no L→R port stubs.
+  if (Math.abs(end.x - start.x) < 1) {
+    return forceOrthogonal(pts);
+  }
+
   // Source stub end (pts[1]): keep to the right of the output handle
   const minSourceX = start.x + MIN_PORT_STUB;
   if (pts[1]!.x < minSourceX) {
@@ -881,6 +886,27 @@ export function moveSegment(
   const seg = segs[segmentIndex] ?? segs[0];
   if (!seg) return { points: base, activeSegmentIndex: 0 };
 
+  // Single-segment polylines (shared routing stub/bus): kink at the pointer
+  // instead of port-stub expansion which parks the jog at the extremity.
+  if (base.length === 2) {
+    const kinked = beginMidHandleKink(base, 0, pointerFlow);
+    if (kinked.cornerIndex < 0) {
+      return { points: base, activeSegmentIndex: 0 };
+    }
+    const moved = moveCorner2D(
+      kinked.points,
+      kinked.cornerIndex,
+      pointerFlow.x,
+      pointerFlow.y,
+    );
+    const freeSegs = routeSegments(moved).filter((s) => !s.isStub && s.length >= 4);
+    const active =
+      freeSegs.find((s) =>
+        seg.horizontal ? s.horizontal : !s.horizontal,
+      )?.index ?? Math.min(1, Math.max(0, moved.length - 3));
+    return { points: moved, activeSegmentIndex: active };
+  }
+
   if (seg.horizontal) {
     const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
     if (seg.isStub) {
@@ -1139,8 +1165,13 @@ export function moveCorner2D(
   let nx = snapToGrid(x);
   let ny = snapToGrid(y);
 
-  // Keep corners from sliding into machine bodies via port stubs
-  nx = Math.max(start.x + MIN_PORT_STUB, Math.min(end.x - MIN_PORT_STUB, nx));
+  // Keep corners from sliding into machine bodies via port stubs —
+  // but only when the source→target box has a usable X span (not a vertical bus).
+  const xLo = Math.min(start.x, end.x) + MIN_PORT_STUB;
+  const xHi = Math.max(start.x, end.x) - MIN_PORT_STUB;
+  if (xHi > xLo) {
+    nx = Math.max(xLo, Math.min(xHi, nx));
+  }
 
   const pts = points.map((p) => ({ ...p }));
   const a = pts[cornerIndex - 1]!;

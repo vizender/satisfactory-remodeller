@@ -21,8 +21,13 @@ export type RoutingSegment = {
   a: RoutingEndpoint;
   b: RoutingEndpoint;
   /**
-   * Optional interior corners as fractions of the a→b box (same convention as
-   * ItemEdgeData.cornersNorm). Empty / absent = straight ortholinear a→b.
+   * Absolute interior corners in flow space.
+   * Preferred over cornersNorm — axis-aligned stubs/buses have dx=0 or dy=0,
+   * which collapses fraction-based encoding.
+   */
+  cornersAbs?: OrthoPoint[];
+  /**
+   * @deprecated Prefer cornersAbs. Kept for older in-memory graphs.
    */
   cornersNorm?: OrthoNorm[];
 };
@@ -76,6 +81,7 @@ export type RoutingSegmentEdgeData = {
   kind: "routingSegment";
   segmentId: string;
   itemId: string;
+  cornersAbs?: OrthoPoint[];
   cornersNorm?: OrthoNorm[];
   /** Absolute corners while dragging (not persisted). */
   dragCorners?: OrthoPoint[];

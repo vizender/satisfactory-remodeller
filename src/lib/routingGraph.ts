@@ -4,6 +4,7 @@ import { snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import {
   buildEdgeNetworkIds,
+  forceOrthogonal,
   FORWARD_MIN_GAP,
   interiorCorners,
   resolveRoutePoints,
@@ -58,13 +59,16 @@ function logicalEdgesOnly(edges: Edge[]): Edge[] {
   });
 }
 
-/** Preserve cornersNorm keyed by segment id across rebuilds. */
-function prevCornersMap(prev: RoutingGraph | undefined): Map<string, OrthoNorm[]> {
-  const out = new Map<string, OrthoNorm[]>();
+/** Preserve absolute corners keyed by segment id across rebuilds. */
+function prevCornersMap(prev: RoutingGraph | undefined): Map<string, OrthoPoint[]> {
+  const out = new Map<string, OrthoPoint[]>();
   if (!prev) return out;
   for (const s of Object.values(prev.segments)) {
-    if (s.cornersNorm && s.cornersNorm.length >= 2) {
-      out.set(s.id, s.cornersNorm);
+    if (s.cornersAbs && s.cornersAbs.length >= 2) {
+      out.set(
+        s.id,
+        s.cornersAbs.map((p) => ({ x: p.x, y: p.y })),
+      );
     }
   }
   return out;
@@ -131,13 +135,13 @@ function ensureSegment(
   itemId: string,
   a: RoutingEndpoint,
   b: RoutingEndpoint,
-  cornersPrev: Map<string, OrthoNorm[]>,
+  cornersPrev: Map<string, OrthoPoint[]>,
 ): string {
   const id = segmentIdFor(a, b);
   if (!graph.segments[id]) {
     const seg: RoutingSegment = { id, itemId, a, b };
     const prev = cornersPrev.get(id);
-    if (prev) seg.cornersNorm = prev;
+    if (prev) seg.cornersAbs = prev;
     graph.segments[id] = seg;
   }
   return id;
@@ -148,7 +152,7 @@ function buildNetworkBus(
   nodes: Node[],
   netEdges: Edge[],
   netId: string,
-  cornersPrev: Map<string, OrthoNorm[]>,
+  cornersPrev: Map<string, OrthoPoint[]>,
   prev: RoutingGraph | undefined,
 ): Map<string, string[]> {
   const routePaths = new Map<string, string[]>();
@@ -411,19 +415,46 @@ export function resolveSegmentPoints(
   const a = resolveEndpointPos(segment.a, nodes, graph);
   const b = resolveEndpointPos(segment.b, nodes, graph);
   if (!a || !b) return null;
-  // Axis-aligned stubs/bus runs stay as a single straight stroke by default.
-  if (!segment.cornersNorm || segment.cornersNorm.length < 2) {
-    if (Math.abs(a.y - b.y) < 0.51 || Math.abs(a.x - b.x) < 0.51) {
-      return [
-        { x: a.x, y: a.y },
-        { x: b.x, y: b.y },
-      ];
+
+  if (segment.cornersAbs && segment.cornersAbs.length >= 1) {
+    return forceOrthogonal([
+      { x: a.x, y: a.y },
+      ...segment.cornersAbs.map((p) => ({ x: p.x, y: p.y })),
+      { x: b.x, y: b.y },
+    ]);
+  }
+
+  // Legacy norms — only usable when the a→b box is non-degenerate on both axes
+  if (segment.cornersNorm && segment.cornersNorm.length >= 2) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (Math.abs(dx) >= 1e-6 && Math.abs(dy) >= 1e-6) {
+      return resolveRoutePoints(
+        a.x,
+        a.y,
+        b.x,
+        b.y,
+        { itemId: segment.itemId, cornersNorm: segment.cornersNorm },
+        edgeIdForPreview,
+      );
     }
   }
-  const data = segment.cornersNorm
-    ? { itemId: segment.itemId, cornersNorm: segment.cornersNorm }
-    : { itemId: segment.itemId };
-  return resolveRoutePoints(a.x, a.y, b.x, b.y, data, edgeIdForPreview);
+
+  // Axis-aligned stubs/bus runs stay as a single straight stroke by default.
+  if (Math.abs(a.y - b.y) < 0.51 || Math.abs(a.x - b.x) < 0.51) {
+    return [
+      { x: a.x, y: a.y },
+      { x: b.x, y: b.y },
+    ];
+  }
+  return resolveRoutePoints(
+    a.x,
+    a.y,
+    b.x,
+    b.y,
+    { itemId: segment.itemId },
+    edgeIdForPreview,
+  );
 }
 
 /** Compose absolute points for a logical edge that has a routePath. */
@@ -461,20 +492,18 @@ export function setSegmentCornersNorm(
   graph: RoutingGraph,
   segmentId: string,
   corners: OrthoPoint[] | undefined,
-  anchor: RouteAnchor | undefined,
+  _anchor?: RouteAnchor,
 ): RoutingGraph {
   const seg = graph.segments[segmentId];
   if (!seg) return graph;
   const next = { ...seg };
-  if (!corners || corners.length < 2 || !anchor) {
+  if (!corners || corners.length < 1) {
+    delete next.cornersAbs;
     delete next.cornersNorm;
   } else {
-    const dx = anchor.tx - anchor.sx;
-    const dy = anchor.ty - anchor.sy;
-    next.cornersNorm = corners.map((p) => ({
-      u: Math.abs(dx) < 1e-6 ? 0.5 : (p.x - anchor.sx) / dx,
-      v: Math.abs(dy) < 1e-6 ? 0.5 : (p.y - anchor.sy) / dy,
-    }));
+    // Always store absolute corners — norms collapse on axis-aligned segments.
+    next.cornersAbs = corners.map((p) => ({ x: p.x, y: p.y }));
+    delete next.cornersNorm;
   }
   return {
     ...graph,
@@ -595,6 +624,7 @@ export function buildSegmentEdges(
       kind: "routingSegment",
       segmentId: seg.id,
       itemId: seg.itemId,
+      cornersAbs: seg.cornersAbs,
       cornersNorm: seg.cornersNorm,
     };
     return {
@@ -605,6 +635,8 @@ export function buildSegmentEdges(
       sourceHandle: endpointHandleId(seg.a, "source"),
       targetHandle: endpointHandleId(seg.b, "target"),
       data,
+      selectable: true,
+      focusable: true,
       className: conflictSegmentIds?.has(seg.id)
         ? "rf-edge-conflict"
         : undefined,

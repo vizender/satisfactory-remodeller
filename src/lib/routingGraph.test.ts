@@ -7,6 +7,8 @@ import {
   composeLogicalRoutePoints,
   countSegmentsDrawnOnce,
   rebuildRoutingGraph,
+  resolveEndpointPos,
+  resolveSegmentPoints,
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
 } from "@/lib/routingGraph";
@@ -192,7 +194,7 @@ describe("shared routing graph (N×M)", () => {
       tx: bJ!.x,
       ty: bJ!.y,
     });
-    expect(graph.segments[busId!]!.cornersNorm?.length).toBe(2);
+    expect(graph.segments[busId!]!.cornersAbs?.length).toBe(2);
 
     const composed1 = composeLogicalRoutePoints(cross[0]!, nodes, graph)!;
     const composed2 = composeLogicalRoutePoints(cross[1]!, nodes, graph)!;
@@ -228,11 +230,47 @@ describe("shared routing graph (N×M)", () => {
       ],
       { sx: 200, sy: 254, tx: 400, ty: 254 },
     );
-    expect(graph.segments[stub]!.cornersNorm).toBeTruthy();
+    expect(graph.segments[stub]!.cornersAbs).toBeTruthy();
     const trunkAfter = Object.values(graph.segments)
       .filter((s) => s.id !== stub)
       .map((s) => JSON.stringify(s));
     expect(trunkAfter).toEqual(trunkBefore);
+  });
+
+  it("axis-aligned segment kink survives round-trip (no cornersNorm collapse)", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
+    let { graph } = rebuildRoutingGraph(nodes, edges);
+    const busId = Object.keys(graph.segments).find(
+      (id) => !id.includes("p:"),
+    )!;
+    const seg = graph.segments[busId]!;
+    const a = resolveEndpointPos(seg.a, nodes, graph)!;
+    const b = resolveEndpointPos(seg.b, nodes, graph)!;
+    // Vertical bus: kink sideways
+    const kinkPts = [
+      { x: a.x + 48, y: a.y + 20 },
+      { x: a.x + 48, y: b.y - 20 },
+    ];
+    graph = setSegmentCornersNorm(graph, busId, kinkPts, {
+      sx: a.x,
+      sy: a.y,
+      tx: b.x,
+      ty: b.y,
+    });
+    const resolved = resolveSegmentPoints(
+      graph.segments[busId]!,
+      nodes,
+      graph,
+    )!;
+    expect(resolved.some((p) => Math.abs(p.x - (a.x + 48)) < 1)).toBe(true);
   });
 
   it("syncRoutingJunctionPositions follows port Y after machine move", () => {

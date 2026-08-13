@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useStore,
+  useStoreApi,
   type EdgeProps,
 } from "@xyflow/react";
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/orthoDragPreview";
 import {
   composeLogicalRoutePoints,
+  resolveEndpointPos,
   resolveSegmentPoints,
   segmentNetworkEdgeId,
 } from "@/lib/routingGraph";
@@ -214,6 +216,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   const transform = useStore((s) => s.transform);
   const transformRef = useRef(transform);
   transformRef.current = transform;
+  const storeApi = useStoreApi();
 
   const idRef = useRef(id);
   idRef.current = id;
@@ -233,12 +236,18 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
   const isRoutingSegment =
     (data as RoutingSegmentEdgeData | undefined)?.kind === "routingSegment";
+  const isRoutingSegmentRef = useRef(isRoutingSegment);
+  isRoutingSegmentRef.current = isRoutingSegment;
   const networkEdgeId =
     (isRoutingSegment
       ? segmentNetworkEdgeId(id, docEdges)
       : undefined) ?? id;
   const networkEdgeIdRef = useRef(networkEdgeId);
   networkEdgeIdRef.current = networkEdgeId;
+
+  const selectThisEdge = () => {
+    storeApi.getState().addSelectedEdges([idRef.current]);
+  };
 
   const resolveLogicalPoints = (e: (typeof docEdges)[number]) =>
     composeLogicalRoutePoints(e, docNodes, routingGraph);
@@ -254,6 +263,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     isRoutingSegment && routingGraph.segments[id]
       ? {
           itemId: routingGraph.segments[id]!.itemId,
+          cornersAbs: routingGraph.segments[id]!.cornersAbs,
           cornersNorm: routingGraph.segments[id]!.cornersNorm,
         }
       : data;
@@ -265,11 +275,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         const resolved = resolveSegmentPoints(seg, docNodes, routingGraph, id);
         if (resolved) return resolved;
       }
-      // Axis-aligned default for display-only segment edges
       if (
-        !getEdgeCornersNorm(segmentData) &&
-        (Math.abs(sourceY - targetY) < 0.51 ||
-          Math.abs(sourceX - targetX) < 0.51)
+        Math.abs(sourceY - targetY) < 0.51 ||
+        Math.abs(sourceX - targetX) < 0.51
       ) {
         return [
           { x: sourceX, y: sourceY },
@@ -460,20 +468,37 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     const onUp = (e: PointerEvent) => {
       const st = dragRef.current;
       if (!st || e.pointerId !== st.pointerId) return;
-      const { nodes, edges } = useDocumentStore.getState();
+      const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
       const edgeId = idRef.current;
-      const pts = fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
+      const isSeg = isRoutingSegmentRef.current;
+      const pts = isSeg
+        ? forceOrthogonal(st.latestPoints)
+        : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       dragRef.current = null;
       setDragPoints(null);
-      const ends = endsRef.current;
-      const anchor = {
-        sx: ends.sourceX,
-        sy: ends.sourceY,
-        tx: ends.targetX,
-        ty: ends.targetY,
+
+      let anchor = {
+        sx: endsRef.current.sourceX,
+        sy: endsRef.current.sourceY,
+        tx: endsRef.current.targetX,
+        ty: endsRef.current.targetY,
       };
-      const locks = detectIntersectionLocks(edgeId, pts, edges, nodes);
+      if (isSeg) {
+        const seg = rg.segments[edgeId];
+        if (seg) {
+          const a = resolveEndpointPos(seg.a, nodes, rg);
+          const b = resolveEndpointPos(seg.b, nodes, rg);
+          if (a && b) {
+            anchor = { sx: a.x, sy: a.y, tx: b.x, ty: b.y };
+          }
+        }
+      }
+      const locks = isSeg
+        ? []
+        : detectIntersectionLocks(edgeId, pts, edges, nodes);
       setEdgeCorners(edgeId, interiorCorners(pts), anchor, locks);
+
+      if (isSeg) return;
 
       const fresh = useDocumentStore.getState();
       for (const partnerId of partnerIdsNeedingLockRefresh(
@@ -512,6 +537,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    selectThisEdge();
     const seg = segs[segmentIndex];
     if (!seg) return;
     const pointer = clientToFlow(e.clientX, e.clientY, transformRef.current);
@@ -535,6 +561,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    selectThisEdge();
     const startPoints = points.map((p) => ({ ...p }));
     dragRef.current = {
       mode: "corner",
@@ -552,6 +579,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    selectThisEdge();
     const pointer = clientToFlow(e.clientX, e.clientY, transformRef.current);
     const { points: kinked, cornerIndex } = beginMidHandleKink(
       points,
@@ -615,7 +643,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         }}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        interactionWidth={0}
+        interactionWidth={HIT_STROKE_SCREEN_PX}
       />
       <path
         d={hitPath}
@@ -626,6 +654,10 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         vectorEffect="non-scaling-stroke"
         style={{ pointerEvents: "stroke" }}
         className="react-flow__edge-hitpad"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          selectThisEdge();
+        }}
       />
       <g className="nodrag nopan">
         {segs.map((s) => {
@@ -687,7 +719,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             );
           })}
           {segs.map((s) => {
-            if (s.isStub || s.length < 4) return null;
+            // Allow mid-handles on stubs too — kink should form at the pointer,
+            // not only via stub-expansion which parks the jog at the extremity.
+            if (s.length < 4) return null;
             return (
               <div
                 key={`mid-${id}-${s.index}`}
