@@ -329,8 +329,8 @@ describe("shared routing graph (N×M)", () => {
     }
   });
 
-  it("backwards N×M wraps outside machines (out rail right, in rail left)", () => {
-    // Consumer on the left, feeder on the right → classic backwards route
+  it("backwards N×M keeps a forward bus and local stub detours (no wrap rails)", () => {
+    // Consumer on the left, feeder on the right → wrong-side ports get local detours
     const nodes: Node[] = [
       frame("consumer", 0, 0),
       port("in1", "consumer", "in", 0, 0),
@@ -348,28 +348,24 @@ describe("shared routing graph (N×M)", () => {
       edge("e22", "out2", "in2"),
     ];
     const { graph, edges: next } = rebuildRoutingGraph(nodes, edges);
-    expect(graph.junctions["j-wrap-out"]).toBeTruthy();
-    expect(graph.junctions["j-wrap-in"]).toBeTruthy();
-    const outPos = portAbsPos(nodes, "out1")!;
-    const inPos = portAbsPos(nodes, "in1")!;
-    expect(graph.junctions["j-wrap-out"]!.x).toBeGreaterThan(outPos.x);
-    expect(graph.junctions["j-wrap-in"]!.x).toBeLessThan(inPos.x);
-    expect(graph.junctions["j-wrap-out"]!.y).toBeGreaterThan(
-      Math.max(outPos.y, inPos.y),
+    expect(graph.junctions["j-wrap-out"]).toBeUndefined();
+    expect(graph.junctions["j-wrap-in"]).toBeUndefined();
+    // Shared bus column: all port junctions share one X
+    const busXs = ["out1", "out2", "in1", "in2"].map(
+      (pid) => graph.junctions[`j-${pid}`]!.x,
     );
-    // Composed path should not be a straight horizontal through the machines
+    expect(new Set(busXs).size).toBe(1);
+    for (const pid of ["in1", "in2", "out1", "out2"]) {
+      const stub = Object.values(graph.segments).find((s) => {
+        const a = s.a.kind === "port" ? s.a.portId : null;
+        const b = s.b.kind === "port" ? s.b.portId : null;
+        return a === pid || b === pid;
+      })!;
+      expect(stub.cornersAbs?.length).toBe(3);
+    }
     for (const e of next) {
       const pts = composeLogicalRoutePoints(e, nodes, graph)!;
-      const midY = graph.junctions["j-wrap-out"]!.y;
-      expect(pts.some((p) => Math.abs(p.y - midY) < 1)).toBe(true);
-      // No point sits between the two machines at port height (through-body)
-      const throughBody = pts.filter(
-        (p) =>
-          p.x > inPos.x + 20 &&
-          p.x < outPos.x - 20 &&
-          Math.abs(p.y - outPos.y) < 8,
-      );
-      expect(throughBody.length).toBe(0);
+      expect(pts.length).toBeGreaterThan(4);
     }
   });
 
@@ -467,7 +463,7 @@ describe("shared routing graph (N×M)", () => {
     expect(rebuilt.graph.segments[stub3]?.cornersAbs).toBeUndefined();
   });
 
-  it("dragging consumer left of feeder rebuilds into backwards wrap", () => {
+  it("dragging one consumer left keeps bus X and adds a local stub detour", () => {
     const nodes: Node[] = [
       frame("feeder", 0, 0),
       port("out", "feeder", "out", 96, 0),
@@ -479,33 +475,58 @@ describe("shared routing graph (N×M)", () => {
     const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
     const { graph: forward } = rebuildRoutingGraph(nodes, edges);
     expect(forward.junctions["j-wrap-out"]).toBeUndefined();
+    const busXBefore = forward.junctions["j-out"]!.x;
+    const otherJBefore = forward.junctions["j-in2"]!.x;
 
-    const moved: Node[] = nodes.map((n) => {
-      if (n.id === "consumer") return { ...n, position: { x: -400, y: 0 } };
-      if (n.id === "consumer2") return { ...n, position: { x: -400, y: 200 } };
-      return n;
-    });
-    const { graph: backward, edges: next } = rebuildRoutingGraph(
-      moved,
-      edges,
-      forward,
+    const moved: Node[] = nodes.map((n) =>
+      n.id === "consumer" ? { ...n, position: { x: -400, y: 0 } } : n,
     );
-    expect(backward.junctions["j-wrap-out"]).toBeTruthy();
-    expect(backward.junctions["j-wrap-in"]).toBeTruthy();
-    const outPos = portAbsPos(moved, "out")!;
-    const inPos = portAbsPos(moved, "in1")!;
-    expect(backward.junctions["j-wrap-out"]!.x).toBeGreaterThan(outPos.x);
-    expect(backward.junctions["j-wrap-in"]!.x).toBeLessThan(inPos.x);
-    for (const e of next) {
-      const pts = composeLogicalRoutePoints(e, moved, backward)!;
-      const throughBody = pts.filter(
-        (p) =>
-          p.x > inPos.x + 20 &&
-          p.x < outPos.x - 20 &&
-          Math.abs(p.y - outPos.y) < 8,
-      );
-      expect(throughBody.length).toBe(0);
-    }
+    // Machine drag path: sync only — no full rebuild
+    const synced = syncRoutingJunctionPositions(moved, forward);
+    expect(synced.junctions["j-wrap-out"]).toBeUndefined();
+    expect(synced.junctions["j-out"]!.x).toBe(busXBefore);
+    expect(synced.junctions["j-in2"]!.x).toBe(otherJBefore);
+    expect(synced.junctions["j-in1"]!.x).toBe(busXBefore);
+    const stub1 = Object.keys(synced.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    expect(synced.segments[stub1]!.cornersAbs?.length).toBe(3);
+    // Neighbor stub stays straight
+    const stub2 = Object.keys(synced.segments).find((id) =>
+      id.includes("p:in2"),
+    )!;
+    expect(synced.segments[stub2]!.cornersAbs).toBeUndefined();
+
+    // Rebuild after move also keeps frozen bus + local detour (no wrap rails)
+    const { graph: rebuilt } = rebuildRoutingGraph(moved, edges, forward);
+    expect(rebuilt.junctions["j-wrap-out"]).toBeUndefined();
+    expect(rebuilt.junctions["j-out"]!.x).toBe(busXBefore);
+    expect(rebuilt.segments[stub1]!.cornersAbs?.length).toBe(3);
+  });
+
+  it("dragging feeder right of bus adds a local output stub detour", () => {
+    const nodes: Node[] = [
+      frame("feeder", 0, 0),
+      port("out", "feeder", "out", 96, 0),
+      frame("consumer", 400, 0),
+      port("in1", "consumer", "in", 0, 0),
+      frame("consumer2", 400, 200),
+      port("in2", "consumer2", "in", 0, 0),
+    ];
+    const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
+    const { graph: forward } = rebuildRoutingGraph(nodes, edges);
+    const busX = forward.junctions["j-out"]!.x;
+    const moved: Node[] = nodes.map((n) =>
+      n.id === "feeder" ? { ...n, position: { x: 600, y: 0 } } : n,
+    );
+    const synced = syncRoutingJunctionPositions(moved, forward);
+    expect(synced.junctions["j-in1"]!.x).toBe(busX);
+    expect(synced.junctions["j-in2"]!.x).toBe(busX);
+    expect(synced.junctions["j-out"]!.x).toBe(busX);
+    const outStub = Object.keys(synced.segments).find((id) =>
+      id.includes("p:out"),
+    )!;
+    expect(synced.segments[outStub]!.cornersAbs?.length).toBe(3);
   });
 
   it("resolveSegmentPoints aligns drifted stub Y so corners cannot overshoot", () => {
@@ -564,7 +585,7 @@ describe("shared routing graph (N×M)", () => {
     );
   });
 
-  it("backwards in-rail keeps min horizontal stub on every input", () => {
+  it("wrong-side input keeps min leave stub via local detour corners", () => {
     const nodes: Node[] = [
       frame("feeder", 400, 0),
       port("out", "feeder", "out", 96, 0),
@@ -578,13 +599,15 @@ describe("shared routing graph (N×M)", () => {
       edge("e2", "out", "inRight"),
     ];
     const { graph } = rebuildRoutingGraph(nodes, edges);
-    expect(graph.junctions["j-wrap-in"]).toBeTruthy();
-    for (const pid of ["inLeft", "inRight"]) {
-      const pos = portAbsPos(nodes, pid)!;
-      const j = graph.junctions[`j-${pid}`]!;
-      expect(j.x).toBeLessThanOrEqual(pos.x - 20);
-      expect(Math.abs(j.x - pos.x)).toBeGreaterThanOrEqual(20);
-    }
+    expect(graph.junctions["j-wrap-in"]).toBeUndefined();
+    const leftStub = Object.keys(graph.segments).find((id) =>
+      id.includes("p:inLeft"),
+    )!;
+    const corners = graph.segments[leftStub]!.cornersAbs!;
+    expect(corners.length).toBe(3);
+    const pos = portAbsPos(nodes, "inLeft")!;
+    // Leave stub sits left of the port (around the machine)
+    expect(corners.some((c) => c.x <= pos.x - 20)).toBe(true);
   });
 
   it("translateRailJunctions moves a vertical rail without leaving U-bend corners", () => {

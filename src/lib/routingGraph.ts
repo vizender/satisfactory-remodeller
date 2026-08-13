@@ -9,7 +9,6 @@ import {
   buildEdgeNetworkIds,
   FORWARD_MIN_GAP,
   interiorCorners,
-  isBackwardsRoute,
   MIN_PORT_STUB,
   resolveRoutePoints,
 } from "@/lib/orthogonalEdgePath";
@@ -137,6 +136,139 @@ function findPrevJunctionForPort(
   return undefined;
 }
 
+/** Input left of bus / output right of bus → needs a local around-machine stub. */
+export function portWrongSideOfBus(
+  kind: "in" | "out",
+  portX: number,
+  busX: number,
+): boolean {
+  return kind === "in" ? portX < busX - 0.5 : portX > busX + 0.5;
+}
+
+/**
+ * Corners for a port↔junction stub that wraps around the machine to reach the
+ * shared bus. Ordered along the segment direction (out: port→j, in: j→port).
+ */
+export function aroundMachineStubCorners(
+  kind: "in" | "out",
+  port: OrthoPoint,
+  busX: number,
+): OrthoPoint[] {
+  const leaveX = snapToGrid(
+    kind === "in" ? port.x - BACKWARDS_STUB : port.x + BACKWARDS_STUB,
+  );
+  const wrapY = snapToGrid(port.y + BACKWARDS_BUS_OFFSET);
+  const bus = snapToGrid(busX);
+  const py = snapToGrid(port.y);
+  if (kind === "out") {
+    return [
+      { x: leaveX, y: py },
+      { x: leaveX, y: wrapY },
+      { x: bus, y: wrapY },
+    ];
+  }
+  return [
+    { x: bus, y: wrapY },
+    { x: leaveX, y: wrapY },
+    { x: leaveX, y: py },
+  ];
+}
+
+function looksLikeAroundDetour(
+  corners: OrthoPoint[],
+  kind: "in" | "out",
+  port: OrthoPoint,
+  busX: number,
+): boolean {
+  if (corners.length !== 3) return false;
+  const [c0, c1, c2] = corners;
+  if (!c0 || !c1 || !c2) return false;
+  if (kind === "out") {
+    // port → leaveX → wrapY → bus (leave sits beyond the machine, away from bus)
+    return (
+      Math.abs(c0.x - c1.x) < 1.5 &&
+      Math.abs(c1.y - c2.y) < 1.5 &&
+      Math.abs(c2.x - busX) < 2 &&
+      Math.abs(c0.y - port.y) < 8 &&
+      c0.x > Math.max(port.x, busX) + 8
+    );
+  }
+  // junction → bus,wrapY → leave,wrapY → leave,portY
+  return (
+    Math.abs(c1.x - c2.x) < 1.5 &&
+    Math.abs(c0.y - c1.y) < 1.5 &&
+    Math.abs(c0.x - busX) < 2 &&
+    Math.abs(c2.y - port.y) < 8 &&
+    c2.x < Math.min(port.x, busX) - 8
+  );
+}
+
+function stubPortAndJunction(
+  seg: RoutingSegment,
+): { portId: string; junctionId: string } | null {
+  if (seg.a.kind === "port" && seg.b.kind === "junction") {
+    return { portId: seg.a.portId, junctionId: seg.b.junctionId };
+  }
+  if (seg.a.kind === "junction" && seg.b.kind === "port") {
+    return { portId: seg.b.portId, junctionId: seg.a.junctionId };
+  }
+  return null;
+}
+
+/**
+ * Keep the shared bus fixed; only update each port's stub. Wrong-side ports
+ * get a local around-machine detour; correct-side ports drop auto-detours.
+ */
+export function applyLocalStubDetours(
+  graph: RoutingGraph,
+  nodes: Node[],
+  onlyPortIds?: ReadonlySet<string>,
+): RoutingGraph {
+  let changed = false;
+  const segments = { ...graph.segments };
+  for (const seg of Object.values(graph.segments)) {
+    const ends = stubPortAndJunction(seg);
+    if (!ends) continue;
+    if (onlyPortIds && !onlyPortIds.has(ends.portId)) continue;
+    const kind = portKind(nodes, ends.portId);
+    const portPos = portAbsPos(nodes, ends.portId);
+    const j = graph.junctions[ends.junctionId];
+    if (!kind || !portPos || !j) continue;
+    const busX = j.x;
+    const wrong = portWrongSideOfBus(kind, portPos.x, busX);
+    if (wrong) {
+      const nextCorners = aroundMachineStubCorners(kind, portPos, busX);
+      const prev = seg.cornersAbs;
+      const same =
+        !!prev &&
+        prev.length === nextCorners.length &&
+        prev.every(
+          (p, i) =>
+            Math.abs(p.x - nextCorners[i]!.x) < 0.01 &&
+            Math.abs(p.y - nextCorners[i]!.y) < 0.01,
+        );
+      if (!same) {
+        const next: RoutingSegment = {
+          ...seg,
+          cornersAbs: nextCorners,
+        };
+        delete next.cornersNorm;
+        segments[seg.id] = next;
+        changed = true;
+      }
+    } else if (
+      seg.cornersAbs &&
+      looksLikeAroundDetour(seg.cornersAbs, kind, portPos, busX)
+    ) {
+      const next: RoutingSegment = { ...seg };
+      delete next.cornersAbs;
+      segments[seg.id] = next;
+      changed = true;
+    }
+  }
+  return changed ? { ...graph, segments } : graph;
+}
+
 type PortExtents = {
   minOut: number;
   maxOut: number;
@@ -176,12 +308,6 @@ function portExtents(nodes: Node[], portIds: string[]): PortExtents {
   return { minOut, maxOut, minIn, maxIn, hasOut, hasIn, minY, maxY };
 }
 
-function isBackwardsNetwork(ext: PortExtents): boolean {
-  if (!ext.hasOut || !ext.hasIn) return false;
-  // Same rule as classic edges: inputs sit at/left of outputs with no forward gap.
-  return isBackwardsRoute(ext.maxOut, ext.minIn);
-}
-
 function pickBusX(
   nodes: Node[],
   portIds: string[],
@@ -216,38 +342,6 @@ function pickBusX(
   if (ext.hasOut) return snapToGrid(ext.maxOut + BUS_INSET + 40);
   if (ext.hasIn) return snapToGrid(ext.minIn - BUS_INSET - 40);
   return 0;
-}
-
-/** Preserve prior rail X when rebuilding a backwards wrap network. */
-function pickRailX(
-  prev: RoutingGraph | undefined,
-  candidateIds: string[],
-  fallback: number,
-  side: "out" | "in",
-  ext: PortExtents,
-): number {
-  // Prefer an existing wrap-layout rail the user may have dragged, as long as
-  // every port on that side still has min stub clearance.
-  if (prev && prevWasBackwardsLayout(prev)) {
-    const xs: number[] = [];
-    const wrapId = side === "out" ? "j-wrap-out" : "j-wrap-in";
-    const wrap = prev.junctions[wrapId];
-    if (wrap) xs.push(wrap.x);
-    for (const id of candidateIds) {
-      const j = prev.junctions[id];
-      if (j) xs.push(j.x);
-    }
-    if (xs.length > 0) {
-      const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-      if (side === "in" && avg <= ext.minIn - MIN_PORT_STUB) {
-        return snapToGrid(avg);
-      }
-      if (side === "out" && avg >= ext.maxOut + MIN_PORT_STUB) {
-        return snapToGrid(avg);
-      }
-    }
-  }
-  return snapToGrid(fallback);
 }
 
 function ensureSegment(
@@ -339,188 +433,6 @@ function busSegmentsAlongChain(
   return ids;
 }
 
-/**
- * Backwards N×M: outs sit to the right of inputs. Route around machines via
- * an out-rail (right of outs), wrap bus (below the lower port), and in-rail
- * (left of inputs) — matching classic defaultCorners.
- */
-function buildBackwardsNetworkBus(
-  graph: RoutingGraph,
-  nodes: Node[],
-  netEdges: Edge[],
-  cornersPrev: Map<string, OrthoPoint[]>,
-  prev: RoutingGraph | undefined,
-  ext: PortExtents,
-): Map<string, string[]> {
-  const routePaths = new Map<string, string[]>();
-  const portIds = new Set<string>();
-  let itemId = "unknown";
-  for (const e of netEdges) {
-    portIds.add(e.source);
-    portIds.add(e.target);
-    if (isItemEdgeData(e.data)) itemId = e.data.itemId;
-  }
-  const ports = [...portIds];
-  const outPorts = ports.filter((p) => portKind(nodes, p) === "out");
-  const inPorts = ports.filter((p) => portKind(nodes, p) === "in");
-
-  const outRailX = pickRailX(
-    prev,
-    outPorts.map((p) => `j-${p}`),
-    ext.maxOut + BACKWARDS_STUB,
-    "out",
-    ext,
-  );
-  const inRailX = pickRailX(
-    prev,
-    inPorts.map((p) => `j-${p}`),
-    ext.minIn - BACKWARDS_STUB,
-    "in",
-    ext,
-  );
-
-  // Prefer prior wrap Y when present; else classic maxY + offset (below).
-  let wrapY = snapToGrid(ext.maxY + BACKWARDS_BUS_OFFSET);
-  if (prev) {
-    const prevWrap = Object.values(prev.junctions).find((j) =>
-      j.id.startsWith("j-wrap-"),
-    );
-    if (prevWrap) wrapY = prevWrap.y;
-  }
-
-  const portJunction = new Map<string, string>();
-  const outJunctions: RoutingJunction[] = [];
-  const inJunctions: RoutingJunction[] = [];
-
-  const placeRail = (
-    groupPorts: string[],
-    railX: number,
-    side: "out" | "in",
-    bucket: RoutingJunction[],
-  ) => {
-    // One shared column for the side so vertical chain stays a true rail.
-    // Start from preferred railX, then push out so EVERY port keeps min stub.
-    let x = railX;
-    for (const pid of groupPorts) {
-      const pos = portAbsPos(nodes, pid);
-      if (!pos) continue;
-      if (side === "out") {
-        x = Math.max(x, pos.x + MIN_PORT_STUB);
-      } else {
-        x = Math.min(x, pos.x - MIN_PORT_STUB);
-      }
-    }
-    x = snapToGrid(x);
-
-    for (const pid of groupPorts) {
-      const pos = portAbsPos(nodes, pid);
-      if (!pos) continue;
-      const jid = `j-${pid}`;
-      const junction: RoutingJunction = {
-        id: jid,
-        x,
-        y: snapToGrid(pos.y),
-      };
-      graph.junctions[jid] = junction;
-      bucket.push(junction);
-      portJunction.set(pid, jid);
-      const kind = portKind(nodes, pid);
-      const portEp: RoutingEndpoint = { kind: "port", portId: pid };
-      const jEp: RoutingEndpoint = { kind: "junction", junctionId: jid };
-      if (kind === "out") {
-        ensureSegment(graph, itemId, portEp, jEp, cornersPrev);
-      } else {
-        ensureSegment(graph, itemId, jEp, portEp, cornersPrev);
-      }
-    }
-  };
-
-  placeRail(outPorts, outRailX, "out", outJunctions);
-  placeRail(inPorts, inRailX, "in", inJunctions);
-
-  // Wrap junctions share the final rail X (after min-stub push).
-  const finalOutX =
-    outJunctions[0]?.x ?? snapToGrid(ext.maxOut + BACKWARDS_STUB);
-  const finalInX =
-    inJunctions[0]?.x ?? snapToGrid(ext.minIn - BACKWARDS_STUB);
-
-  const wrapOutId = "j-wrap-out";
-  const wrapInId = "j-wrap-in";
-  const prevWrapOut = prev?.junctions[wrapOutId];
-  const prevWrapIn = prev?.junctions[wrapInId];
-  const wrapOut: RoutingJunction = {
-    id: wrapOutId,
-    x: finalOutX,
-    y:
-      prevWrapOut && Number.isFinite(prevWrapOut.y)
-        ? prevWrapOut.y
-        : wrapY,
-  };
-  const wrapIn: RoutingJunction = {
-    id: wrapInId,
-    x: finalInX,
-    y:
-      prevWrapIn && Number.isFinite(prevWrapIn.y) ? prevWrapIn.y : wrapY,
-  };
-  // Keep wrap H endpoints on the same Y
-  const sharedWrapY = snapToGrid((wrapOut.y + wrapIn.y) / 2);
-  wrapOut.y = sharedWrapY;
-  wrapIn.y = sharedWrapY;
-  graph.junctions[wrapOutId] = wrapOut;
-  graph.junctions[wrapInId] = wrapIn;
-
-  const outChain = linkVerticalChain(
-    graph,
-    itemId,
-    [...outJunctions, wrapOut],
-    cornersPrev,
-  );
-  const inChain = linkVerticalChain(
-    graph,
-    itemId,
-    [...inJunctions, wrapIn],
-    cornersPrev,
-  );
-  ensureSegment(
-    graph,
-    itemId,
-    { kind: "junction", junctionId: wrapOutId },
-    { kind: "junction", junctionId: wrapInId },
-    cornersPrev,
-  );
-  const wrapSeg = segmentIdFor(
-    { kind: "junction", junctionId: wrapOutId },
-    { kind: "junction", junctionId: wrapInId },
-  );
-
-  const stubId = (pid: string): string | null => {
-    const jid = portJunction.get(pid);
-    if (!jid) return null;
-    const kind = portKind(nodes, pid);
-    const portEp: RoutingEndpoint = { kind: "port", portId: pid };
-    const jEp: RoutingEndpoint = { kind: "junction", junctionId: jid };
-    return kind === "out" ? segmentIdFor(portEp, jEp) : segmentIdFor(jEp, portEp);
-  };
-
-  for (const e of netEdges) {
-    const jSrc = portJunction.get(e.source);
-    const jTgt = portJunction.get(e.target);
-    const sStub = stubId(e.source);
-    const tStub = stubId(e.target);
-    if (!jSrc || !jTgt || !sStub || !tStub) continue;
-    const path = [
-      sStub,
-      ...busSegmentsAlongChain(graph, outChain, jSrc, wrapOutId),
-      wrapSeg,
-      ...busSegmentsAlongChain(graph, inChain, wrapInId, jTgt),
-      tStub,
-    ];
-    routePaths.set(e.id, path);
-  }
-
-  return routePaths;
-}
-
 function buildForwardNetworkBus(
   graph: RoutingGraph,
   nodes: Node[],
@@ -540,39 +452,82 @@ function buildForwardNetworkBus(
   }
   const ports = [...portIds];
   const junctionIds = ports.map((p) => `j-${p}`);
-  const busX = pickBusX(nodes, ports, prev, junctionIds);
-  const corridorLeft = ext.hasOut ? ext.maxOut + BUS_INSET : -Infinity;
-  const corridorRight = ext.hasIn ? ext.minIn - BUS_INSET : Infinity;
-  const hasCorridor =
-    ext.hasOut &&
-    ext.hasIn &&
-    corridorRight - corridorLeft >= FORWARD_MIN_GAP;
-
+  // Migrating off a legacy wrap layout: ignore mixed out/in rail Xs.
+  const migrateOffWrap = prevWasBackwardsLayout(prev);
   const portJunction = new Map<string, string>();
-  // Stable per-port junctions on one shared bus column.
-  let x = busX;
-  if (prev) {
+
+  // Freeze prior shared bus X so one wrong-side port cannot pull the whole rail.
+  let prevBusX: number | null = null;
+  if (prev && !migrateOffWrap) {
     const xs: number[] = [];
     for (const pid of ports) {
       const old = findPrevJunctionForPort(prev, pid);
       if (old) xs.push(old.x);
     }
+    for (const id of junctionIds) {
+      const j = prev.junctions[id];
+      if (j) xs.push(j.x);
+    }
     if (xs.length > 0) {
-      const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-      x = hasCorridor
-        ? Math.max(corridorLeft, Math.min(corridorRight, avg))
-        : avg;
+      prevBusX = xs.reduce((a, b) => a + b, 0) / xs.length;
     }
   }
-  if (ext.hasOut) x = Math.max(x, ext.maxOut + MIN_PORT_STUB);
-  if (ext.hasIn) x = Math.min(x, ext.minIn - MIN_PORT_STUB);
-  // Collapsed corridor: sit in the middle rather than violating both stubs.
+
+  // Only correct-side ports constrain the bus (wrong-side ports use local detours).
+  let maxOutCorrect = -Infinity;
+  let minInCorrect = Infinity;
+  let hasOutCorrect = false;
+  let hasInCorrect = false;
+  for (const pid of ports) {
+    const pos = portAbsPos(nodes, pid);
+    const kind = portKind(nodes, pid);
+    if (!pos || !kind) continue;
+    if (prevBusX != null && portWrongSideOfBus(kind, pos.x, prevBusX)) continue;
+    if (kind === "out") {
+      hasOutCorrect = true;
+      maxOutCorrect = Math.max(maxOutCorrect, pos.x);
+    } else {
+      hasInCorrect = true;
+      minInCorrect = Math.min(minInCorrect, pos.x);
+    }
+  }
+
+  let x =
+    prevBusX ??
+    pickBusX(
+      nodes,
+      ports,
+      migrateOffWrap ? undefined : prev,
+      junctionIds,
+    );
+  if (hasOutCorrect) x = Math.max(x, maxOutCorrect + MIN_PORT_STUB);
+  if (hasInCorrect) x = Math.min(x, minInCorrect - MIN_PORT_STUB);
   if (
-    ext.hasOut &&
-    ext.hasIn &&
-    ext.maxOut + MIN_PORT_STUB > ext.minIn - MIN_PORT_STUB
+    hasOutCorrect &&
+    hasInCorrect &&
+    maxOutCorrect + MIN_PORT_STUB > minInCorrect - MIN_PORT_STUB
   ) {
-    x = (ext.maxOut + ext.minIn) / 2;
+    // Prefer freezing the prior bus over collapsing toward wrong-side ports.
+    x = prevBusX ?? (maxOutCorrect + minInCorrect) / 2;
+  }
+  if (
+    prevBusX != null &&
+    !hasOutCorrect &&
+    !hasInCorrect
+  ) {
+    x = prevBusX;
+  }
+  // Fresh build with no prior bus: fall back to full extents (incl. wrong-side).
+  if (prevBusX == null && !hasOutCorrect && !hasInCorrect) {
+    if (ext.hasOut) x = Math.max(x, ext.maxOut + MIN_PORT_STUB);
+    if (ext.hasIn) x = Math.min(x, ext.minIn - MIN_PORT_STUB);
+    if (
+      ext.hasOut &&
+      ext.hasIn &&
+      ext.maxOut + MIN_PORT_STUB > ext.minIn - MIN_PORT_STUB
+    ) {
+      x = (ext.maxOut + ext.minIn) / 2;
+    }
   }
   x = snapToGrid(x);
 
@@ -645,24 +600,11 @@ function buildNetworkBus(
     portIds.add(e.target);
   }
   const ext = portExtents(nodes, [...portIds]);
-  const backwards = isBackwardsNetwork(ext);
-  // Layout flip (forward ↔ wrap): drop migrated corners — absolute kinks from
-  // the other mode punch through machines / invent stubs.
-  const corners =
-    prev && prevWasBackwardsLayout(prev) !== backwards
-      ? new Map<string, OrthoPoint[]>()
-      : cornersPrev;
-  if (backwards) {
-    return buildBackwardsNetworkBus(
-      graph,
-      nodes,
-      netEdges,
-      corners,
-      prev,
-      ext,
-    );
-  }
-  return buildForwardNetworkBus(
+  // Drop absolute kinks when migrating off a legacy whole-network wrap layout.
+  const corners = prevWasBackwardsLayout(prev)
+    ? new Map<string, OrthoPoint[]>()
+    : cornersPrev;
+  const paths = buildForwardNetworkBus(
     graph,
     nodes,
     netEdges,
@@ -671,52 +613,18 @@ function buildNetworkBus(
     prev,
     ext,
   );
+  // Local around-machine detours for wrong-side ports — never rebuild the rail.
+  const detoured = applyLocalStubDetours(graph, nodes);
+  if (detoured !== graph) {
+    graph.segments = detoured.segments;
+  }
+  return paths;
 }
 
 export type RoutingRebuildResult = {
   graph: RoutingGraph;
   edges: Edge[];
 };
-
-/**
- * True when a live node move crossed the forward/backwards corridor so shared
- * routing must rebuild (wrap rails vs single bus).
- */
-export function routingLayoutNeedsRebuild(
-  nodes: Node[],
-  edges: Edge[],
-  graph: RoutingGraph,
-): boolean {
-  if (Object.keys(graph.segments).length === 0) return false;
-  const logical = logicalEdgesOnly(edges);
-  const edgeNet = buildEdgeNetworkIds(logical);
-  const byNet = new Map<string, Edge[]>();
-  for (const e of logical) {
-    const nid = edgeNet.get(e.id);
-    if (!nid) continue;
-    let list = byNet.get(nid);
-    if (!list) {
-      list = [];
-      byNet.set(nid, list);
-    }
-    list.push(e);
-  }
-  for (const netEdges of byNet.values()) {
-    if (netEdges.length < 2) continue;
-    const portIds = new Set<string>();
-    for (const e of netEdges) {
-      portIds.add(e.source);
-      portIds.add(e.target);
-    }
-    const ext = portExtents(nodes, [...portIds]);
-    const wantBackwards = isBackwardsNetwork(ext);
-    const hasWrap = Object.keys(graph.junctions).some((id) =>
-      id.startsWith("j-wrap-"),
-    );
-    if (wantBackwards !== hasWrap) return true;
-  }
-  return false;
-}
 
 /**
  * Rebuild shared routing for every multi-edge network.
@@ -785,7 +693,7 @@ export function syncRoutingJunctionPositions(
   const junctions = { ...graph.junctions };
   for (const j of Object.values(graph.junctions)) {
     // Junction ids are `j-${portId}` or `j-${p1}_${p2}_...` for Y-groups
-    if (!j.id.startsWith("j-")) continue;
+    if (!j.id.startsWith("j-") || j.id.startsWith("j-wrap-")) continue;
     const portIds = j.id.slice(2).split("_");
     const ys: number[] = [];
     for (const portId of portIds) {
@@ -799,7 +707,9 @@ export function syncRoutingJunctionPositions(
       changed = true;
     }
   }
-  return changed ? { ...graph, junctions } : graph;
+  const withY = changed ? { ...graph, junctions } : graph;
+  // Local stub follow / around-machine detours — never translate the shared bus.
+  return applyLocalStubDetours(withY, nodes);
 }
 
 export function endpointNodeId(ep: RoutingEndpoint): string {
@@ -851,17 +761,21 @@ export function resolveSegmentPoints(
         a = { x: a.x, y: portPos.y };
         b = { x: b.x, y: portPos.y };
       }
-      // Push the junction-side endpoint out if the stub shrank below min length.
-      const jIsA = segment.a.kind === "junction";
-      const jPt = jIsA ? a : b;
-      const pPt = jIsA ? b : a;
-      if (Math.abs(jPt.x - pPt.x) < MIN_PORT_STUB) {
-        const pushedX =
-          kind === "out"
-            ? portPos.x + MIN_PORT_STUB
-            : portPos.x - MIN_PORT_STUB;
-        if (jIsA) a = { x: pushedX, y: a.y };
-        else b = { x: pushedX, y: b.y };
+      // Skip min-stub push when a local around-machine detour owns the path —
+      // wrong-side ports sit on the opposite side of the bus from a straight stub.
+      const hasDetour = (segment.cornersAbs?.length ?? 0) >= 1;
+      if (!hasDetour) {
+        const jIsA = segment.a.kind === "junction";
+        const jPt = jIsA ? a : b;
+        const pPt = jIsA ? b : a;
+        if (Math.abs(jPt.x - pPt.x) < MIN_PORT_STUB) {
+          const pushedX =
+            kind === "out"
+              ? portPos.x + MIN_PORT_STUB
+              : portPos.x - MIN_PORT_STUB;
+          if (jIsA) a = { x: pushedX, y: a.y };
+          else b = { x: pushedX, y: b.y };
+        }
       }
     }
   }
