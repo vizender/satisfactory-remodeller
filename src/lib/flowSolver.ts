@@ -964,9 +964,11 @@ export function solveFlow(
   }
 
   /** 2) Sommes entrantes / sortantes par port (évite double comptage sur fusion). */
+  const sumOut = new Map<string, number>();
   const sumIn = new Map<string, number>();
   for (const e of realEdges) {
     const f = edgeFlow[e.id] ?? 0;
+    sumOut.set(e.source, (sumOut.get(e.source) ?? 0) + f);
     sumIn.set(e.target, (sumIn.get(e.target) ?? 0) + f);
   }
 
@@ -978,6 +980,7 @@ export function solveFlow(
     const kind = (n.data as ItemPortData).kind;
     const nominal = effectiveRate[pid] ?? 0;
     if (kind === "out") {
+      const sent = sumOut.get(pid) ?? 0;
       const demand = outgoingDemandOnPort(
         pid,
         nodes,
@@ -992,11 +995,8 @@ export function solveFlow(
         /** Forcé : surplus ou déficit par rapport à la demande aval (50 vs 40+60). */
         portDelta[pid] = fv - demand;
       } else {
-        /**
-         * Surplus d’offre non consommé (108 produits, 100 pris) : pas un overflow.
-         * Déficit si la demande aval dépasse l’offre.
-         */
-        portDelta[pid] = Math.min(0, nominal - demand);
+        /** Offre − réellement envoyé : +8 si 108 produits et 100 pris (vert), 0 à l’équilibre. */
+        portDelta[pid] = nominal - sent;
       }
     } else {
       const recv = sumIn.get(pid) ?? 0;

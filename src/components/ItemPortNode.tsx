@@ -200,10 +200,7 @@ export function ItemPortNode(props: NodeProps) {
     ? conflictMachineIds.includes(parentId)
     : false;
   const portOnConflictEdge = conflictPortIds.includes(id);
-  const portShiftX = machinePortShiftXPx(
-    d.kind,
-    parentSelected || parentInConflict,
-  );
+  const portShiftX = machinePortShiftXPx(d.kind, parentSelected);
 
   const finishReorder = useCallback(
     (st: DragRef) => {

@@ -77,9 +77,8 @@ export function ContainerFrameNode(props: NodeProps) {
       <div
         className={cn(
           "rf-machine-body absolute flex min-h-0 cursor-grab flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1.5 shadow-inner active:cursor-grabbing",
-          inConflict
-            ? "rf-machine-body-conflict"
-            : selected && "rf-machine-body-selected",
+          inConflict && "rf-machine-body-conflict",
+          selected && "rf-machine-body-selected",
         )}
         style={{
           left: leftOffset,

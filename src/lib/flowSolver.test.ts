@@ -237,7 +237,7 @@ describe("solveFlow balanced splits", () => {
     expect(r.hardConflict).toBe(false);
   });
 
-  it("unconsumed split leftover on an output is not an overflow", () => {
+  it("unconsumed split leftover on an output is a surplus", () => {
     const { nodes, edges } = ironWireSplitGraph();
     const r = solveFlow(nodes, edges, {
       "W-in": 60,
@@ -247,7 +247,7 @@ describe("solveFlow balanced splits", () => {
 
     expect(r.effectiveRate["W-out"]).toBeCloseTo(108, 3);
     expect(r.edgeFlow["wire-a"] + r.edgeFlow["wire-c"]).toBeCloseTo(100, 2);
-    expect(r.portDelta["W-out"]).toBeCloseTo(0, 2);
+    expect(r.portDelta["W-out"]).toBeCloseTo(8, 2);
     expect(r.hardConflict).toBe(false);
   });
 
