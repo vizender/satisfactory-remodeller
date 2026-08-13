@@ -7,6 +7,8 @@
   --machine-select-ring: color-mix(in srgb, var(--accent) 22%, transparent);
   --machine-conflict-bg: color-mix(in srgb, #ef4444 10%, var(--surface));
   --machine-conflict-ring: color-mix(in srgb, #ef4444 28%, transparent);
+  --machine-conflict-selected-bg: color-mix(in srgb, #ef4444 22%, var(--surface));
+  --machine-conflict-selected-ring: color-mix(in srgb, #ef4444 48%, transparent);
   --conflict-edge-stroke: #dc2626;
   --bg: #f4f6f9;
   --surface: #ffffff;
@@ -41,6 +43,8 @@
     --conflict-text: #fecaca;
     --machine-conflict-bg: color-mix(in srgb, #ef4444 14%, var(--surface));
     --machine-conflict-ring: color-mix(in srgb, #ef4444 32%, transparent);
+    --machine-conflict-selected-bg: color-mix(in srgb, #ef4444 28%, var(--surface));
+    --machine-conflict-selected-ring: color-mix(in srgb, #ef4444 55%, transparent);
     --conflict-edge-stroke: #f87171;
   }
 }
@@ -97,6 +101,13 @@ body {
   box-shadow:
     inset 0 0 0 1px var(--machine-conflict-ring),
     0 2px 10px color-mix(in srgb, #ef4444 14%, transparent);
+}
+
+.rf-machine-body-conflict.rf-machine-body-selected {
+  background-color: var(--machine-conflict-selected-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--machine-conflict-selected-ring),
+    0 2px 12px color-mix(in srgb, #ef4444 28%, transparent);
 }
 
 .rf-machine-port-conflict {
