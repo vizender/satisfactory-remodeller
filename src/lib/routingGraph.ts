@@ -28,8 +28,12 @@ import {
 
 export { emptyRoutingGraph };
 
-const { PORT_ROW, PORT_W } = MACHINE_LAYOUT;
+const { PORT_ROW, PORT_W, BODY_W, GUTTER } = MACHINE_LAYOUT;
 const BUS_INSET = 40;
+/** Clearance past the machine frame for leave / wrap detours. */
+const DETOUR_MARGIN = 16;
+/** Min |ΔY| between a wrap rail and another port's horizontal. */
+const WRAP_CLEAR_PORT = 20;
 
 export function portAbsPos(
   nodes: Node[],
@@ -145,33 +149,195 @@ export function portWrongSideOfBus(
   return kind === "in" ? portX < busX - 0.5 : portX > busX + 0.5;
 }
 
+export type FrameBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+function cssSize(
+  value: string | number | undefined,
+  fallback: number,
+): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = parseFloat(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+/** Absolute AABB of the machine/container frame that owns a port. */
+export function frameBoundsForPort(
+  nodes: Node[],
+  portId: string,
+): FrameBounds | null {
+  const port = nodes.find((n) => n.id === portId && n.type === "itemPort");
+  if (!port?.parentId) return null;
+  const frame = nodes.find((n) => n.id === port.parentId);
+  if (!frame) return null;
+  const defaultW = PORT_W + GUTTER + BODY_W + GUTTER + PORT_W;
+  const w = cssSize(
+    frame.style?.width as string | number | undefined,
+    defaultW,
+  );
+  const h = cssSize(frame.style?.height as string | number | undefined, 196);
+  return {
+    left: frame.position.x,
+    right: frame.position.x + w,
+    top: frame.position.y,
+    bottom: frame.position.y + h,
+  };
+}
+
+function wrapYCollides(
+  wrapY: number,
+  frame: FrameBounds | null,
+  avoidYs: number[],
+): boolean {
+  if (frame) {
+    if (
+      wrapY > frame.top - DETOUR_MARGIN + 0.5 &&
+      wrapY < frame.bottom + DETOUR_MARGIN - 0.5
+    ) {
+      return true;
+    }
+  }
+  for (const y of avoidYs) {
+    if (Math.abs(wrapY - y) < WRAP_CLEAR_PORT) return true;
+  }
+  return false;
+}
+
+function pickDetourWrapY(
+  portY: number,
+  frame: FrameBounds | null,
+  preferWrapY: number | null | undefined,
+  avoidYs: number[],
+): number {
+  const below = frame
+    ? snapToGrid(frame.bottom + DETOUR_MARGIN)
+    : snapToGrid(portY + BACKWARDS_BUS_OFFSET);
+  const above = frame
+    ? snapToGrid(frame.top - DETOUR_MARGIN)
+    : snapToGrid(portY - BACKWARDS_BUS_OFFSET);
+
+  if (
+    preferWrapY != null &&
+    Number.isFinite(preferWrapY) &&
+    !wrapYCollides(preferWrapY, frame, avoidYs)
+  ) {
+    return snapToGrid(preferWrapY);
+  }
+
+  // Prefer side the user was already on when nudging after a collision.
+  if (preferWrapY != null && Number.isFinite(preferWrapY) && frame) {
+    const preferBelow = preferWrapY >= (frame.top + frame.bottom) / 2;
+    const primary = preferBelow ? below : above;
+    const secondary = preferBelow ? above : below;
+    if (!wrapYCollides(primary, frame, avoidYs)) return primary;
+    if (!wrapYCollides(secondary, frame, avoidYs)) return secondary;
+    // Nudge further away from the frame on the preferred side.
+    let y = primary;
+    for (let i = 0; i < 8; i++) {
+      y = snapToGrid(
+        preferBelow ? y + WRAP_CLEAR_PORT : y - WRAP_CLEAR_PORT,
+      );
+      if (!wrapYCollides(y, frame, avoidYs)) return y;
+    }
+  }
+
+  if (!wrapYCollides(below, frame, avoidYs)) return below;
+  if (!wrapYCollides(above, frame, avoidYs)) return above;
+  return below;
+}
+
+function detourLeaveX(
+  kind: "in" | "out",
+  portX: number,
+  frame: FrameBounds | null,
+): number {
+  if (kind === "in") {
+    const outside = frame ? frame.left - DETOUR_MARGIN : portX - BACKWARDS_STUB;
+    return snapToGrid(Math.min(portX - BACKWARDS_STUB, outside));
+  }
+  const outside = frame ? frame.right + DETOUR_MARGIN : portX + BACKWARDS_STUB;
+  return snapToGrid(Math.max(portX + BACKWARDS_STUB, outside));
+}
+
 /**
  * Corners for a port↔junction stub that wraps around the machine to reach the
- * shared bus. Ordered along the segment direction (out: port→j, in: j→port).
+ * shared bus. The port's bus junction sits at wrapY (not port Y) so the return
+ * horizontal merges cleanly into the bus with no spur stub.
+ *
+ * out: port → leave → wrap → j(bus, wrapY)
+ * in:  j(bus, wrapY) → leave@wrap → leave@port → port
  */
 export function aroundMachineStubCorners(
   kind: "in" | "out",
   port: OrthoPoint,
   busX: number,
+  opts?: {
+    frame?: FrameBounds | null;
+    preferWrapY?: number | null;
+    avoidYs?: number[];
+  },
 ): OrthoPoint[] {
-  const leaveX = snapToGrid(
-    kind === "in" ? port.x - BACKWARDS_STUB : port.x + BACKWARDS_STUB,
+  const frame = opts?.frame ?? null;
+  const avoidYs = (opts?.avoidYs ?? []).filter((y) => Math.abs(y - port.y) > 1);
+  const leaveX = detourLeaveX(kind, port.x, frame);
+  const wrapY = pickDetourWrapY(
+    port.y,
+    frame,
+    opts?.preferWrapY,
+    avoidYs,
   );
-  const wrapY = snapToGrid(port.y + BACKWARDS_BUS_OFFSET);
-  const bus = snapToGrid(busX);
   const py = snapToGrid(port.y);
+  void busX;
   if (kind === "out") {
     return [
       { x: leaveX, y: py },
       { x: leaveX, y: wrapY },
-      { x: bus, y: wrapY },
     ];
   }
   return [
-    { x: bus, y: wrapY },
     { x: leaveX, y: wrapY },
     { x: leaveX, y: py },
   ];
+}
+
+function extractDetourWrapY(
+  corners: OrthoPoint[] | undefined,
+  kind: "in" | "out",
+): number | null {
+  if (!corners || corners.length < 2) return null;
+  // Wrap Y is the leave-column end away from the port.
+  if (kind === "out") {
+    return corners[corners.length - 1]?.y ?? null;
+  }
+  return corners[0]?.y ?? null;
+}
+
+/** Loose U-shape check (survives port-Y drift while dragging the machine). */
+function isUDetourShape(
+  corners: OrthoPoint[],
+  kind: "in" | "out",
+  _busX: number,
+): boolean {
+  if (corners.length === 2) {
+    const [c0, c1] = corners;
+    if (!c0 || !c1) return false;
+    return Math.abs(c0.x - c1.x) < 1.5; // leave column
+  }
+  if (corners.length !== 3) return false;
+  // Legacy 3-corner detours (junction stayed at port Y)
+  const [c0, c1, c2] = corners;
+  if (!c0 || !c1 || !c2) return false;
+  if (kind === "out") {
+    return Math.abs(c0.x - c1.x) < 1.5 && Math.abs(c1.y - c2.y) < 1.5;
+  }
+  return Math.abs(c1.x - c2.x) < 1.5 && Math.abs(c0.y - c1.y) < 1.5;
 }
 
 function looksLikeAroundDetour(
@@ -180,11 +346,25 @@ function looksLikeAroundDetour(
   port: OrthoPoint,
   busX: number,
 ): boolean {
+  if (corners.length === 2) {
+    const [c0, c1] = corners;
+    if (!c0 || !c1) return false;
+    if (Math.abs(c0.x - c1.x) >= 1.5) return false;
+    if (kind === "out") {
+      return (
+        Math.abs(c0.y - port.y) < 8 &&
+        c0.x > Math.max(port.x, busX) + 8
+      );
+    }
+    return (
+      Math.abs(c1.y - port.y) < 8 &&
+      c0.x < Math.min(port.x, busX) - 8
+    );
+  }
   if (corners.length !== 3) return false;
   const [c0, c1, c2] = corners;
   if (!c0 || !c1 || !c2) return false;
   if (kind === "out") {
-    // port → leaveX → wrapY → bus (leave sits beyond the machine, away from bus)
     return (
       Math.abs(c0.x - c1.x) < 1.5 &&
       Math.abs(c1.y - c2.y) < 1.5 &&
@@ -193,7 +373,6 @@ function looksLikeAroundDetour(
       c0.x > Math.max(port.x, busX) + 8
     );
   }
-  // junction → bus,wrapY → leave,wrapY → leave,portY
   return (
     Math.abs(c1.x - c2.x) < 1.5 &&
     Math.abs(c0.y - c1.y) < 1.5 &&
@@ -215,9 +394,27 @@ function stubPortAndJunction(
   return null;
 }
 
+/** Y of other ports that share this port's parent machine (avoid merging lines). */
+function siblingPortYs(nodes: Node[], portId: string): number[] {
+  const port = nodes.find((n) => n.id === portId && n.type === "itemPort");
+  if (!port?.parentId) return [];
+  const ys: number[] = [];
+  for (const n of nodes) {
+    if (n.type !== "itemPort" || n.parentId !== port.parentId || n.id === portId) {
+      continue;
+    }
+    const pos = portAbsPos(nodes, n.id);
+    if (pos) ys.push(pos.y);
+  }
+  return ys;
+}
+
 /**
  * Keep the shared bus fixed; only update each port's stub. Wrong-side ports
  * get a local around-machine detour; correct-side ports drop auto-detours.
+ * User-chosen wrap Y is preserved unless it collides with the machine or
+ * sibling port horizontals. The port junction sits on wrapY so the return H
+ * merges into the bus without a spur stub.
  */
 export function applyLocalStubDetours(
   graph: RoutingGraph,
@@ -226,18 +423,42 @@ export function applyLocalStubDetours(
 ): RoutingGraph {
   let changed = false;
   const segments = { ...graph.segments };
+  let junctions = graph.junctions;
+  let junctionsCopied = false;
+  const setJunctionY = (id: string, y: number) => {
+    const cur = junctions[id];
+    if (!cur || Math.abs(cur.y - y) < 0.01) return;
+    if (!junctionsCopied) {
+      junctions = { ...graph.junctions };
+      junctionsCopied = true;
+    }
+    junctions[id] = { ...cur, y: snapToGrid(y) };
+    changed = true;
+  };
+
   for (const seg of Object.values(graph.segments)) {
     const ends = stubPortAndJunction(seg);
     if (!ends) continue;
     if (onlyPortIds && !onlyPortIds.has(ends.portId)) continue;
     const kind = portKind(nodes, ends.portId);
     const portPos = portAbsPos(nodes, ends.portId);
-    const j = graph.junctions[ends.junctionId];
+    const j = junctions[ends.junctionId] ?? graph.junctions[ends.junctionId];
     if (!kind || !portPos || !j) continue;
     const busX = j.x;
     const wrong = portWrongSideOfBus(kind, portPos.x, busX);
     if (wrong) {
-      const nextCorners = aroundMachineStubCorners(kind, portPos, busX);
+      const prevWrap =
+        seg.cornersAbs &&
+        isUDetourShape(seg.cornersAbs, kind, busX)
+          ? extractDetourWrapY(seg.cornersAbs, kind)
+          : null;
+      const nextCorners = aroundMachineStubCorners(kind, portPos, busX, {
+        frame: frameBoundsForPort(nodes, ends.portId),
+        preferWrapY: prevWrap,
+        avoidYs: siblingPortYs(nodes, ends.portId),
+      });
+      const wrapY = extractDetourWrapY(nextCorners, kind);
+      if (wrapY != null) setJunctionY(ends.junctionId, wrapY);
       const prev = seg.cornersAbs;
       const same =
         !!prev &&
@@ -256,17 +477,23 @@ export function applyLocalStubDetours(
         segments[seg.id] = next;
         changed = true;
       }
-    } else if (
-      seg.cornersAbs &&
-      looksLikeAroundDetour(seg.cornersAbs, kind, portPos, busX)
-    ) {
-      const next: RoutingSegment = { ...seg };
-      delete next.cornersAbs;
-      segments[seg.id] = next;
-      changed = true;
+    } else {
+      setJunctionY(ends.junctionId, portPos.y);
+      if (
+        seg.cornersAbs &&
+        looksLikeAroundDetour(seg.cornersAbs, kind, portPos, busX)
+      ) {
+        const next: RoutingSegment = { ...seg };
+        delete next.cornersAbs;
+        segments[seg.id] = next;
+        changed = true;
+      }
     }
   }
-  return changed ? { ...graph, segments } : graph;
+  if (!changed) return graph;
+  return junctionsCopied
+    ? { ...graph, segments, junctions }
+    : { ...graph, segments };
 }
 
 type PortExtents = {
@@ -617,6 +844,7 @@ function buildNetworkBus(
   const detoured = applyLocalStubDetours(graph, nodes);
   if (detoured !== graph) {
     graph.segments = detoured.segments;
+    graph.junctions = detoured.junctions;
   }
   return paths;
 }
@@ -757,14 +985,26 @@ export function resolveSegmentPoints(
     const portPos = portAbsPos(nodes, portEp.portId);
     const kind = portKind(nodes, portEp.portId);
     if (portPos && kind) {
-      if (Math.abs(a.y - b.y) <= 8) {
+      const hasDetour =
+        !!segment.cornersAbs &&
+        looksLikeAroundDetour(segment.cornersAbs, kind, portPos, a.x === portPos.x ? b.x : a.x);
+      if (hasDetour && segment.cornersAbs) {
+        // Junction sits on the wrap rail; port stays at port Y.
+        const wrapY =
+          kind === "out"
+            ? segment.cornersAbs[segment.cornersAbs.length - 1]!.y
+            : segment.cornersAbs[0]!.y;
+        const jIsA = segment.a.kind === "junction";
+        if (jIsA) {
+          a = { x: a.x, y: wrapY };
+          b = { x: b.x, y: portPos.y };
+        } else {
+          a = { x: a.x, y: portPos.y };
+          b = { x: b.x, y: wrapY };
+        }
+      } else if (Math.abs(a.y - b.y) <= 8) {
         a = { x: a.x, y: portPos.y };
         b = { x: b.x, y: portPos.y };
-      }
-      // Skip min-stub push when a local around-machine detour owns the path —
-      // wrong-side ports sit on the opposite side of the bus from a straight stub.
-      const hasDetour = (segment.cornersAbs?.length ?? 0) >= 1;
-      if (!hasDetour) {
         const jIsA = segment.a.kind === "junction";
         const jPt = jIsA ? a : b;
         const pPt = jIsA ? b : a;
@@ -945,8 +1185,41 @@ export function setSegmentCornersNorm(
     next.cornersAbs = corners.map((p) => ({ x: p.x, y: p.y }));
     delete next.cornersNorm;
   }
+  let junctions = graph.junctions;
+  // Keep the bus junction on the wrap rail when the user drags a detour stub.
+  const portEp =
+    seg.a.kind === "port"
+      ? seg.a
+      : seg.b.kind === "port"
+        ? seg.b
+        : null;
+  const jEp =
+    seg.a.kind === "junction"
+      ? seg.a
+      : seg.b.kind === "junction"
+        ? seg.b
+        : null;
+  if (portEp && jEp && next.cornersAbs && next.cornersAbs.length >= 2) {
+    const wrapY =
+      seg.a.kind === "port"
+        ? next.cornersAbs[next.cornersAbs.length - 1]!.y
+        : next.cornersAbs[0]!.y;
+    // Only snap junction for leave-column shaped detours (same X on first two).
+    const c0 = next.cornersAbs[0]!;
+    const c1 = next.cornersAbs[1]!;
+    if (Math.abs(c0.x - c1.x) < 1.5) {
+      const j = junctions[jEp.junctionId];
+      if (j && Math.abs(j.y - wrapY) > 0.01) {
+        junctions = {
+          ...junctions,
+          [jEp.junctionId]: { ...j, y: snapToGrid(wrapY) },
+        };
+      }
+    }
+  }
   return {
     ...graph,
+    junctions,
     segments: { ...graph.segments, [segmentId]: next },
   };
 }

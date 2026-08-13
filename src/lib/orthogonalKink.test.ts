@@ -143,20 +143,30 @@ describe("orthogonal kink placement", () => {
     expect(result.points.some((p) => p.x > 220)).toBe(true);
   });
 
-  it("assembleOpenPolyline clamps horizontal overshoot past a same-Y stub", () => {
+  it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {
+    // Junction at bus X, port to the right — leave column sits left of the bus
     const start = { x: 280, y: 100 };
     const end = { x: 400, y: 100 };
     const pts = assembleOpenPolyline(
       start,
       [
-        { x: 200, y: 100 },
-        { x: 200, y: 140 },
-        { x: 350, y: 140 },
+        { x: 280, y: 160 }, // down the bus
+        { x: 200, y: 160 }, // leave column (outside [280,400])
+        { x: 200, y: 100 }, // up to port height
       ],
       end,
     );
     expect(pts[0]).toEqual(start);
     expect(pts[pts.length - 1]).toEqual(end);
-    expect(pts.every((p) => p.x >= 280 - 0.51)).toBe(true);
+    expect(pts.some((p) => Math.abs(p.x - 200) < 1 && Math.abs(p.y - 160) < 1)).toBe(
+      true,
+    );
+    // On-axis overshoot still clamped
+    const onAxis = assembleOpenPolyline(
+      start,
+      [{ x: 200, y: 100 }],
+      end,
+    );
+    expect(onAxis.every((p) => p.x >= 280 - 0.51)).toBe(true);
   });
 });

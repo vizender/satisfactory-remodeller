@@ -1,11 +1,13 @@
 import type { Edge, Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
+import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import {
   assertNoDuplicateSegmentGeometry,
   buildJunctionNodes,
   buildSegmentEdges,
   composeLogicalRoutePoints,
   countSegmentsDrawnOnce,
+  frameBoundsForPort,
   portAbsPos,
   rebuildRoutingGraph,
   resolveEndpointPos,
@@ -15,6 +17,10 @@ import {
   translateRailJunctions,
 } from "@/lib/routingGraph";
 import type { OrthoPoint } from "@/types/edgeData";
+
+const { PORT_W, BODY_W, GUTTER } = MACHINE_LAYOUT;
+const FRAME_W = PORT_W + GUTTER + BODY_W + GUTTER + PORT_W;
+const FRAME_H = 196;
 
 function port(
   id: string,
@@ -38,6 +44,7 @@ function frame(id: string, x: number, y: number): Node {
     type: "machineFrame",
     position: { x, y },
     data: {},
+    style: { width: FRAME_W, height: FRAME_H },
   };
 }
 
@@ -361,7 +368,7 @@ describe("shared routing graph (N×M)", () => {
         const b = s.b.kind === "port" ? s.b.portId : null;
         return a === pid || b === pid;
       })!;
-      expect(stub.cornersAbs?.length).toBe(3);
+      expect(stub.cornersAbs?.length).toBe(2);
     }
     for (const e of next) {
       const pts = composeLogicalRoutePoints(e, nodes, graph)!;
@@ -490,7 +497,7 @@ describe("shared routing graph (N×M)", () => {
     const stub1 = Object.keys(synced.segments).find((id) =>
       id.includes("p:in1"),
     )!;
-    expect(synced.segments[stub1]!.cornersAbs?.length).toBe(3);
+    expect(synced.segments[stub1]!.cornersAbs?.length).toBe(2);
     // Neighbor stub stays straight
     const stub2 = Object.keys(synced.segments).find((id) =>
       id.includes("p:in2"),
@@ -501,7 +508,7 @@ describe("shared routing graph (N×M)", () => {
     const { graph: rebuilt } = rebuildRoutingGraph(moved, edges, forward);
     expect(rebuilt.junctions["j-wrap-out"]).toBeUndefined();
     expect(rebuilt.junctions["j-out"]!.x).toBe(busXBefore);
-    expect(rebuilt.segments[stub1]!.cornersAbs?.length).toBe(3);
+    expect(rebuilt.segments[stub1]!.cornersAbs?.length).toBe(2);
   });
 
   it("dragging feeder right of bus adds a local output stub detour", () => {
@@ -526,7 +533,7 @@ describe("shared routing graph (N×M)", () => {
     const outStub = Object.keys(synced.segments).find((id) =>
       id.includes("p:out"),
     )!;
-    expect(synced.segments[outStub]!.cornersAbs?.length).toBe(3);
+    expect(synced.segments[outStub]!.cornersAbs?.length).toBe(2);
   });
 
   it("resolveSegmentPoints aligns drifted stub Y so corners cannot overshoot", () => {
@@ -579,13 +586,16 @@ describe("shared routing graph (N×M)", () => {
       graph,
     )!;
     const minX = Math.min(j.x, portPos.x);
-    expect(resolved.every((p) => p.x >= minX - 0.51)).toBe(true);
-    expect(resolved.every((p) => Math.abs(p.y - portPos.y) < 1 || p.y > portPos.y)).toBe(
-      true,
-    );
+    // Pure on-axis overshoots stay in span; multi-bend leave columns may sit outside.
+    // This fixture is a multi-bend kink — leave column at j.x-40 is intentional.
+    expect(resolved.some((p) => Math.abs(p.x - (j.x - 40)) < 1)).toBe(true);
+    expect(
+      resolved.every((p) => Math.abs(p.y - portPos.y) < 1 || p.y > portPos.y - 0.51),
+    ).toBe(true);
+    void minX;
   });
 
-  it("wrong-side input keeps min leave stub via local detour corners", () => {
+  it("wrong-side input leave column clears the machine; wrap Y clears the frame", () => {
     const nodes: Node[] = [
       frame("feeder", 400, 0),
       port("out", "feeder", "out", 96, 0),
@@ -604,10 +614,93 @@ describe("shared routing graph (N×M)", () => {
       id.includes("p:inLeft"),
     )!;
     const corners = graph.segments[leftStub]!.cornersAbs!;
-    expect(corners.length).toBe(3);
-    const pos = portAbsPos(nodes, "inLeft")!;
-    // Leave stub sits left of the port (around the machine)
-    expect(corners.some((c) => c.x <= pos.x - 20)).toBe(true);
+    expect(corners.length).toBe(2);
+    const bounds = frameBoundsForPort(nodes, "inLeft")!;
+    const leaveX = Math.min(corners[0]!.x, corners[1]!.x);
+    expect(leaveX).toBeLessThanOrEqual(bounds.left - 16 + 0.51);
+    const wrapY = corners[0]!.y;
+    expect(wrapY <= bounds.top - 16 + 0.51 || wrapY >= bounds.bottom + 16 - 0.51).toBe(
+      true,
+    );
+    // Junction sits on the wrap rail (clean merge, no spur stub)
+    expect(Math.abs(graph.junctions["j-inLeft"]!.y - wrapY)).toBeLessThan(1);
+    // Resolved path must keep the outside leave column (no clamp collapse through body)
+    const resolved = resolveSegmentPoints(
+      graph.segments[leftStub]!,
+      nodes,
+      graph,
+    )!;
+    expect(resolved.some((p) => Math.abs(p.x - leaveX) < 1)).toBe(true);
+    // Return path must not run through the machine body
+    const throughBody = resolved.filter(
+      (p) =>
+        p.x > bounds.left + 8 &&
+        p.x < bounds.right - 8 &&
+        p.y > bounds.top + 8 &&
+        p.y < bounds.bottom - 8,
+    );
+    expect(throughBody.length).toBe(0);
+  });
+
+  it("preserves user wrap Y when machine moves unless it collides with the frame", () => {
+    const nodes: Node[] = [
+      frame("feeder", 0, 0),
+      port("out", "feeder", "out", 96, 0),
+      frame("consumer", 400, 0),
+      port("in1", "consumer", "in", 0, 0),
+      frame("consumer2", 400, 200),
+      port("in2", "consumer2", "in", 0, 0),
+    ];
+    const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
+    let { graph } = rebuildRoutingGraph(nodes, edges);
+    const movedLeft: Node[] = nodes.map((n) =>
+      n.id === "consumer" ? { ...n, position: { x: -400, y: 0 } } : n,
+    );
+    graph = syncRoutingJunctionPositions(movedLeft, graph);
+    const stub1 = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    const customWrapY = -80; // well above the machine at y=0..196
+    const leaveX = -400 - 16;
+    const portY = portAbsPos(movedLeft, "in1")!.y;
+    graph = {
+      ...graph,
+      junctions: {
+        ...graph.junctions,
+        "j-in1": { ...graph.junctions["j-in1"]!, y: customWrapY },
+      },
+      segments: {
+        ...graph.segments,
+        [stub1]: {
+          ...graph.segments[stub1]!,
+          cornersAbs: [
+            { x: leaveX, y: customWrapY },
+            { x: leaveX, y: portY },
+          ],
+        },
+      },
+    };
+    // Move machine down — wrap Y still clear of the new frame → keep it
+    const movedDown: Node[] = movedLeft.map((n) =>
+      n.id === "consumer" ? { ...n, position: { x: -400, y: 40 } } : n,
+    );
+    const synced = syncRoutingJunctionPositions(movedDown, graph);
+    const wrapAfter = synced.segments[stub1]!.cornersAbs![0]!.y;
+    expect(wrapAfter).toBe(customWrapY);
+    expect(Math.abs(synced.junctions["j-in1"]!.y - customWrapY)).toBeLessThan(1);
+
+    // Move machine up so the frame swallows customWrapY → nudge clear
+    const movedOntoLine: Node[] = movedLeft.map((n) =>
+      n.id === "consumer" ? { ...n, position: { x: -400, y: customWrapY - 40 } } : n,
+    );
+    const nudged = syncRoutingJunctionPositions(movedOntoLine, graph);
+    const wrapNudged = nudged.segments[stub1]!.cornersAbs![0]!.y;
+    const bounds = frameBoundsForPort(movedOntoLine, "in1")!;
+    expect(
+      wrapNudged <= bounds.top - 16 + 0.51 ||
+        wrapNudged >= bounds.bottom + 16 - 0.51,
+    ).toBe(true);
+    expect(wrapNudged).not.toBe(customWrapY);
   });
 
   it("translateRailJunctions moves a vertical rail without leaving U-bend corners", () => {

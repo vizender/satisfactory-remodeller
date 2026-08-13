@@ -876,6 +876,12 @@ const OPEN_AXIS_EPS = 8;
  * - Near-same-Y ends: keep every corner X inside [minX, maxX]
  * - Near-same-X ends: keep every corner Y inside [minY, maxY]
  */
+/**
+ * Soft-clamp open-chain corners. When endpoints share an axis (typical
+ * port↔junction stub), only *simple* on-axis kinks are pinned into the
+ * start–end span. Multi-bend detours (any off-axis corner) keep free X/Y so
+ * around-machine leave columns and wrap rails are not collapsed.
+ */
 export function clampOpenCorners(
   start: OrthoPoint,
   corners: OrthoPoint[],
@@ -886,20 +892,47 @@ export function clampOpenCorners(
     const lo = Math.min(start.x, end.x);
     const hi = Math.max(start.x, end.x);
     const y = (start.y + end.y) / 2;
-    return corners.map((p) => ({
-      x: snapToGrid(Math.max(lo, Math.min(hi, p.x))),
-      // Keep free-axis motion; only pin X into the stub span
-      y: Math.abs(p.y - y) <= OPEN_AXIS_EPS ? snapToGrid(y) : p.y,
-    }));
+    const hasOffAxis = corners.some(
+      (p) => Math.abs(p.y - y) > OPEN_AXIS_EPS,
+    );
+    return corners.map((p) => {
+      const onStubAxis = Math.abs(p.y - y) <= OPEN_AXIS_EPS;
+      if (hasOffAxis) {
+        return {
+          x: p.x,
+          y: onStubAxis ? snapToGrid(y) : p.y,
+        };
+      }
+      return {
+        x: onStubAxis
+          ? snapToGrid(Math.max(lo, Math.min(hi, p.x)))
+          : p.x,
+        y: onStubAxis ? snapToGrid(y) : p.y,
+      };
+    });
   }
   if (Math.abs(start.x - end.x) <= OPEN_AXIS_EPS) {
     const lo = Math.min(start.y, end.y);
     const hi = Math.max(start.y, end.y);
     const x = (start.x + end.x) / 2;
-    return corners.map((p) => ({
-      x: Math.abs(p.x - x) <= OPEN_AXIS_EPS ? snapToGrid(x) : p.x,
-      y: snapToGrid(Math.max(lo, Math.min(hi, p.y))),
-    }));
+    const hasOffAxis = corners.some(
+      (p) => Math.abs(p.x - x) > OPEN_AXIS_EPS,
+    );
+    return corners.map((p) => {
+      const onStubAxis = Math.abs(p.x - x) <= OPEN_AXIS_EPS;
+      if (hasOffAxis) {
+        return {
+          x: onStubAxis ? snapToGrid(x) : p.x,
+          y: p.y,
+        };
+      }
+      return {
+        x: onStubAxis ? snapToGrid(x) : p.x,
+        y: onStubAxis
+          ? snapToGrid(Math.max(lo, Math.min(hi, p.y)))
+          : p.y,
+      };
+    });
   }
   return corners.map((p) => ({ ...p }));
 }
