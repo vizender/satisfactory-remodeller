@@ -1012,9 +1012,10 @@ export function moveCorner2DOpen(
   cornerIndex: number,
   x: number,
   y: number,
+  pin: OpenKinkPin = "both",
 ): OrthoPoint[] {
   if (cornerIndex <= 0 || cornerIndex >= points.length - 1) {
-    return orthogonalizeOpen(points);
+    return clampOpenPortClearance(orthogonalizeOpen(points), pin);
   }
   const start = { ...points[0]! };
   const end = { ...points[points.length - 1]! };
@@ -1048,11 +1049,46 @@ export function moveCorner2DOpen(
   // Never move pinned endpoints — local simplify only (avoids reshape stutter)
   pts[0] = start;
   pts[pts.length - 1] = end;
-  return simplifyOrthoPoints(pts);
+  return clampOpenPortClearance(simplifyOrthoPoints(pts), pin);
 }
 
 /** Which endpoint is the port attachment on a shared stub (pin that side). */
 export type OpenKinkPin = "start" | "end" | "both";
+
+/**
+ * Open port↔junction stubs: keep interior geometry outside the machine by
+ * enforcing MIN_PORT_STUB past the port handle so the closest V cannot be
+ * dragged into the body.
+ */
+export function clampOpenPortClearance(
+  points: OrthoPoint[],
+  pin: OpenKinkPin,
+): OrthoPoint[] {
+  if (pin === "both" || points.length < 3) {
+    return simplifyOrthoPoints(points);
+  }
+  const pts = points.map((p) => ({ ...p }));
+  const start = pts[0]!;
+  const end = pts[pts.length - 1]!;
+
+  if (pin === "start") {
+    // Output port at start — exit to the right; interiors stay ≥ port + stub.
+    const minX = start.x + MIN_PORT_STUB;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (pts[i]!.x < minX) pts[i] = { x: minX, y: pts[i]!.y };
+    }
+  } else if (pin === "end") {
+    // Input port at end — approach from the left; interiors stay ≤ port − stub.
+    const maxX = end.x - MIN_PORT_STUB;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (pts[i]!.x > maxX) pts[i] = { x: maxX, y: pts[i]!.y };
+    }
+  }
+
+  pts[0] = { ...start };
+  pts[pts.length - 1] = { ...end };
+  return simplifyOrthoPoints(pts);
+}
 
 /**
  * Around-machine detour wrap rail: the junction-side horizontal whose Y is the
@@ -1144,28 +1180,35 @@ export function moveSegmentOpen(
   const seg = segs[segmentIndex] ?? segs[0];
   if (!seg) return { points: base, activeSegmentIndex: 0 };
   const pin = options?.pin ?? "both";
+  const finish = (
+    points: OrthoPoint[],
+    activeSegmentIndex: number,
+  ): MoveSegmentResult => ({
+    points: clampOpenPortClearance(points, pin),
+    activeSegmentIndex,
+  });
 
   // Junction↔junction rails/wrap: translate the whole run (caller persists
   // junction moves). Port stubs still U-bend with pinned endpoints.
   if (base.length === 2 && options?.translateStraight) {
     if (seg.horizontal) {
       const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
-      return {
-        points: [
+      return finish(
+        [
           { x: base[0]!.x, y: newY },
           { x: base[1]!.x, y: newY },
         ],
-        activeSegmentIndex: 0,
-      };
+        0,
+      );
     }
     const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
-    return {
-      points: [
+    return finish(
+      [
         { x: newX, y: base[0]!.y },
         { x: newX, y: base[1]!.y },
       ],
-      activeSegmentIndex: 0,
-    };
+      0,
+    );
   }
 
   // Straight port stub: offset with a U-bend, endpoints pinned.
@@ -1173,7 +1216,7 @@ export function moveSegmentOpen(
     if (seg.horizontal) {
       const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
       if (Math.abs(newY - seg.a.y) < MIN_SEG / 2) {
-        return { points: base, activeSegmentIndex: 0 };
+        return finish(base, 0);
       }
       const pts = simplifyOrthoPoints([
         { ...base[0]! },
@@ -1181,11 +1224,13 @@ export function moveSegmentOpen(
         { x: base[1]!.x, y: newY },
         { ...base[1]! },
       ]);
-      return { points: pts, activeSegmentIndex: Math.min(1, pts.length - 3) };
+      return finish(pts, Math.min(1, pts.length - 3));
     }
-    const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    if (pin === "start") newX = Math.max(newX, base[0]!.x + MIN_PORT_STUB);
+    if (pin === "end") newX = Math.min(newX, base[base.length - 1]!.x - MIN_PORT_STUB);
     if (Math.abs(newX - seg.a.x) < MIN_SEG / 2) {
-      return { points: base, activeSegmentIndex: 0 };
+      return finish(base, 0);
     }
     const pts = simplifyOrthoPoints([
       { ...base[0]! },
@@ -1193,7 +1238,7 @@ export function moveSegmentOpen(
       { x: newX, y: base[1]!.y },
       { ...base[1]! },
     ]);
-    return { points: pts, activeSegmentIndex: Math.min(1, pts.length - 3) };
+    return finish(pts, Math.min(1, pts.length - 3));
   }
 
   if (seg.horizontal) {
@@ -1208,10 +1253,7 @@ export function moveSegmentOpen(
       const i = segmentIndex;
       pts[i] = { x: pts[i]!.x, y: newY };
       pts[i + 1] = { x: pts[i + 1]!.x, y: newY };
-      return {
-        points: simplifyOrthoPoints(pts),
-        activeSegmentIndex: i,
-      };
+      return finish(simplifyOrthoPoints(pts), i);
     }
     // Soft-collapse toward sibling H rails (merge kink back to a single line).
     newY = snapAxisToSiblings(newY, siblingHorizYs(base, segmentIndex));
@@ -1224,32 +1266,32 @@ export function moveSegmentOpen(
         pin,
       );
       if (kinked.cornerIndex < 0) {
-        return { points: base, activeSegmentIndex: segmentIndex };
+        return finish(base, segmentIndex);
       }
       const moved = moveCorner2DOpen(
         kinked.points,
         kinked.cornerIndex,
         pointerFlow.x,
         newY,
+        pin,
       );
-      return {
-        points: moved,
-        activeSegmentIndex: Math.min(kinked.cornerIndex, moved.length - 3),
-      };
+      return finish(
+        moved,
+        Math.min(kinked.cornerIndex, moved.length - 3),
+      );
     }
     const pts = base.map((p) => ({ ...p }));
     pts[segmentIndex] = { x: pts[segmentIndex]!.x, y: newY };
     pts[segmentIndex + 1] = { x: pts[segmentIndex + 1]!.x, y: newY };
     pts[0] = { ...base[0]! };
     pts[pts.length - 1] = { ...base[base.length - 1]! };
-    return {
-      points: simplifyOrthoPoints(pts),
-      activeSegmentIndex: segmentIndex,
-    };
+    return finish(simplifyOrthoPoints(pts), segmentIndex);
   }
 
   let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
   newX = snapAxisToSiblings(newX, siblingVertXs(base, segmentIndex));
+  if (pin === "start") newX = Math.max(newX, base[0]!.x + MIN_PORT_STUB);
+  if (pin === "end") newX = Math.min(newX, base[base.length - 1]!.x - MIN_PORT_STUB);
   if (segmentIndex === 0 || segmentIndex === base.length - 2) {
     const kinked = beginMidHandleKink(
       base,
@@ -1258,28 +1300,26 @@ export function moveSegmentOpen(
       pin,
     );
     if (kinked.cornerIndex < 0) {
-      return { points: base, activeSegmentIndex: segmentIndex };
+      return finish(base, segmentIndex);
     }
     const moved = moveCorner2DOpen(
       kinked.points,
       kinked.cornerIndex,
       newX,
       pointerFlow.y,
+      pin,
     );
-    return {
-      points: moved,
-      activeSegmentIndex: Math.min(kinked.cornerIndex, moved.length - 3),
-    };
+    return finish(
+      moved,
+      Math.min(kinked.cornerIndex, moved.length - 3),
+    );
   }
   const pts = base.map((p) => ({ ...p }));
   pts[segmentIndex] = { x: newX, y: pts[segmentIndex]!.y };
   pts[segmentIndex + 1] = { x: newX, y: pts[segmentIndex + 1]!.y };
   pts[0] = { ...base[0]! };
   pts[pts.length - 1] = { ...base[base.length - 1]! };
-  return {
-    points: simplifyOrthoPoints(pts),
-    activeSegmentIndex: segmentIndex,
-  };
+  return finish(simplifyOrthoPoints(pts), segmentIndex);
 }
 
 

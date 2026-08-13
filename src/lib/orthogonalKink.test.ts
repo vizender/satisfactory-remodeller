@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   assembleOpenPolyline,
   beginMidHandleKink,
+  clampOpenPortClearance,
   isDetourWrapRail,
+  MIN_PORT_STUB,
   moveCorner2D,
   moveCorner2DOpen,
   moveSegment,
@@ -227,6 +229,55 @@ describe("orthogonal kink placement", () => {
     // Within engage of y=100 → collapse toward stub row
     const freeYs = result.points.map((p) => p.y);
     expect(freeYs.every((y) => Math.abs(y - 100) < 1)).toBe(true);
+  });
+
+  it("clampOpenPortClearance keeps port-adjacent V outside the machine", () => {
+    // Output stub: port at x=100, V dragged into the body (x=90)
+    const inside = [
+      { x: 100, y: 100 },
+      { x: 90, y: 100 },
+      { x: 90, y: 160 },
+      { x: 200, y: 160 },
+    ];
+    const out = clampOpenPortClearance(inside, "start");
+    expect(out.every((p, i) => i === 0 || p.x >= 100 + MIN_PORT_STUB - 0.5)).toBe(
+      true,
+    );
+
+    // Input stub: port at x=200, V dragged into the body (x=210)
+    const insideIn = [
+      { x: 80, y: 160 },
+      { x: 210, y: 160 },
+      { x: 210, y: 100 },
+      { x: 200, y: 100 },
+    ];
+    const inn = clampOpenPortClearance(insideIn, "end");
+    expect(
+      inn.every(
+        (p, i) => i === inn.length - 1 || p.x <= 200 - MIN_PORT_STUB + 0.5,
+      ),
+    ).toBe(true);
+  });
+
+  it("moveSegmentOpen refuses to drag leave-column V into an input port", () => {
+    const start = [
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+      { x: 100, y: 80 },
+      { x: 140, y: 80 },
+    ];
+    // Drag leave V toward the port/machine (to the right)
+    const result = moveSegmentOpen(
+      1,
+      { x: 160, y: 140 },
+      start,
+      { x: 100, y: 140 },
+      { pin: "end" },
+    );
+    const leaveXs = result.points
+      .slice(1, -1)
+      .map((p) => p.x);
+    expect(Math.max(...leaveXs)).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
   });
 
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {

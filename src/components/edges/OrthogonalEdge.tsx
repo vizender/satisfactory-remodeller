@@ -9,6 +9,7 @@ import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   beginMidHandleKink,
   clampPortStubs,
+  clampOpenPortClearance,
   collectHorizontalSegments,
   collectVerticalSegments,
   detectIntersectionLocks,
@@ -98,6 +99,8 @@ type CornerDragState = {
   latestPoints: OrthoPoint[];
   heldSnapX: number | null;
   heldSnapY: number | null;
+  /** Port pin for open routing stubs (keeps V outside the machine). */
+  openPin?: OpenKinkPin;
 };
 
 type DragState = SegmentDragState | CornerDragState;
@@ -384,12 +387,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
       if (st.mode === "corner") {
         const isSeg = isRoutingSegmentRef.current;
+        const pin = st.openPin ?? "both";
         let next = isSeg
           ? moveCorner2DOpen(
               st.startPoints,
               st.cornerIndex,
               pointer.x,
               pointer.y,
+              pin,
             )
           : moveCorner2D(
               st.startPoints,
@@ -406,7 +411,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           st.heldSnapY,
           isSeg,
         );
-        next = snapped.points;
+        next = isSeg
+          ? clampOpenPortClearance(snapped.points, pin)
+          : snapped.points;
         st.heldSnapX = snapped.heldSnapX;
         st.heldSnapY = snapped.heldSnapY;
         st.latestPoints = next;
@@ -477,6 +484,15 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             if (st.segmentIndex >= next.length - 3) {
               x = Math.min(x, ends.targetX - MIN_PORT_STUB);
             }
+          } else {
+            const pin = openKinkPin(
+              useDocumentStore.getState().routingGraph.segments[idRef.current],
+            );
+            if (pin === "start") {
+              x = Math.max(x, next[0]!.x + MIN_PORT_STUB);
+            } else if (pin === "end") {
+              x = Math.min(x, next[next.length - 1]!.x - MIN_PORT_STUB);
+            }
           }
           const pts = next.map((p) => ({ ...p }));
           const i = st.segmentIndex;
@@ -485,9 +501,16 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[i + 1] = { x, y: pts[i + 1]!.y };
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
-            next = isSeg
-              ? orthogonalizeOpen(pts)
-              : clampPortStubs(forceOrthogonal(pts));
+            if (isSeg) {
+              const pin = openKinkPin(
+                useDocumentStore.getState().routingGraph.segments[
+                  idRef.current
+                ],
+              );
+              next = clampOpenPortClearance(orthogonalizeOpen(pts), pin);
+            } else {
+              next = clampPortStubs(forceOrthogonal(pts));
+            }
           }
           st.heldSnapX = x;
         } else if (
@@ -518,7 +541,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
             next = isSeg
-              ? orthogonalizeOpen(pts)
+              ? clampOpenPortClearance(
+                  orthogonalizeOpen(pts),
+                  openKinkPin(
+                    useDocumentStore.getState().routingGraph.segments[
+                      idRef.current
+                    ],
+                  ),
+                )
               : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapY = snappedY;
@@ -590,7 +620,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       const edgeId = idRef.current;
       const isSeg = isRoutingSegmentRef.current;
       const pts = isSeg
-        ? orthogonalizeOpen(st.latestPoints)
+        ? clampOpenPortClearance(
+            orthogonalizeOpen(st.latestPoints),
+            st.mode === "corner"
+              ? (st.openPin ?? "both")
+              : openKinkPin(
+                  useDocumentStore.getState().routingGraph.segments[edgeId],
+                ),
+          )
         : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       const companions =
         st.mode === "segment" ? st.companions.map((c) => ({ ...c })) : [];
@@ -756,6 +793,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       selfSelected && rfEdges.filter((ed) => ed.selected).length > 1;
     selectThisEdge(e.shiftKey || multiSelected ? "keep-multi" : "replace");
     const startPoints = points.map((p) => ({ ...p }));
+    const segMeta = isRoutingSegment
+      ? routingGraph.segments[id]
+      : undefined;
     dragRef.current = {
       mode: "corner",
       pointerId: e.pointerId,
@@ -764,6 +804,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       latestPoints: startPoints,
       heldSnapX: null,
       heldSnapY: null,
+      openPin: isRoutingSegment ? openKinkPin(segMeta) : undefined,
     };
     setDragPoints(startPoints);
   };
@@ -798,7 +839,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       return;
     }
     const placed = isRoutingSegment
-      ? moveCorner2DOpen(kinked, cornerIndex, pointer.x, pointer.y)
+      ? moveCorner2DOpen(kinked, cornerIndex, pointer.x, pointer.y, pin)
       : moveCorner2D(kinked, cornerIndex, pointer.x, pointer.y);
     // Re-find elbow after orthogonalize may have shifted indices
     const elbow = placed[cornerIndex] ?? kinked[cornerIndex];
@@ -823,6 +864,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       latestPoints: placed,
       heldSnapX: null,
       heldSnapY: null,
+      openPin: isRoutingSegment ? pin : undefined,
     };
     setDragPoints(placed);
   };
