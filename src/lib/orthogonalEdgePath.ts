@@ -31,8 +31,8 @@ export const VERTICAL_FUSE_HOLD = 54;
 export const CORNER_SNAP_OVERLAP_PAD = 80;
 /** Min length of the horizontal stub leaving/entering a port (keeps line off the machine). */
 export const MIN_PORT_STUB = 8;
-/** Clearance past a machine frame before a leave-column V is allowed. */
-export const PORT_FRAME_CLEARANCE = 16;
+/** @deprecated Prefer port±MIN_PORT_STUB; kept for call-site compat. */
+export const PORT_FRAME_CLEARANCE = 8;
 
 /** Per-edge free-vertical ordinals currently fused onto a lock (drag session). */
 const fuseSession = new Map<string, Set<number>>();
@@ -1064,7 +1064,7 @@ export function moveCorner2DOpen(
   // Never move pinned endpoints — local simplify only (avoids reshape stutter)
   pts[0] = start;
   pts[pts.length - 1] = end;
-  return simplifyOrthoPoints(pts);
+  return enforcePortStubElbow(simplifyOrthoPoints(pts), pin);
 }
 
 /** Which endpoint is the port attachment on a shared stub (pin that side). */
@@ -1079,7 +1079,7 @@ export type PortFrameBounds = {
 
 /**
  * Vertical run attached to the port's H stub (elbow at the stub end).
- * That V stays planted on the stub end — it may slide only outside the machine.
+ * That V is locked to the stub end — dragging it slides the stub length only.
  */
 export function isPortAdjacentVertical(
   points: OrthoPoint[],
@@ -1092,41 +1092,128 @@ export function isPortAdjacentVertical(
   const seg = segs[segmentIndex];
   if (!seg || seg.horizontal) return false;
   if (pin === "start") {
-    // port —H— elbow —V— …
-    return segmentIndex === 1 || (segmentIndex === 0 && base.length === 2);
+    // port —H— elbow —V— …  (V is segment 1 when stub H is segment 0)
+    if (segmentIndex === 1) return true;
+    if (segmentIndex === 0 && base.length === 2) return true;
+    // Also: any V whose X matches the stub elbow (pts[1]).
+    const elbow = base[1]!;
+    return Math.abs(seg.a.x - elbow.x) < 1.5 && Math.abs(elbow.y - base[0]!.y) <= OPEN_AXIS_EPS;
   }
-  // … —V— elbow —H— port
+  // … —V— elbow —H— port  (V is second-to-last free run)
+  if (segmentIndex === base.length - 3) return true;
+  if (segmentIndex === 0 && base.length === 2) return true;
+  const elbow = base[base.length - 2]!;
   return (
-    segmentIndex === base.length - 3 ||
-    (segmentIndex === 0 && base.length === 2)
+    Math.abs(seg.a.x - elbow.x) < 1.5 &&
+    Math.abs(elbow.y - base[base.length - 1]!.y) <= OPEN_AXIS_EPS
   );
 }
 
 /**
- * Clamp a proposed X for the port-adjacent V so it cannot enter the machine
- * frame (same idea as wrap-Y avoiding the body). Falls back to a short stub
- * past the port handle when no frame is available.
+ * Hard limit for the port-adjacent V / stub elbow X:
+ * never cross the port into the machine (that creates the H excroissance).
+ * Min stub length is MIN_PORT_STUB so the V can sit close to the node.
  */
 export function clampPortAdjacentVerticalX(
   proposedX: number,
   points: OrthoPoint[],
   pin: OpenKinkPin,
-  frame?: PortFrameBounds | null,
+  _frame?: PortFrameBounds | null,
 ): number {
   if (pin === "both") return snapToGrid(proposedX);
   const port = pin === "start" ? points[0]! : points[points.length - 1]!;
+  void _frame;
   if (pin === "start") {
-    // Output: exit right — stay right of the frame (or port + short stub).
-    const minX = frame
-      ? frame.right + PORT_FRAME_CLEARANCE
-      : port.x + MIN_PORT_STUB;
-    return snapToGrid(Math.max(proposedX, minX));
+    // Output: V stays to the right of the port by ≥ MIN_PORT_STUB
+    return snapToGrid(Math.max(proposedX, port.x + MIN_PORT_STUB));
   }
-  // Input: approach from left — stay left of the frame (or port − short stub).
-  const maxX = frame
-    ? frame.left - PORT_FRAME_CLEARANCE
-    : port.x - MIN_PORT_STUB;
-  return snapToGrid(Math.min(proposedX, maxX));
+  // Input: V stays to the left of the port by ≥ MIN_PORT_STUB
+  return snapToGrid(Math.min(proposedX, port.x - MIN_PORT_STUB));
+}
+
+/**
+ * After any open-stub edit: keep the stub elbow on the outside of the port and
+ * align the port-adjacent V to that elbow so it cannot poke into the node.
+ */
+export function enforcePortStubElbow(
+  points: OrthoPoint[],
+  pin: OpenKinkPin,
+): OrthoPoint[] {
+  if (pin === "both" || points.length < 3) {
+    return simplifyOrthoPoints(points);
+  }
+  const pts = points.map((p) => ({ ...p }));
+  const start = { ...pts[0]! };
+  const end = { ...pts[pts.length - 1]! };
+
+  if (pin === "start") {
+    const port = start;
+    const minX = port.x + MIN_PORT_STUB;
+    // Elbow is the first interior on the port row (end of H stub).
+    let elbowIdx = -1;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
+        elbowIdx = i;
+        break;
+      }
+    }
+    if (elbowIdx < 0) {
+      pts[0] = start;
+      pts[pts.length - 1] = end;
+      return simplifyOrthoPoints(pts);
+    }
+    const elbowX = Math.max(pts[elbowIdx]!.x, minX);
+    const oldX = pts[elbowIdx]!.x;
+    pts[elbowIdx] = { x: elbowX, y: port.y };
+    // Keep the V column that shared the old elbow X aligned to the new elbow.
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (i === elbowIdx) continue;
+      if (Math.abs(pts[i]!.x - oldX) < 1.5 || Math.abs(pts[i]!.x - elbowX) < 1.5) {
+        // Only pull points that form the vertical off the elbow
+        const prev = pts[i - 1]!;
+        const next = pts[i + 1]!;
+        const colinearV =
+          Math.abs(prev.x - pts[i]!.x) < 1.5 || Math.abs(next.x - pts[i]!.x) < 1.5;
+        if (colinearV || Math.abs(pts[i]!.x - oldX) < 1.5) {
+          pts[i] = { x: elbowX, y: pts[i]!.y };
+        }
+      }
+    }
+  } else {
+    const port = end;
+    const maxX = port.x - MIN_PORT_STUB;
+    let elbowIdx = -1;
+    for (let i = pts.length - 2; i >= 1; i--) {
+      if (Math.abs(pts[i]!.y - port.y) <= OPEN_AXIS_EPS) {
+        elbowIdx = i;
+        break;
+      }
+    }
+    if (elbowIdx < 0) {
+      pts[0] = start;
+      pts[pts.length - 1] = end;
+      return simplifyOrthoPoints(pts);
+    }
+    const elbowX = Math.min(pts[elbowIdx]!.x, maxX);
+    const oldX = pts[elbowIdx]!.x;
+    pts[elbowIdx] = { x: elbowX, y: port.y };
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (i === elbowIdx) continue;
+      if (Math.abs(pts[i]!.x - oldX) < 1.5 || Math.abs(pts[i]!.x - elbowX) < 1.5) {
+        const prev = pts[i - 1]!;
+        const next = pts[i + 1]!;
+        const colinearV =
+          Math.abs(prev.x - pts[i]!.x) < 1.5 || Math.abs(next.x - pts[i]!.x) < 1.5;
+        if (colinearV || Math.abs(pts[i]!.x - oldX) < 1.5) {
+          pts[i] = { x: elbowX, y: pts[i]!.y };
+        }
+      }
+    }
+  }
+
+  pts[0] = start;
+  pts[pts.length - 1] = end;
+  return simplifyOrthoPoints(pts);
 }
 
 /**
@@ -1226,7 +1313,7 @@ export function moveSegmentOpen(
     points: OrthoPoint[],
     activeSegmentIndex: number,
   ): MoveSegmentResult => ({
-    points: simplifyOrthoPoints(points),
+    points: enforcePortStubElbow(simplifyOrthoPoints(points), pin),
     activeSegmentIndex,
   });
 

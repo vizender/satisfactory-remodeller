@@ -3,13 +3,14 @@ import {
   assembleOpenPolyline,
   beginMidHandleKink,
   clampPortAdjacentVerticalX,
+  enforcePortStubElbow,
   isDetourWrapRail,
   isPortAdjacentVertical,
+  MIN_PORT_STUB,
   moveCorner2D,
   moveCorner2DOpen,
   moveSegment,
   moveSegmentOpen,
-  PORT_FRAME_CLEARANCE,
 } from "@/lib/orthogonalEdgePath";
 
 describe("orthogonal kink placement", () => {
@@ -232,38 +233,54 @@ describe("orthogonal kink placement", () => {
     expect(freeYs.every((y) => Math.abs(y - 100) < 1)).toBe(true);
   });
 
-  it("clampPortAdjacentVerticalX keeps leave-column V outside the machine frame", () => {
+  it("clampPortAdjacentVerticalX never crosses the port into the node", () => {
     const pts = [
       { x: 300, y: 200 },
       { x: 100, y: 200 },
       { x: 100, y: 80 },
       { x: 140, y: 80 },
     ];
-    const frame = { left: 120, right: 320, top: 0, bottom: 200 };
     expect(isPortAdjacentVertical(pts, 1, "end")).toBe(true);
-    const clamped = clampPortAdjacentVerticalX(200, pts, "end", frame);
-    expect(clamped).toBeLessThanOrEqual(frame.left - PORT_FRAME_CLEARANCE + 0.5);
+    const clamped = clampPortAdjacentVerticalX(200, pts, "end", null);
+    expect(clamped).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
+    // Still allows getting close to the node (short stub)
+    const close = clampPortAdjacentVerticalX(130, pts, "end", null);
+    expect(close).toBe(130);
   });
 
-  it("moveSegmentOpen refuses to drag leave-column V into an input machine", () => {
+  it("moveSegmentOpen refuses to drag leave-column V past the input port", () => {
     const start = [
       { x: 300, y: 200 },
       { x: 100, y: 200 },
       { x: 100, y: 80 },
       { x: 140, y: 80 },
     ];
-    const frame = { left: 120, right: 320, top: 0, bottom: 200 };
     const result = moveSegmentOpen(
       1,
       { x: 200, y: 140 },
       start,
       { x: 100, y: 140 },
-      { pin: "end", portFrame: frame },
+      { pin: "end" },
     );
     const leaveXs = result.points.slice(1, -1).map((p) => p.x);
-    expect(Math.max(...leaveXs)).toBeLessThanOrEqual(
-      frame.left - PORT_FRAME_CLEARANCE + 0.5,
-    );
+    expect(Math.max(...leaveXs)).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
+  });
+
+  it("enforcePortStubElbow pulls an inside V back to the stub end", () => {
+    // V dragged past the input port into the node (excroissance)
+    const inside = [
+      { x: 300, y: 200 },
+      { x: 160, y: 200 },
+      { x: 160, y: 80 },
+      { x: 140, y: 80 },
+    ];
+    const fixed = enforcePortStubElbow(inside, "end");
+    const elbow = fixed[fixed.length - 2]!;
+    expect(elbow.x).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
+    expect(Math.abs(elbow.y - 80)).toBeLessThan(1);
+    expect(
+      fixed.some((p) => Math.abs(p.x - elbow.x) < 1 && Math.abs(p.y - 200) < 1),
+    ).toBe(true);
   });
 
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {

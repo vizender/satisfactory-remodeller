@@ -13,12 +13,12 @@ import {
   collectHorizontalSegments,
   collectVerticalSegments,
   detectIntersectionLocks,
+  enforcePortStubElbow,
   findBridgeCrossings,
   forceOrthogonal,
   fuseRouteOnRelease,
   interiorCorners,
   isDetourWrapRail,
-  isPortAdjacentVertical,
   locksChanged,
   MIN_PORT_STUB,
   moveCorner2D,
@@ -455,6 +455,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           isSeg,
         );
         next = snapped.points;
+        if (isSeg) {
+          next = enforcePortStubElbow(next, pin);
+        }
         st.heldSnapX = snapped.heldSnapX;
         st.heldSnapY = snapped.heldSnapY;
         st.latestPoints = next;
@@ -530,14 +533,8 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             const pin = openKinkPin(
               useDocumentStore.getState().routingGraph.segments[idRef.current],
             );
-            if (isPortAdjacentVertical(next, st.segmentIndex, pin)) {
-              x = clampPortAdjacentVerticalX(
-                x,
-                next,
-                pin,
-                portFrameForSeg(),
-              );
-            }
+            // Always clamp against the port — never snap into the machine.
+            x = clampPortAdjacentVerticalX(x, next, pin, portFrameForSeg());
           }
           const pts = next.map((p) => ({ ...p }));
           const i = st.segmentIndex;
@@ -546,9 +543,16 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[i + 1] = { x, y: pts[i + 1]!.y };
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
-            next = isSeg
-              ? orthogonalizeOpen(pts)
-              : clampPortStubs(forceOrthogonal(pts));
+            if (isSeg) {
+              const pin = openKinkPin(
+                useDocumentStore.getState().routingGraph.segments[
+                  idRef.current
+                ],
+              );
+              next = enforcePortStubElbow(orthogonalizeOpen(pts), pin);
+            } else {
+              next = clampPortStubs(forceOrthogonal(pts));
+            }
           }
           st.heldSnapX = x;
         } else if (
@@ -579,7 +583,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
             next = isSeg
-              ? orthogonalizeOpen(pts)
+              ? enforcePortStubElbow(
+                  orthogonalizeOpen(pts),
+                  openKinkPin(
+                    useDocumentStore.getState().routingGraph.segments[
+                      idRef.current
+                    ],
+                  ),
+                )
               : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapY = snappedY;
@@ -651,7 +662,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       const edgeId = idRef.current;
       const isSeg = isRoutingSegmentRef.current;
       const pts = isSeg
-        ? orthogonalizeOpen(st.latestPoints)
+        ? enforcePortStubElbow(
+            orthogonalizeOpen(st.latestPoints),
+            st.mode === "corner"
+              ? (st.openPin ?? "both")
+              : openKinkPin(rg.segments[edgeId]),
+          )
         : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       const companions =
         st.mode === "segment" ? st.companions.map((c) => ({ ...c })) : [];
