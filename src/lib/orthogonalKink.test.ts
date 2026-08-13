@@ -143,6 +143,30 @@ describe("orthogonal kink placement", () => {
     expect(result.points.some((p) => p.x > 220)).toBe(true);
   });
 
+  it("moveSegmentOpen frees detour wrap-rail Y when junction is off the port row", () => {
+    // Input detour: junction at wrapY, leave column, port at portY
+    const start = [
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+      { x: 100, y: 80 },
+      { x: 140, y: 80 },
+    ];
+    const result = moveSegmentOpen(
+      0,
+      { x: 200, y: 240 },
+      start,
+      { x: 200, y: 200 },
+      { pin: "end" },
+    );
+    expect(result.points[0]!.y).toBe(240);
+    expect(result.points[1]!.y).toBe(240);
+    // Port end stays put
+    expect(result.points[result.points.length - 1]).toEqual({
+      x: 140,
+      y: 80,
+    });
+  });
+
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {
     // Junction at bus X, port to the right — leave column sits left of the bus
     const start = { x: 280, y: 100 };

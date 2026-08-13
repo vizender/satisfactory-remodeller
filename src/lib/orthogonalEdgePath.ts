@@ -1129,8 +1129,41 @@ export function moveSegmentOpen(
 
   if (seg.horizontal) {
     const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
+    const junctionOffPortRow =
+      Math.abs(base[0]!.y - base[base.length - 1]!.y) > 8;
+    // Detour wrap rail: junction already sits off the port row — allow moving
+    // that horizontal in Y (port stays pinned). Normal stubs start on-row.
+    if (
+      junctionOffPortRow &&
+      segmentIndex === 0 &&
+      pin === "end" &&
+      Math.abs(newY - seg.a.y) >= MIN_SEG / 2
+    ) {
+      const pts = base.map((p) => ({ ...p }));
+      pts[0] = { x: pts[0]!.x, y: newY };
+      pts[1] = { x: pts[1]!.x, y: newY };
+      return {
+        points: simplifyOrthoPoints(pts),
+        activeSegmentIndex: 0,
+      };
+    }
+    if (
+      junctionOffPortRow &&
+      segmentIndex === base.length - 2 &&
+      pin === "start" &&
+      Math.abs(newY - seg.a.y) >= MIN_SEG / 2
+    ) {
+      const pts = base.map((p) => ({ ...p }));
+      const i = segmentIndex;
+      pts[i] = { x: pts[i]!.x, y: newY };
+      pts[i + 1] = { x: pts[i + 1]!.x, y: newY };
+      return {
+        points: simplifyOrthoPoints(pts),
+        activeSegmentIndex: i,
+      };
+    }
     if (segmentIndex === 0 || segmentIndex === base.length - 2) {
-      // Endpoint-adjacent H: expand a U toward the interior, keep port/junction fixed
+      // Port-adjacent H: expand a U toward the interior, keep port fixed
       const kinked = beginMidHandleKink(
         base,
         segmentIndex,

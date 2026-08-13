@@ -790,4 +790,49 @@ describe("shared routing graph (N×M)", () => {
     expect(resolved[0]).toEqual(a);
     expect(resolved[resolved.length - 1]).toEqual(b);
   });
+
+  it("bus segment U-bend corners stay local — other junctions keep their X", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const busId = Object.keys(graph.segments).find((id) => {
+      const s = graph.segments[id]!;
+      return s.a.kind === "junction" && s.b.kind === "junction";
+    })!;
+    const beforeXs = {
+      out: graph.junctions["j-out"]!.x,
+      in1: graph.junctions["j-in1"]!.x,
+      in2: graph.junctions["j-in2"]!.x,
+    };
+    const a = resolveEndpointPos(graph.segments[busId]!.a, nodes, graph)!;
+    const b = resolveEndpointPos(graph.segments[busId]!.b, nodes, graph)!;
+    // Local U-bend on this bus segment only (as the edge drag now commits)
+    graph = setSegmentCornersNorm(
+      graph,
+      busId,
+      [
+        { x: a.x - 40, y: a.y },
+        { x: a.x - 40, y: b.y },
+      ],
+      { sx: a.x, sy: a.y, tx: b.x, ty: b.y },
+    );
+    expect(graph.junctions["j-out"]!.x).toBe(beforeXs.out);
+    expect(graph.junctions["j-in1"]!.x).toBe(beforeXs.in1);
+    expect(graph.junctions["j-in2"]!.x).toBe(beforeXs.in2);
+    const resolved = resolveSegmentPoints(
+      graph.segments[busId]!,
+      nodes,
+      graph,
+    )!;
+    expect(resolved.some((p) => Math.abs(p.x - (a.x - 40)) < 1)).toBe(true);
+  });
 });
