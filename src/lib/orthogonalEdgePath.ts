@@ -1043,7 +1043,30 @@ export function moveSegmentOpen(
   if (!seg) return { points: base, activeSegmentIndex: 0 };
   const pin = options?.pin ?? "both";
 
-  // Straight stub/bus: offset with a U-bend, endpoints pinned (no junction move).
+  // Junction↔junction rails/wrap: translate the whole run (caller persists
+  // junction moves). Port stubs still U-bend with pinned endpoints.
+  if (base.length === 2 && options?.translateStraight) {
+    if (seg.horizontal) {
+      const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
+      return {
+        points: [
+          { x: base[0]!.x, y: newY },
+          { x: base[1]!.x, y: newY },
+        ],
+        activeSegmentIndex: 0,
+      };
+    }
+    const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    return {
+      points: [
+        { x: newX, y: base[0]!.y },
+        { x: newX, y: base[1]!.y },
+      ],
+      activeSegmentIndex: 0,
+    };
+  }
+
+  // Straight port stub: offset with a U-bend, endpoints pinned.
   if (base.length === 2) {
     if (seg.horizontal) {
       const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));

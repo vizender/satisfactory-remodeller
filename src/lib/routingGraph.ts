@@ -10,6 +10,7 @@ import {
   FORWARD_MIN_GAP,
   interiorCorners,
   isBackwardsRoute,
+  MIN_PORT_STUB,
   resolveRoutePoints,
 } from "@/lib/orthogonalEdgePath";
 import type { OrthoNorm, OrthoPoint, RouteAnchor } from "@/types/edgeData";
@@ -225,22 +226,25 @@ function pickRailX(
   side: "out" | "in",
   ext: PortExtents,
 ): number {
-  // Only reuse X from an existing wrap layout — forward bus X sits between
-  // machines and would pin the "out rail" through the corridor after a flip.
+  // Prefer an existing wrap-layout rail the user may have dragged, as long as
+  // every port on that side still has min stub clearance.
   if (prev && prevWasBackwardsLayout(prev)) {
     const xs: number[] = [];
-    for (const id of candidateIds) {
-      const j = prev.junctions[id];
-      if (!j) continue;
-      if (side === "out" && j.x < ext.maxOut - 1) continue;
-      if (side === "in" && j.x > ext.minIn + 1) continue;
-      xs.push(j.x);
-    }
     const wrapId = side === "out" ? "j-wrap-out" : "j-wrap-in";
     const wrap = prev.junctions[wrapId];
     if (wrap) xs.push(wrap.x);
+    for (const id of candidateIds) {
+      const j = prev.junctions[id];
+      if (j) xs.push(j.x);
+    }
     if (xs.length > 0) {
-      return snapToGrid(xs.reduce((a, b) => a + b, 0) / xs.length);
+      const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+      if (side === "in" && avg <= ext.minIn - MIN_PORT_STUB) {
+        return snapToGrid(avg);
+      }
+      if (side === "out" && avg >= ext.maxOut + MIN_PORT_STUB) {
+        return snapToGrid(avg);
+      }
     }
   }
   return snapToGrid(fallback);
@@ -391,23 +395,30 @@ function buildBackwardsNetworkBus(
   const placeRail = (
     groupPorts: string[],
     railX: number,
+    side: "out" | "in",
     bucket: RoutingJunction[],
   ) => {
+    // One shared column for the side so vertical chain stays a true rail.
+    // Start from preferred railX, then push out so EVERY port keeps min stub.
+    let x = railX;
+    for (const pid of groupPorts) {
+      const pos = portAbsPos(nodes, pid);
+      if (!pos) continue;
+      if (side === "out") {
+        x = Math.max(x, pos.x + MIN_PORT_STUB);
+      } else {
+        x = Math.min(x, pos.x - MIN_PORT_STUB);
+      }
+    }
+    x = snapToGrid(x);
+
     for (const pid of groupPorts) {
       const pos = portAbsPos(nodes, pid);
       if (!pos) continue;
       const jid = `j-${pid}`;
-      const old = findPrevJunctionForPort(prev, pid);
-      const keepOldX =
-        prevWasBackwardsLayout(prev) &&
-        old &&
-        Number.isFinite(old.x) &&
-        (railX >= ext.maxOut
-          ? old.x >= ext.maxOut - 1
-          : old.x <= ext.minIn + 1);
       const junction: RoutingJunction = {
         id: jid,
-        x: keepOldX ? old!.x : railX,
+        x,
         y: snapToGrid(pos.y),
       };
       graph.junctions[jid] = junction;
@@ -424,8 +435,14 @@ function buildBackwardsNetworkBus(
     }
   };
 
-  placeRail(outPorts, outRailX, outJunctions);
-  placeRail(inPorts, inRailX, inJunctions);
+  placeRail(outPorts, outRailX, "out", outJunctions);
+  placeRail(inPorts, inRailX, "in", inJunctions);
+
+  // Wrap junctions share the final rail X (after min-stub push).
+  const finalOutX =
+    outJunctions[0]?.x ?? snapToGrid(ext.maxOut + BACKWARDS_STUB);
+  const finalInX =
+    inJunctions[0]?.x ?? snapToGrid(ext.minIn - BACKWARDS_STUB);
 
   const wrapOutId = "j-wrap-out";
   const wrapInId = "j-wrap-in";
@@ -433,14 +450,22 @@ function buildBackwardsNetworkBus(
   const prevWrapIn = prev?.junctions[wrapInId];
   const wrapOut: RoutingJunction = {
     id: wrapOutId,
-    x: prevWrapOut?.x ?? outRailX,
-    y: wrapY,
+    x: finalOutX,
+    y:
+      prevWrapOut && Number.isFinite(prevWrapOut.y)
+        ? prevWrapOut.y
+        : wrapY,
   };
   const wrapIn: RoutingJunction = {
     id: wrapInId,
-    x: prevWrapIn?.x ?? inRailX,
-    y: wrapY,
+    x: finalInX,
+    y:
+      prevWrapIn && Number.isFinite(prevWrapIn.y) ? prevWrapIn.y : wrapY,
   };
+  // Keep wrap H endpoints on the same Y
+  const sharedWrapY = snapToGrid((wrapOut.y + wrapIn.y) / 2);
+  wrapOut.y = sharedWrapY;
+  wrapIn.y = sharedWrapY;
   graph.junctions[wrapOutId] = wrapOut;
   graph.junctions[wrapInId] = wrapIn;
 
@@ -524,22 +549,40 @@ function buildForwardNetworkBus(
     corridorRight - corridorLeft >= FORWARD_MIN_GAP;
 
   const portJunction = new Map<string, string>();
-  // Stable per-port junctions — adding a new I/O must not rewrite existing
-  // stub segment ids (Y-group merges used to mint j-a_b and drop corners).
+  // Stable per-port junctions on one shared bus column.
+  let x = busX;
+  if (prev) {
+    const xs: number[] = [];
+    for (const pid of ports) {
+      const old = findPrevJunctionForPort(prev, pid);
+      if (old) xs.push(old.x);
+    }
+    if (xs.length > 0) {
+      const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+      x = hasCorridor
+        ? Math.max(corridorLeft, Math.min(corridorRight, avg))
+        : avg;
+    }
+  }
+  if (ext.hasOut) x = Math.max(x, ext.maxOut + MIN_PORT_STUB);
+  if (ext.hasIn) x = Math.min(x, ext.minIn - MIN_PORT_STUB);
+  // Collapsed corridor: sit in the middle rather than violating both stubs.
+  if (
+    ext.hasOut &&
+    ext.hasIn &&
+    ext.maxOut + MIN_PORT_STUB > ext.minIn - MIN_PORT_STUB
+  ) {
+    x = (ext.maxOut + ext.minIn) / 2;
+  }
+  x = snapToGrid(x);
+
   for (const pid of ports) {
     const pos = portAbsPos(nodes, pid);
     if (!pos) continue;
     const jid = `j-${pid}`;
-    const old = findPrevJunctionForPort(prev, pid);
-    let x = busX;
-    if (old && Number.isFinite(old.x)) {
-      x = hasCorridor
-        ? Math.max(corridorLeft, Math.min(corridorRight, old.x))
-        : old.x;
-    }
     const junction: RoutingJunction = {
       id: jid,
-      x: snapToGrid(x),
+      x,
       y: snapToGrid(pos.y),
     };
     graph.junctions[jid] = junction;
@@ -792,9 +835,8 @@ export function resolveSegmentPoints(
   let b = resolveEndpointPos(segment.b, nodes, graph);
   if (!a || !b) return null;
 
-  // Port↔junction stubs should stay axis-aligned with the port. Tiny Y drift
-  // between junction sync and port row math was skipping X-clamp and putting
-  // mid-handles / excroissances off the visible belt.
+  // Port↔junction stubs should stay axis-aligned with the port — but NEVER
+  // collapse onto the port X (that removes the min horizontal clearance).
   const portEp =
     segment.a.kind === "port"
       ? segment.a
@@ -803,13 +845,23 @@ export function resolveSegmentPoints(
         : null;
   if (portEp) {
     const portPos = portAbsPos(nodes, portEp.portId);
-    if (portPos) {
-      if (Math.abs(a.y - b.y) <= 8 && Math.abs(a.x - b.x) > 8) {
+    const kind = portKind(nodes, portEp.portId);
+    if (portPos && kind) {
+      if (Math.abs(a.y - b.y) <= 8) {
         a = { x: a.x, y: portPos.y };
         b = { x: b.x, y: portPos.y };
-      } else if (Math.abs(a.x - b.x) <= 8 && Math.abs(a.y - b.y) > 8) {
-        a = { x: portPos.x, y: a.y };
-        b = { x: portPos.x, y: b.y };
+      }
+      // Push the junction-side endpoint out if the stub shrank below min length.
+      const jIsA = segment.a.kind === "junction";
+      const jPt = jIsA ? a : b;
+      const pPt = jIsA ? b : a;
+      if (Math.abs(jPt.x - pPt.x) < MIN_PORT_STUB) {
+        const pushedX =
+          kind === "out"
+            ? portPos.x + MIN_PORT_STUB
+            : portPos.x - MIN_PORT_STUB;
+        if (jIsA) a = { x: pushedX, y: a.y };
+        else b = { x: pushedX, y: b.y };
       }
     }
   }
@@ -873,6 +925,62 @@ export function moveRoutingJunctions(
     }
   }
   return changed ? { ...graph, junctions } : graph;
+}
+
+/**
+ * Translate a junction↔junction rail/wrap: move every colinear connected
+ * junction together and clear leftover U-bend cornersAbs on those bus runs.
+ */
+export function translateRailJunctions(
+  graph: RoutingGraph,
+  segmentId: string,
+  axis: "x" | "y",
+  newValue: number,
+): RoutingGraph {
+  const seg = graph.segments[segmentId];
+  if (!seg || seg.a.kind !== "junction" || seg.b.kind !== "junction") {
+    return graph;
+  }
+  const seedA = graph.junctions[seg.a.junctionId];
+  const seedB = graph.junctions[seg.b.junctionId];
+  if (!seedA || !seedB) return graph;
+  const oldValue = axis === "x" ? seedA.x : seedA.y;
+
+  const ids = new Set<string>();
+  const queue = [seg.a.junctionId, seg.b.junctionId];
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    if (ids.has(id)) continue;
+    const j = graph.junctions[id];
+    if (!j) continue;
+    if (Math.abs((axis === "x" ? j.x : j.y) - oldValue) > 0.51) continue;
+    ids.add(id);
+    for (const s of Object.values(graph.segments)) {
+      if (s.a.kind !== "junction" || s.b.kind !== "junction") continue;
+      if (s.a.junctionId === id) queue.push(s.b.junctionId);
+      if (s.b.junctionId === id) queue.push(s.a.junctionId);
+    }
+  }
+
+  const updates: Record<string, { x?: number; y?: number }> = {};
+  const snapped = snapToGrid(newValue);
+  for (const id of ids) {
+    updates[id] = axis === "x" ? { x: snapped } : { y: snapped };
+  }
+  let next = moveRoutingJunctions(graph, updates);
+  // Drop U-bend corners stored on rail segments — endpoints moved with the rail.
+  for (const s of Object.values(next.segments)) {
+    if (!s.cornersAbs?.length) continue;
+    if (s.a.kind !== "junction" || s.b.kind !== "junction") continue;
+    if (
+      !ids.has(s.a.junctionId) &&
+      !ids.has(s.b.junctionId)
+    ) {
+      continue;
+    }
+    next = setSegmentCornersNorm(next, s.id, undefined);
+  }
+  return next;
 }
 
 /** Compose absolute points for a logical edge that has a routePath. */

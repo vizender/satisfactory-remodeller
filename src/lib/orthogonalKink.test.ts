@@ -106,6 +106,23 @@ describe("orthogonal kink placement", () => {
     expect(next[next.length - 1]).toEqual({ x: 220, y: 100 });
   });
 
+  it("moveSegmentOpen translateStraight moves a vertical rail without U-bend", () => {
+    const start = [
+      { x: 220, y: 50 },
+      { x: 220, y: 250 },
+    ];
+    const result = moveSegmentOpen(
+      0,
+      { x: 280, y: 150 },
+      start,
+      { x: 220, y: 150 },
+      { translateStraight: true },
+    );
+    expect(result.points).toHaveLength(2);
+    expect(result.points[0]!.x).toBeGreaterThan(220);
+    expect(result.points[0]!.x).toBe(result.points[1]!.x);
+  });
+
   it("moveSegmentOpen offsets a straight vertical with a U-bend (endpoints fixed)", () => {
     const start = [
       { x: 220, y: 50 },

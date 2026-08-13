@@ -102,6 +102,10 @@ function openKinkPin(seg: RoutingSegment | undefined): OpenKinkPin {
   return "both";
 }
 
+function isJunctionBus(seg: RoutingSegment | undefined): boolean {
+  return !!seg && seg.a.kind === "junction" && seg.b.kind === "junction";
+}
+
 function clientToFlow(
   clientX: number,
   clientY: number,
@@ -244,6 +248,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   endsRef.current = { sourceX, sourceY, targetX, targetY };
 
   const setEdgeCorners = useDocumentStore((s) => s.setEdgeCorners);
+  const translateRailJunctions = useDocumentStore(
+    (s) => s.translateRailJunctions,
+  );
   const setEdgeLockedVerticalXs = useDocumentStore(
     (s) => s.setEdgeLockedVerticalXs,
   );
@@ -414,7 +421,11 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pointer,
             st.startPoints,
             st.startPointer,
-            { pin: openKinkPin(segMeta) },
+            {
+              translateStraight:
+                isJunctionBus(segMeta) && st.startPoints.length === 2,
+              pin: openKinkPin(segMeta),
+            },
           )
         : moveSegment(
             st.latestPoints,
@@ -562,6 +573,58 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           if (a && b) {
             anchor = { sx: a.x, sy: a.y, tx: b.x, ty: b.y };
           }
+          // Junction↔junction straight translate → move the whole colinear rail
+          if (
+            isJunctionBus(seg) &&
+            pts.length === 2 &&
+            (Math.abs(pts[0]!.x - pts[1]!.x) < 0.51 ||
+              Math.abs(pts[0]!.y - pts[1]!.y) < 0.51)
+          ) {
+            if (Math.abs(pts[0]!.x - pts[1]!.x) < 0.51) {
+              let x = pts[0]!.x;
+              const railX =
+                st.mode === "segment" ? st.startPoints[0]!.x : a?.x ?? x;
+              // Keep min stub clearance to every port attached to this rail.
+              for (const s of Object.values(rg.segments)) {
+                const jid =
+                  s.a.kind === "junction" && s.b.kind === "port"
+                    ? s.a.junctionId
+                    : s.b.kind === "junction" && s.a.kind === "port"
+                      ? s.b.junctionId
+                      : null;
+                const pid =
+                  s.a.kind === "port"
+                    ? s.a.portId
+                    : s.b.kind === "port"
+                      ? s.b.portId
+                      : null;
+                if (!jid || !pid) continue;
+                const j = rg.junctions[jid];
+                if (!j || Math.abs(j.x - railX) > 0.51) continue;
+                const kind = (
+                  nodes.find((n) => n.id === pid)?.data as
+                    | { kind?: string }
+                    | undefined
+                )?.kind;
+                const pos = resolveEndpointPos(
+                  { kind: "port", portId: pid },
+                  nodes,
+                  rg,
+                );
+                if (!pos || !kind) continue;
+                if (kind === "in") x = Math.min(x, pos.x - MIN_PORT_STUB);
+                if (kind === "out") x = Math.max(x, pos.x + MIN_PORT_STUB);
+              }
+              translateRailJunctions(edgeId, "x", x);
+            } else {
+              translateRailJunctions(edgeId, "y", pts[0]!.y);
+            }
+            setEdgeCorners(edgeId, undefined, anchor);
+            for (const c of companions) {
+              clearOrthoDragPreview(c.id);
+            }
+            return;
+          }
         }
       }
       const locks = isSeg
@@ -579,6 +642,26 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           const b = resolveEndpointPos(seg.b, nodes, rg);
           if (!a || !b) continue;
           const cPts = orthogonalizeOpen(c.latestPoints);
+          // Companion jj straights also translate their rails
+          if (
+            isJunctionBus(seg) &&
+            cPts.length === 2 &&
+            (Math.abs(cPts[0]!.x - cPts[1]!.x) < 0.51 ||
+              Math.abs(cPts[0]!.y - cPts[1]!.y) < 0.51)
+          ) {
+            if (Math.abs(cPts[0]!.x - cPts[1]!.x) < 0.51) {
+              translateRailJunctions(c.id, "x", cPts[0]!.x);
+            } else {
+              translateRailJunctions(c.id, "y", cPts[0]!.y);
+            }
+            setEdgeCorners(c.id, undefined, {
+              sx: a.x,
+              sy: a.y,
+              tx: b.x,
+              ty: b.y,
+            });
+            continue;
+          }
           setEdgeCorners(c.id, interiorCorners(cPts), {
             sx: a.x,
             sy: a.y,
@@ -620,7 +703,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [setEdgeCorners, setEdgeLockedVerticalXs]);
+  }, [setEdgeCorners, setEdgeLockedVerticalXs, translateRailJunctions]);
 
   const beginSegmentDrag = (e: React.PointerEvent, segmentIndex: number) => {
     if (e.button !== 0) return;

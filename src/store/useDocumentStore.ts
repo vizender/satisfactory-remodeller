@@ -43,6 +43,7 @@ import {
   rebuildRoutingGraph,
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
+  translateRailJunctions as applyRailTranslate,
 } from "@/lib/routingGraph";
 import type { RoutingGraph } from "@/types/routingGraph";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
@@ -85,6 +86,12 @@ export interface DocumentState {
   /** Translate shared bus junctions after a straight segment drag. */
   moveRoutingJunctions: (
     updates: Record<string, { x?: number; y?: number }>,
+  ) => void;
+  /** Translate a whole colinear junction rail/wrap (clears bus U-bend corners). */
+  translateRailJunctions: (
+    segmentId: string,
+    axis: "x" | "y",
+    newValue: number,
   ) => void;
   /** Orthogonal mode: set / clear the vertical segment X (undefined = auto). */
   setEdgeBendX: (edgeId: string, bendX: number | undefined) => void;
@@ -288,6 +295,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   moveRoutingJunctions: (updates) => {
     set((s) => ({
       routingGraph: applyJunctionMoves(s.routingGraph, updates),
+    }));
+  },
+  translateRailJunctions: (segmentId, axis, newValue) => {
+    set((s) => ({
+      routingGraph: applyRailTranslate(s.routingGraph, segmentId, axis, newValue),
     }));
   },
   onNodesChange: (changes) => {

@@ -12,6 +12,7 @@ import {
   resolveSegmentPoints,
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
+  translateRailJunctions,
 } from "@/lib/routingGraph";
 import type { OrthoPoint } from "@/types/edgeData";
 
@@ -561,5 +562,74 @@ describe("shared routing graph (N×M)", () => {
     expect(resolved.every((p) => Math.abs(p.y - portPos.y) < 1 || p.y > portPos.y)).toBe(
       true,
     );
+  });
+
+  it("backwards in-rail keeps min horizontal stub on every input", () => {
+    const nodes: Node[] = [
+      frame("feeder", 400, 0),
+      port("out", "feeder", "out", 96, 0),
+      frame("left", -200, 0),
+      port("inLeft", "left", "in", 0, 0),
+      frame("right", 400, 200),
+      port("inRight", "right", "in", 0, 0),
+    ];
+    const edges = [
+      edge("e1", "out", "inLeft"),
+      edge("e2", "out", "inRight"),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, edges);
+    expect(graph.junctions["j-wrap-in"]).toBeTruthy();
+    for (const pid of ["inLeft", "inRight"]) {
+      const pos = portAbsPos(nodes, pid)!;
+      const j = graph.junctions[`j-${pid}`]!;
+      expect(j.x).toBeLessThanOrEqual(pos.x - 20);
+      expect(Math.abs(j.x - pos.x)).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it("translateRailJunctions moves a vertical rail without leaving U-bend corners", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const busId = Object.keys(graph.segments).find((id) => {
+      const s = graph.segments[id]!;
+      return s.a.kind === "junction" && s.b.kind === "junction";
+    })!;
+    expect(busId).toBeTruthy();
+    const seg = graph.segments[busId]!;
+    const ja =
+      seg.a.kind === "junction" ? graph.junctions[seg.a.junctionId]! : null;
+    const jb =
+      seg.b.kind === "junction" ? graph.junctions[seg.b.junctionId]! : null;
+    expect(ja && jb).toBeTruthy();
+    const before = ja!.x;
+    graph = setSegmentCornersNorm(
+      graph,
+      busId,
+      [
+        { x: before + 40, y: ja!.y },
+        { x: before + 40, y: jb!.y },
+      ],
+      {
+        sx: before,
+        sy: ja!.y,
+        tx: before,
+        ty: jb!.y,
+      },
+    );
+    expect(graph.segments[busId]!.cornersAbs?.length).toBe(2);
+    graph = translateRailJunctions(graph, busId, "x", before + 60);
+    expect(graph.junctions[ja!.id]!.x).toBe(before + 60);
+    expect(graph.junctions[jb!.id]!.x).toBe(before + 60);
+    expect(graph.segments[busId]!.cornersAbs).toBeUndefined();
   });
 });
