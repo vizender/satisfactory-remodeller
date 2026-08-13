@@ -1,6 +1,7 @@
 import { snapToGrid } from "@/constants/flowGrid";
 import type { Edge, Node } from "@xyflow/react";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
+import { getOrthoDragPreview } from "@/lib/orthoDragPreview";
 import {
   getEdgeBendX,
   getEdgeCorners,
@@ -1498,3 +1499,199 @@ export function pickSegmentUnderPointer(
 ): number {
   return lockedIndex ?? 0;
 }
+
+// --- Schematic bridge arches (vertical jumps over foreign horizontals) ---
+
+/** Half-width of the jump arc on a vertical trunk (flow px). */
+export const BRIDGE_ARCH_RADIUS = 7;
+/** Ignore crossings this close to a segment endpoint (corners / T-joins). */
+export const BRIDGE_ENDPOINT_MARGIN = 6;
+
+export type BridgeCrossing = {
+  x: number;
+  y: number;
+};
+
+function resolveEdgePointsLive(
+  edge: Edge,
+  nodes: Node[],
+): OrthoPoint[] | null {
+  const preview = getOrthoDragPreview(edge.id);
+  if (preview && preview.length >= 2) return preview;
+  const src = portAbsPos(nodes, edge.source);
+  const tgt = portAbsPos(nodes, edge.target);
+  if (!src || !tgt) return null;
+  return resolveRoutePoints(src.x, src.y, tgt.x, tgt.y, edge.data, edge.id);
+}
+
+/** Undirected port connectivity via edges (same feed / belt network). */
+export function buildEdgeNetworkIds(edges: Edge[]): Map<string, string> {
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    const p = parent.get(id);
+    if (p === undefined) {
+      parent.set(id, id);
+      return id;
+    }
+    if (p === id) return id;
+    const r = find(p);
+    parent.set(id, r);
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  for (const e of edges) {
+    if (e.data?.suggested) continue;
+    union(e.source, e.target);
+  }
+  const edgeNet = new Map<string, string>();
+  for (const e of edges) {
+    if (e.data?.suggested) continue;
+    edgeNet.set(e.id, find(e.source));
+  }
+  return edgeNet;
+}
+
+function edgesShareNetwork(
+  edgeNet: Map<string, string>,
+  a: string,
+  b: string,
+): boolean {
+  const na = edgeNet.get(a);
+  const nb = edgeNet.get(b);
+  return na !== undefined && nb !== undefined && na === nb;
+}
+
+/**
+ * Points where this edge’s vertical segments cross a horizontal from another
+ * network. Horizontals stay straight; these y-positions get an arch on the V.
+ */
+export function findBridgeCrossings(
+  edgeId: string,
+  points: OrthoPoint[],
+  edges: Edge[],
+  nodes: Node[],
+): BridgeCrossing[] {
+  const edgeNet = buildEdgeNetworkIds(edges);
+  const myNet = edgeNet.get(edgeId);
+  const crossings: BridgeCrossing[] = [];
+  const seen = new Set<string>();
+
+  const verts = routeSegments(points).filter(
+    (s) => !s.horizontal && s.length >= BRIDGE_ARCH_RADIUS * 2 + 2,
+  );
+  if (verts.length === 0) return crossings;
+
+  for (const e of edges) {
+    if (e.id === edgeId || e.data?.suggested) continue;
+    if (myNet !== undefined && edgesShareNetwork(edgeNet, edgeId, e.id)) {
+      continue;
+    }
+    const otherPts = resolveEdgePointsLive(e, nodes);
+    if (!otherPts) continue;
+    for (const h of routeSegments(otherPts)) {
+      if (!h.horizontal || h.length < 4) continue;
+      const y = h.a.y;
+      const x1 = Math.min(h.a.x, h.b.x);
+      const x2 = Math.max(h.a.x, h.b.x);
+      for (const v of verts) {
+        const x = v.a.x;
+        const y1 = Math.min(v.a.y, v.b.y);
+        const y2 = Math.max(v.a.y, v.b.y);
+        if (x <= x1 + BRIDGE_ENDPOINT_MARGIN || x >= x2 - BRIDGE_ENDPOINT_MARGIN) {
+          continue;
+        }
+        if (y <= y1 + BRIDGE_ENDPOINT_MARGIN || y >= y2 - BRIDGE_ENDPOINT_MARGIN) {
+          continue;
+        }
+        const key = `${x.toFixed(1)}:${y.toFixed(1)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        crossings.push({ x, y });
+      }
+    }
+  }
+  return crossings;
+}
+
+/**
+ * Polyline path with semicircle jumps on vertical runs at `crossings`.
+ * Arch always bulges toward +X so overlapping bridges stay consistent.
+ */
+export function pointsToSvgPathWithBridges(
+  points: OrthoPoint[],
+  crossings: readonly BridgeCrossing[],
+  radius = BRIDGE_ARCH_RADIUS,
+): string {
+  if (points.length === 0) return "";
+  if (crossings.length === 0) return pointsToSvgPath(points);
+
+  const byX = new Map<string, number[]>();
+  for (const c of crossings) {
+    const key = c.x.toFixed(2);
+    if (!byX.has(key)) byX.set(key, []);
+    byX.get(key)!.push(c.y);
+  }
+  for (const ys of byX.values()) ys.sort((a, b) => a - b);
+
+  const first = points[0]!;
+  let d = `M ${first.x},${first.y}`;
+  let cur = first;
+
+  for (let i = 1; i < points.length; i++) {
+    const next = points[i]!;
+    const horizontal = Math.abs(next.y - cur.y) <= 0.5;
+    const vertical = Math.abs(next.x - cur.x) <= 0.5;
+
+    if (!vertical || horizontal) {
+      d += ` L ${next.x},${next.y}`;
+      cur = next;
+      continue;
+    }
+
+    const x = cur.x;
+    const yStart = cur.y;
+    const yEnd = next.y;
+    const goingDown = yEnd > yStart;
+    const lo = Math.min(yStart, yEnd);
+    const hi = Math.max(yStart, yEnd);
+    const key = x.toFixed(2);
+    const ys = (byX.get(key) ?? []).filter(
+      (y) => y > lo + radius && y < hi - radius,
+    );
+    // Travel order along the segment
+    const ordered = goingDown ? ys : [...ys].reverse();
+
+    // Drop crossings that would overlap previous arch
+    const filtered: number[] = [];
+    for (const y of ordered) {
+      if (
+        filtered.length > 0 &&
+        Math.abs(y - filtered[filtered.length - 1]!) < radius * 2 + 1
+      ) {
+        continue;
+      }
+      filtered.push(y);
+    }
+
+    let yCursor = yStart;
+    for (const y of filtered) {
+      const approach = goingDown ? y - radius : y + radius;
+      const leave = goingDown ? y + radius : y - radius;
+      d += ` L ${x},${approach}`;
+      // Sweep so the arc bulges toward +X regardless of travel direction.
+      const sweep = goingDown ? 0 : 1;
+      d += ` A ${radius} ${radius} 0 0 ${sweep} ${x},${leave}`;
+      yCursor = leave;
+    }
+    if (Math.abs(yCursor - yEnd) > 0.01) {
+      d += ` L ${x},${yEnd}`;
+    }
+    cur = next;
+  }
+  return d;
+}
+

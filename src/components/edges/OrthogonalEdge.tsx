@@ -4,13 +4,14 @@ import {
   useStore,
   type EdgeProps,
 } from "@xyflow/react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   beginMidHandleKink,
   clampPortStubs,
   collectHorizontalSegments,
   collectVerticalSegments,
   detectIntersectionLocks,
+  findBridgeCrossings,
   forceOrthogonal,
   fuseRouteOnRelease,
   interiorCorners,
@@ -21,6 +22,7 @@ import {
   orthogonalLabelPosition,
   partnerIdsNeedingLockRefresh,
   pointsToSvgPath,
+  pointsToSvgPathWithBridges,
   resolveEdgeRouteFromNodes,
   resolveRoutePoints,
   routeSegments,
@@ -29,6 +31,12 @@ import {
   CORNER_SNAP_OVERLAP_PAD,
   VERTICAL_SNAP_HOLD,
 } from "@/lib/orthogonalEdgePath";
+import {
+  clearOrthoDragPreview,
+  getOrthoDragPreviewVersion,
+  setOrthoDragPreview,
+  subscribeOrthoDragPreview,
+} from "@/lib/orthoDragPreview";
 import {
   getEdgeBendX,
   getEdgeCorners,
@@ -202,8 +210,17 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   const setEdgeLockedVerticalXs = useDocumentStore(
     (s) => s.setEdgeLockedVerticalXs,
   );
+  const docNodes = useDocumentStore((s) => s.nodes);
+  const docEdges = useDocumentStore((s) => s.edges);
   const [dragPoints, setDragPoints] = useState<OrthoPoint[] | null>(null);
   const dragRef = useRef<DragState | null>(null);
+
+  /** Re-render when another edge’s drag preview moves (live bridges). */
+  useSyncExternalStore(
+    subscribeOrthoDragPreview,
+    getOrthoDragPreviewVersion,
+    getOrthoDragPreviewVersion,
+  );
 
   const basePoints = resolveRoutePoints(
     sourceX,
@@ -214,7 +231,10 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     id,
   );
   const points = dragPoints ?? basePoints;
-  const path = pointsToSvgPath(points);
+  const bridgeCrossings = findBridgeCrossings(id, points, docEdges, docNodes);
+  const path = pointsToSvgPathWithBridges(points, bridgeCrossings);
+  /** Hit testing stays on the straight ortholinear spine. */
+  const hitPath = pointsToSvgPath(points);
   const { x: labelX, y: labelY } = orthogonalLabelPosition(
     sourceX,
     sourceY,
@@ -227,6 +247,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   const interiorPointIndices = points
     .map((_, i) => i)
     .filter((i) => i > 0 && i < points.length - 1);
+
+  useEffect(() => {
+    if (dragPoints) setOrthoDragPreview(id, dragPoints);
+    else clearOrthoDragPreview(id);
+    return () => clearOrthoDragPreview(id);
+  }, [id, dragPoints]);
 
   useEffect(() => {
     if (getEdgeCornersNorm(data)) return;
@@ -522,7 +548,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         interactionWidth={0}
       />
       <path
-        d={path}
+        d={hitPath}
         fill="none"
         stroke="rgba(0,0,0,0.001)"
         strokeWidth={HIT_STROKE_SCREEN_PX}
