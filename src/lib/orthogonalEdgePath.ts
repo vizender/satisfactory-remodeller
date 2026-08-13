@@ -868,6 +868,238 @@ export type MoveSegmentResult = {
 };
 
 /**
+ * Assemble an open orthogonal polyline from fixed endpoints + absolute corners.
+ * Unlike forceOrthogonal, does not assume port→port H–V–H — no stub tails.
+ */
+export function assembleOpenPolyline(
+  start: OrthoPoint,
+  corners: OrthoPoint[],
+  end: OrthoPoint,
+): OrthoPoint[] {
+  const raw: OrthoPoint[] = [
+    { ...start },
+    ...corners.map((p) => ({ x: p.x, y: p.y })),
+    { ...end },
+  ];
+  const pts: OrthoPoint[] = [{ ...raw[0]! }];
+  for (let i = 1; i < raw.length; i++) {
+    const prev = pts[pts.length - 1]!;
+    const cur = raw[i]!;
+    if (sameX(prev, cur) || sameY(prev, cur)) {
+      pts.push({ ...cur });
+      continue;
+    }
+    // Insert one bend — keep prior run axis when obvious, else H then V
+    const prevWasH =
+      pts.length >= 2 && sameY(pts[pts.length - 2]!, prev);
+    if (prevWasH) {
+      pts.push({ x: prev.x, y: snapToGrid(cur.y) });
+    } else {
+      pts.push({ x: snapToGrid(cur.x), y: prev.y });
+    }
+    pts.push({ ...cur });
+  }
+  pts[0] = { ...start };
+  pts[pts.length - 1] = { ...end };
+  return simplifyOrthoPoints(pts);
+}
+
+/**
+ * Orthogonalize an open polyline without assuming port→port H–V–H stubs.
+ * Preserves endpoints; used for shared routing segments (stubs, buses, kinks).
+ */
+export function orthogonalizeOpen(points: OrthoPoint[]): OrthoPoint[] {
+  if (points.length < 2) return points.map((p) => ({ ...p }));
+  const start = { ...points[0]! };
+  const end = { ...points[points.length - 1]! };
+  if (points.length === 2) {
+    return assembleOpenPolyline(start, [], end);
+  }
+  return assembleOpenPolyline(start, points.slice(1, -1), end);
+}
+
+/**
+ * Move an interior corner on an open orthogonal chain (no port-stub clamps).
+ * Endpoints stay fixed — critical for routing stubs attached to ports.
+ */
+export function moveCorner2DOpen(
+  points: OrthoPoint[],
+  cornerIndex: number,
+  x: number,
+  y: number,
+): OrthoPoint[] {
+  if (cornerIndex <= 0 || cornerIndex >= points.length - 1) {
+    return orthogonalizeOpen(points);
+  }
+  const start = { ...points[0]! };
+  const end = { ...points[points.length - 1]! };
+  const pts = points.map((p) => ({ ...p }));
+  const nx = snapToGrid(x);
+  const ny = snapToGrid(y);
+  const prev = pts[cornerIndex - 1]!;
+  const next = pts[cornerIndex + 1]!;
+  const wasH =
+    Math.abs(prev.y - pts[cornerIndex]!.y) <=
+    Math.abs(prev.x - pts[cornerIndex]!.x) + EPS;
+
+  if (wasH) {
+    pts[cornerIndex] = { x: nx, y: prev.y };
+    if (cornerIndex + 1 < pts.length - 1) {
+      // Keep the following vertical on the new X
+      pts[cornerIndex + 1] = { x: nx, y: next.y };
+    } else {
+      // Next is endpoint: insert a jog so we don't drag the port/junction
+      pts.splice(cornerIndex + 1, 0, { x: nx, y: end.y });
+    }
+  } else {
+    pts[cornerIndex] = { x: prev.x, y: ny };
+    if (cornerIndex + 1 < pts.length - 1) {
+      pts[cornerIndex + 1] = { x: next.x, y: ny };
+    } else {
+      pts.splice(cornerIndex + 1, 0, { x: end.x, y: ny });
+    }
+  }
+
+  // Never move pinned endpoints — local simplify only (avoids reshape stutter)
+  pts[0] = start;
+  pts[pts.length - 1] = end;
+  return simplifyOrthoPoints(pts);
+}
+
+/** Which endpoint is the port attachment on a shared stub (pin that side). */
+export type OpenKinkPin = "start" | "end" | "both";
+
+/**
+ * Drag a segment on an open chain.
+ * - Junction↔junction axis-aligned runs translate (caller persists junction moves).
+ * - Port stubs kink with the free run on the junction side (pin=port end).
+ */
+export function moveSegmentOpen(
+  segmentIndex: number,
+  pointerFlow: { x: number; y: number },
+  startPoints: OrthoPoint[],
+  startPointer: { x: number; y: number },
+  options?: {
+    /** Translate a straight 2-point bus instead of inserting a kink. */
+    translateStraight?: boolean;
+    /** Pin the port side so the kink's free run faces the junction. */
+    pin?: OpenKinkPin;
+  },
+): MoveSegmentResult {
+  const base = orthogonalizeOpen(startPoints);
+  const segs = routeSegments(base);
+  const seg = segs[segmentIndex] ?? segs[0];
+  if (!seg) return { points: base, activeSegmentIndex: 0 };
+  const pin = options?.pin ?? "both";
+
+  if (base.length === 2 && options?.translateStraight) {
+    if (seg.horizontal) {
+      const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
+      return {
+        points: [
+          { x: base[0]!.x, y: newY },
+          { x: base[1]!.x, y: newY },
+        ],
+        activeSegmentIndex: 0,
+      };
+    }
+    const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    return {
+      points: [
+        { x: newX, y: base[0]!.y },
+        { x: newX, y: base[1]!.y },
+      ],
+      activeSegmentIndex: 0,
+    };
+  }
+
+  if (base.length === 2) {
+    const kinked = beginMidHandleKink(base, 0, pointerFlow, pin);
+    if (kinked.cornerIndex < 0) {
+      return { points: base, activeSegmentIndex: 0 };
+    }
+    const moved = moveCorner2DOpen(
+      kinked.points,
+      kinked.cornerIndex,
+      pointerFlow.x,
+      pointerFlow.y,
+    );
+    const free = routeSegments(moved).filter((s) => s.length >= 4);
+    const active =
+      free.find((s) => (seg.horizontal ? s.horizontal : !s.horizontal))
+        ?.index ?? 1;
+    return { points: moved, activeSegmentIndex: active };
+  }
+
+  if (seg.horizontal) {
+    const newY = snapToGrid(seg.a.y + (pointerFlow.y - startPointer.y));
+    if (segmentIndex === 0 || segmentIndex === base.length - 2) {
+      const kinked = beginMidHandleKink(
+        base,
+        segmentIndex,
+        { x: (seg.a.x + seg.b.x) / 2, y: newY },
+        pin,
+      );
+      if (kinked.cornerIndex < 0) {
+        return { points: base, activeSegmentIndex: segmentIndex };
+      }
+      const moved = moveCorner2DOpen(
+        kinked.points,
+        kinked.cornerIndex,
+        pointerFlow.x,
+        newY,
+      );
+      return {
+        points: moved,
+        activeSegmentIndex: Math.min(kinked.cornerIndex, moved.length - 3),
+      };
+    }
+    const pts = base.map((p) => ({ ...p }));
+    pts[segmentIndex] = { x: pts[segmentIndex]!.x, y: newY };
+    pts[segmentIndex + 1] = { x: pts[segmentIndex + 1]!.x, y: newY };
+    pts[0] = { ...base[0]! };
+    pts[pts.length - 1] = { ...base[base.length - 1]! };
+    return {
+      points: simplifyOrthoPoints(pts),
+      activeSegmentIndex: segmentIndex,
+    };
+  }
+
+  const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+  if (segmentIndex === 0 || segmentIndex === base.length - 2) {
+    const kinked = beginMidHandleKink(
+      base,
+      segmentIndex,
+      { x: newX, y: (seg.a.y + seg.b.y) / 2 },
+      pin,
+    );
+    if (kinked.cornerIndex < 0) {
+      return { points: base, activeSegmentIndex: segmentIndex };
+    }
+    const moved = moveCorner2DOpen(
+      kinked.points,
+      kinked.cornerIndex,
+      newX,
+      pointerFlow.y,
+    );
+    return {
+      points: moved,
+      activeSegmentIndex: Math.min(kinked.cornerIndex, moved.length - 3),
+    };
+  }
+  const pts = base.map((p) => ({ ...p }));
+  pts[segmentIndex] = { x: newX, y: pts[segmentIndex]!.y };
+  pts[segmentIndex + 1] = { x: newX, y: pts[segmentIndex + 1]!.y };
+  pts[0] = { ...base[0]! };
+  pts[pts.length - 1] = { ...base[base.length - 1]! };
+  return {
+    points: simplifyOrthoPoints(pts),
+    activeSegmentIndex: segmentIndex,
+  };
+}
+
+
+/**
  * Drag segment perpendicular to its axis.
  * - Free H: move Y only (H stays H; adjacent V grow/shrink)
  * - Free V: move X only
@@ -1072,6 +1304,192 @@ export function insertKinkOnSegment(
   return beginMidHandleKink(points, segmentIndex, at).points;
 }
 
+function findElbowIndex(
+  points: OrthoPoint[],
+  elbow: OrthoPoint,
+  fallback: number,
+): number {
+  let cornerIndex = fallback;
+  let best = Infinity;
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = Math.hypot(points[i]!.x - elbow.x, points[i]!.y - elbow.y);
+    if (d < best) {
+      best = d;
+      cornerIndex = i;
+    }
+  }
+  return cornerIndex;
+}
+
+/**
+ * Open-chain kink that never moves endpoints. `pin` marks the port attachment:
+ * the free run is created on the opposite (junction) side.
+ */
+function beginOpenChainKink(
+  base: OrthoPoint[],
+  segmentIndex: number,
+  at: { x: number; y: number },
+  pin: OpenKinkPin,
+): { points: OrthoPoint[]; cornerIndex: number } {
+  const segs = routeSegments(base);
+  const seg = segs[segmentIndex];
+  if (!seg || seg.length < MIN_SEG) {
+    return { points: base, cornerIndex: -1 };
+  }
+  const start = base[0]!;
+  const end = base[base.length - 1]!;
+
+  if (seg.horizontal) {
+    const y = seg.a.y;
+    const left = Math.min(seg.a.x, seg.b.x);
+    const right = Math.max(seg.a.x, seg.b.x);
+    const mx = snapToGrid(
+      Math.max(left + MIN_SEG / 2, Math.min(right - MIN_SEG / 2, at.x)),
+    );
+    const dir = Math.abs(at.y - y) < 1 ? 1 : Math.sign(at.y - y);
+    const y2 = snapToGrid(
+      y + dir * Math.max(MIN_SEG, Math.abs(at.y - y) || KINK_JOG),
+    );
+
+    if (base.length === 2) {
+      // Pin port end → free H faces the other endpoint (junction).
+      const pts =
+        pin === "end"
+          ? [
+              { ...start },
+              { x: start.x, y: y2 },
+              { x: mx, y: y2 },
+              { x: mx, y: end.y },
+              { ...end },
+            ]
+          : [
+              { ...start },
+              { x: mx, y: start.y },
+              { x: mx, y: y2 },
+              { x: end.x, y: y2 },
+              { ...end },
+            ];
+      const forced = simplifyOrthoPoints(pts);
+      const elbow = pin === "end" ? { x: mx, y: y2 } : { x: mx, y: y2 };
+      return {
+        points: forced,
+        cornerIndex: findElbowIndex(forced, elbow, 2),
+      };
+    }
+
+    const pts = base.map((p) => ({ ...p }));
+    const bIdx = segmentIndex + 1;
+    if (bIdx >= pts.length - 1) {
+      // Last segment ends at pinned endpoint — insert return path
+      if (pin === "end") {
+        pts.splice(
+          bIdx,
+          0,
+          { x: pts[segmentIndex]!.x, y: y2 },
+          { x: mx, y: y2 },
+          { x: mx, y: end.y },
+        );
+      } else {
+        pts.splice(
+          bIdx,
+          0,
+          { x: mx, y },
+          { x: mx, y: y2 },
+          { x: end.x, y: y2 },
+        );
+      }
+    } else if (segmentIndex === 0 && pin === "start") {
+      pts[bIdx] = { x: pts[bIdx]!.x, y: y2 };
+      pts.splice(bIdx, 0, { x: mx, y }, { x: mx, y: y2 });
+    } else if (segmentIndex === 0 && pin === "end") {
+      pts.splice(
+        1,
+        0,
+        { x: start.x, y: y2 },
+        { x: mx, y: y2 },
+        { x: mx, y },
+      );
+    } else {
+      pts[bIdx] = { x: pts[bIdx]!.x, y: y2 };
+      pts.splice(bIdx, 0, { x: mx, y }, { x: mx, y: y2 });
+    }
+    pts[0] = { ...start };
+    pts[pts.length - 1] = { ...end };
+    const forced = simplifyOrthoPoints(pts);
+    return {
+      points: forced,
+      cornerIndex: findElbowIndex(forced, { x: mx, y: y2 }, 2),
+    };
+  }
+
+  const x = seg.a.x;
+  const top = Math.min(seg.a.y, seg.b.y);
+  const bot = Math.max(seg.a.y, seg.b.y);
+  const my = snapToGrid(
+    Math.max(top + MIN_SEG / 2, Math.min(bot - MIN_SEG / 2, at.y)),
+  );
+  const dir = Math.abs(at.x - x) < 1 ? 1 : Math.sign(at.x - x);
+  const x2 = snapToGrid(
+    x + dir * Math.max(MIN_SEG, Math.abs(at.x - x) || KINK_JOG),
+  );
+
+  if (base.length === 2) {
+    const pts =
+      pin === "end"
+        ? [
+            { ...start },
+            { x: x2, y: start.y },
+            { x: x2, y: my },
+            { x: end.x, y: my },
+            { ...end },
+          ]
+        : [
+            { ...start },
+            { x: start.x, y: my },
+            { x: x2, y: my },
+            { x: x2, y: end.y },
+            { ...end },
+          ];
+    const forced = simplifyOrthoPoints(pts);
+    return {
+      points: forced,
+      cornerIndex: findElbowIndex(forced, { x: x2, y: my }, 2),
+    };
+  }
+
+  const pts = base.map((p) => ({ ...p }));
+  const bIdx = segmentIndex + 1;
+  if (bIdx >= pts.length - 1) {
+    if (pin === "end") {
+      pts.splice(
+        bIdx,
+        0,
+        { x: x2, y: pts[segmentIndex]!.y },
+        { x: x2, y: my },
+        { x: end.x, y: my },
+      );
+    } else {
+      pts.splice(
+        bIdx,
+        0,
+        { x, y: my },
+        { x: x2, y: my },
+        { x: x2, y: end.y },
+      );
+    }
+  } else {
+    pts[bIdx] = { x: x2, y: pts[bIdx]!.y };
+    pts.splice(bIdx, 0, { x, y: my }, { x: x2, y: my });
+  }
+  pts[0] = { ...start };
+  pts[pts.length - 1] = { ...end };
+  const forced = simplifyOrthoPoints(pts);
+  return {
+    points: forced,
+    cornerIndex: findElbowIndex(forced, { x: x2, y: my }, 2),
+  };
+}
+
 /**
  * Mid-handle drag: insert a kink on the segment and return the elbow corner
  * index that should follow the pointer in 2D.
@@ -1080,7 +1498,16 @@ export function beginMidHandleKink(
   points: OrthoPoint[],
   segmentIndex: number,
   at: { x: number; y: number },
+  pin: OpenKinkPin = "both",
 ): { points: OrthoPoint[]; cornerIndex: number } {
+  const start = points[0]!;
+  const end = points[points.length - 1]!;
+  const openChain =
+    Math.abs(start.x - end.x) < 1 || Math.abs(start.y - end.y) < 1;
+  if (openChain) {
+    return beginOpenChainKink(orthogonalizeOpen(points), segmentIndex, at, pin);
+  }
+
   const base = forceOrthogonal(points);
   const segs = routeSegments(base);
   const seg = segs[segmentIndex];
@@ -1097,7 +1524,6 @@ export function beginMidHandleKink(
     const mx = snapToGrid(
       Math.max(left + MIN_SEG / 2, Math.min(right - MIN_SEG / 2, at.x)),
     );
-    // Start with a tiny vertical jog toward the pointer (or default down)
     const dir = Math.abs(at.y - y) < 1 ? 1 : Math.sign(at.y - y);
     const y2 = snapToGrid(
       y + dir * Math.max(MIN_SEG, Math.abs(at.y - y) || KINK_JOG),
@@ -1106,17 +1532,10 @@ export function beginMidHandleKink(
     pts[bIdx] = { x: pts[bIdx]!.x, y: y2 };
     pts.splice(bIdx, 0, { x: mx, y }, { x: mx, y: y2 });
     const forced = forceOrthogonal(pts);
-    const elbow = { x: mx, y: y2 };
-    let cornerIndex = bIdx + 1;
-    let best = Infinity;
-    for (let i = 1; i < forced.length - 1; i++) {
-      const d = Math.hypot(forced[i]!.x - elbow.x, forced[i]!.y - elbow.y);
-      if (d < best) {
-        best = d;
-        cornerIndex = i;
-      }
-    }
-    return { points: forced, cornerIndex };
+    return {
+      points: forced,
+      cornerIndex: findElbowIndex(forced, { x: mx, y: y2 }, bIdx + 1),
+    };
   }
 
   const x = seg.a.x;
@@ -1133,17 +1552,10 @@ export function beginMidHandleKink(
   pts[bIdx] = { x: x2, y: pts[bIdx]!.y };
   pts.splice(bIdx, 0, { x, y: my }, { x: x2, y: my });
   const forced = forceOrthogonal(pts);
-  const elbow = { x: x2, y: my };
-  let cornerIndex = bIdx + 1;
-  let best = Infinity;
-  for (let i = 1; i < forced.length - 1; i++) {
-    const d = Math.hypot(forced[i]!.x - elbow.x, forced[i]!.y - elbow.y);
-    if (d < best) {
-      best = d;
-      cornerIndex = i;
-    }
-  }
-  return { points: forced, cornerIndex };
+  return {
+    points: forced,
+    cornerIndex: findElbowIndex(forced, { x: x2, y: my }, bIdx + 1),
+  };
 }
 
 /**

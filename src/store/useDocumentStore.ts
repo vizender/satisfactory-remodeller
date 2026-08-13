@@ -39,6 +39,7 @@ import {
 import type { ItemEdgeData, OrthoPoint, RouteAnchor, LockedVertical } from "@/types/edgeData";
 import {
   emptyRoutingGraph,
+  moveRoutingJunctions as applyJunctionMoves,
   rebuildRoutingGraph,
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
@@ -80,6 +81,10 @@ export interface DocumentState {
     segmentId: string,
     corners: OrthoPoint[] | undefined,
     anchor?: RouteAnchor,
+  ) => void;
+  /** Translate shared bus junctions after a straight segment drag. */
+  moveRoutingJunctions: (
+    updates: Record<string, { x?: number; y?: number }>,
   ) => void;
   /** Orthogonal mode: set / clear the vertical segment X (undefined = auto). */
   setEdgeBendX: (edgeId: string, bendX: number | undefined) => void;
@@ -278,6 +283,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         corners,
         anchor,
       ),
+    }));
+  },
+  moveRoutingJunctions: (updates) => {
+    set((s) => ({
+      routingGraph: applyJunctionMoves(s.routingGraph, updates),
     }));
   },
   onNodesChange: (changes) => {

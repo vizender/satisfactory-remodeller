@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   beginMidHandleKink,
   moveCorner2D,
+  moveCorner2DOpen,
   moveSegment,
+  moveSegmentOpen,
 } from "@/lib/orthogonalEdgePath";
 
 describe("orthogonal kink placement", () => {
@@ -52,5 +54,71 @@ describe("orthogonal kink placement", () => {
     // And there should be a vertex near pointer X (not only near an endpoint)
     const xs = result.points.map((p) => p.x);
     expect(xs.some((x) => Math.abs(x - 200) < 24)).toBe(true);
+  });
+
+  it("open stub kink pins the port end (input: pin=end)", () => {
+    const stub = [
+      { x: 220, y: 100 }, // junction
+      { x: 400, y: 100 }, // port
+    ];
+    const { points: kinked } = beginMidHandleKink(
+      stub,
+      0,
+      { x: 300, y: 160 },
+      "end",
+    );
+    const start = kinked[0]!;
+    const end = kinked[kinked.length - 1]!;
+    expect(start).toEqual({ x: 220, y: 100 });
+    expect(end).toEqual({ x: 400, y: 100 });
+    expect(kinked.length).toBeGreaterThan(2);
+    const ys = new Set(kinked.map((p) => p.y));
+    expect(ys.size).toBeGreaterThan(1);
+  });
+
+  it("open stub kink pins the port start (output: pin=start)", () => {
+    const stub = [
+      { x: 100, y: 100 }, // port
+      { x: 220, y: 100 }, // junction
+    ];
+    const { points: kinked } = beginMidHandleKink(
+      stub,
+      0,
+      { x: 160, y: 160 },
+      "start",
+    );
+    expect(kinked[0]).toEqual({ x: 100, y: 100 });
+    expect(kinked[kinked.length - 1]).toEqual({ x: 220, y: 100 });
+    expect(kinked.length).toBeGreaterThan(2);
+  });
+
+  it("moveSegmentOpen translateStraight moves a vertical bus without kinking", () => {
+    const start = [
+      { x: 220, y: 50 },
+      { x: 220, y: 250 },
+    ];
+    const result = moveSegmentOpen(
+      0,
+      { x: 280, y: 150 },
+      start,
+      { x: 220, y: 150 },
+      { translateStraight: true },
+    );
+    expect(result.points).toHaveLength(2);
+    expect(result.points[0]!.x).toBeGreaterThan(220);
+    expect(result.points[0]!.x).toBe(result.points[1]!.x);
+  });
+
+  it("moveCorner2DOpen keeps endpoints fixed on a stub kink", () => {
+    const points = [
+      { x: 100, y: 100 },
+      { x: 160, y: 100 },
+      { x: 160, y: 160 },
+      { x: 220, y: 160 },
+      { x: 220, y: 100 },
+    ];
+    const next = moveCorner2DOpen(points, 2, 180, 200);
+    expect(next[0]).toEqual({ x: 100, y: 100 });
+    expect(next[next.length - 1]).toEqual({ x: 220, y: 100 });
   });
 });

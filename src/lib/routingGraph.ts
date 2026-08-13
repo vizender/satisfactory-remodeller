@@ -3,10 +3,13 @@ import { Position } from "@xyflow/react";
 import { snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import {
+  assembleOpenPolyline,
+  BACKWARDS_BUS_OFFSET,
+  BACKWARDS_STUB,
   buildEdgeNetworkIds,
-  forceOrthogonal,
   FORWARD_MIN_GAP,
   interiorCorners,
+  isBackwardsRoute,
   resolveRoutePoints,
 } from "@/lib/orthogonalEdgePath";
 import type { OrthoNorm, OrthoPoint, RouteAnchor } from "@/types/edgeData";
@@ -74,6 +77,51 @@ function prevCornersMap(prev: RoutingGraph | undefined): Map<string, OrthoPoint[
   return out;
 }
 
+type PortExtents = {
+  minOut: number;
+  maxOut: number;
+  minIn: number;
+  maxIn: number;
+  hasOut: boolean;
+  hasIn: boolean;
+  minY: number;
+  maxY: number;
+};
+
+function portExtents(nodes: Node[], portIds: string[]): PortExtents {
+  let minOut = Infinity;
+  let maxOut = -Infinity;
+  let minIn = Infinity;
+  let maxIn = -Infinity;
+  let hasOut = false;
+  let hasIn = false;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const pid of portIds) {
+    const pos = portAbsPos(nodes, pid);
+    if (!pos) continue;
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y);
+    const kind = portKind(nodes, pid);
+    if (kind === "out") {
+      hasOut = true;
+      minOut = Math.min(minOut, pos.x);
+      maxOut = Math.max(maxOut, pos.x);
+    } else if (kind === "in") {
+      hasIn = true;
+      minIn = Math.min(minIn, pos.x);
+      maxIn = Math.max(maxIn, pos.x);
+    }
+  }
+  return { minOut, maxOut, minIn, maxIn, hasOut, hasIn, minY, maxY };
+}
+
+function isBackwardsNetwork(ext: PortExtents): boolean {
+  if (!ext.hasOut || !ext.hasIn) return false;
+  // Same rule as classic edges: inputs sit at/left of outputs with no forward gap.
+  return isBackwardsRoute(ext.maxOut, ext.minIn);
+}
+
 function pickBusX(
   nodes: Node[],
   portIds: string[],
@@ -96,38 +144,37 @@ function pickBusX(
     }
   }
 
-  let minOut = Infinity;
-  let maxOut = -Infinity;
-  let minIn = Infinity;
-  let maxIn = -Infinity;
-  let hasOut = false;
-  let hasIn = false;
-  for (const pid of portIds) {
-    const pos = portAbsPos(nodes, pid);
-    if (!pos) continue;
-    const kind = portKind(nodes, pid);
-    if (kind === "out") {
-      hasOut = true;
-      minOut = Math.min(minOut, pos.x);
-      maxOut = Math.max(maxOut, pos.x);
-    } else if (kind === "in") {
-      hasIn = true;
-      minIn = Math.min(minIn, pos.x);
-      maxIn = Math.max(maxIn, pos.x);
-    }
-  }
-
-  if (hasOut && hasIn) {
-    const left = maxOut + BUS_INSET;
-    const right = minIn - BUS_INSET;
+  const ext = portExtents(nodes, portIds);
+  if (ext.hasOut && ext.hasIn) {
+    const left = ext.maxOut + BUS_INSET;
+    const right = ext.minIn - BUS_INSET;
     if (right - left >= FORWARD_MIN_GAP) {
       return snapToGrid((left + right) / 2);
     }
-    return snapToGrid((maxOut + minIn) / 2);
+    return snapToGrid((ext.maxOut + ext.minIn) / 2);
   }
-  if (hasOut) return snapToGrid(maxOut + BUS_INSET + 40);
-  if (hasIn) return snapToGrid(minIn - BUS_INSET - 40);
+  if (ext.hasOut) return snapToGrid(ext.maxOut + BUS_INSET + 40);
+  if (ext.hasIn) return snapToGrid(ext.minIn - BUS_INSET - 40);
   return 0;
+}
+
+/** Preserve prior rail X when rebuilding a backwards wrap network. */
+function pickRailX(
+  prev: RoutingGraph | undefined,
+  candidateIds: string[],
+  fallback: number,
+): number {
+  if (prev) {
+    const xs: number[] = [];
+    for (const id of candidateIds) {
+      const j = prev.junctions[id];
+      if (j) xs.push(j.x);
+    }
+    if (xs.length > 0) {
+      return snapToGrid(xs.reduce((a, b) => a + b, 0) / xs.length);
+    }
+  }
+  return snapToGrid(fallback);
 }
 
 function ensureSegment(
@@ -147,13 +194,258 @@ function ensureSegment(
   return id;
 }
 
-function buildNetworkBus(
+function linkVerticalChain(
+  graph: RoutingGraph,
+  itemId: string,
+  junctions: RoutingJunction[],
+  cornersPrev: Map<string, OrthoPoint[]>,
+): string[] {
+  const sorted = [...junctions].sort(
+    (a, b) => a.y - b.y || a.id.localeCompare(b.id),
+  );
+  const ids = sorted.map((j) => j.id);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i]!;
+    const b = sorted[i + 1]!;
+    if (Math.abs(a.y - b.y) < 0.51 && Math.abs(a.x - b.x) < 0.51) continue;
+    ensureSegment(
+      graph,
+      itemId,
+      { kind: "junction", junctionId: a.id },
+      { kind: "junction", junctionId: b.id },
+      cornersPrev,
+    );
+  }
+  return ids;
+}
+
+function busSegmentsAlongChain(
+  graph: RoutingGraph,
+  sortedIds: string[],
+  jFrom: string,
+  jTo: string,
+): string[] {
+  if (jFrom === jTo) return [];
+  const i = sortedIds.indexOf(jFrom);
+  const j = sortedIds.indexOf(jTo);
+  if (i < 0 || j < 0) return [];
+  const ids: string[] = [];
+  if (i < j) {
+    for (let k = i; k < j; k++) {
+      const a = sortedIds[k]!;
+      const b = sortedIds[k + 1]!;
+      const ja = graph.junctions[a]!;
+      const jb = graph.junctions[b]!;
+      if (Math.abs(ja.y - jb.y) < 0.51 && Math.abs(ja.x - jb.x) < 0.51) {
+        continue;
+      }
+      ids.push(
+        segmentIdFor(
+          { kind: "junction", junctionId: a },
+          { kind: "junction", junctionId: b },
+        ),
+      );
+    }
+  } else {
+    for (let k = i; k > j; k--) {
+      const a = sortedIds[k]!;
+      const b = sortedIds[k - 1]!;
+      const ja = graph.junctions[a]!;
+      const jb = graph.junctions[b]!;
+      if (Math.abs(ja.y - jb.y) < 0.51 && Math.abs(ja.x - jb.x) < 0.51) {
+        continue;
+      }
+      ids.push(
+        segmentIdFor(
+          { kind: "junction", junctionId: a },
+          { kind: "junction", junctionId: b },
+        ),
+      );
+    }
+  }
+  return ids;
+}
+
+/**
+ * Backwards N×M: outs sit to the right of inputs. Route around machines via
+ * an out-rail (right of outs), wrap bus (below the lower port), and in-rail
+ * (left of inputs) — matching classic defaultCorners.
+ */
+function buildBackwardsNetworkBus(
+  graph: RoutingGraph,
+  nodes: Node[],
+  netEdges: Edge[],
+  cornersPrev: Map<string, OrthoPoint[]>,
+  prev: RoutingGraph | undefined,
+  ext: PortExtents,
+): Map<string, string[]> {
+  const routePaths = new Map<string, string[]>();
+  const portIds = new Set<string>();
+  let itemId = "unknown";
+  for (const e of netEdges) {
+    portIds.add(e.source);
+    portIds.add(e.target);
+    if (isItemEdgeData(e.data)) itemId = e.data.itemId;
+  }
+  const ports = [...portIds];
+  const outPorts = ports.filter((p) => portKind(nodes, p) === "out");
+  const inPorts = ports.filter((p) => portKind(nodes, p) === "in");
+
+  const outRailX = pickRailX(
+    prev,
+    outPorts.map((p) => `j-${p}`),
+    ext.maxOut + BACKWARDS_STUB,
+  );
+  const inRailX = pickRailX(
+    prev,
+    inPorts.map((p) => `j-${p}`),
+    ext.minIn - BACKWARDS_STUB,
+  );
+
+  // Prefer prior wrap Y when present; else classic maxY + offset (below).
+  let wrapY = snapToGrid(ext.maxY + BACKWARDS_BUS_OFFSET);
+  if (prev) {
+    const prevWrap = Object.values(prev.junctions).find((j) =>
+      j.id.startsWith("j-wrap-"),
+    );
+    if (prevWrap) wrapY = prevWrap.y;
+  }
+
+  const portJunction = new Map<string, string>();
+  const outJunctions: RoutingJunction[] = [];
+  const inJunctions: RoutingJunction[] = [];
+
+  const placeRail = (
+    groupPorts: string[],
+    railX: number,
+    bucket: RoutingJunction[],
+  ) => {
+    const byY = new Map<number, string[]>();
+    for (const pid of groupPorts) {
+      const pos = portAbsPos(nodes, pid);
+      if (!pos) continue;
+      const y = snapToGrid(pos.y);
+      let list = byY.get(y);
+      if (!list) {
+        list = [];
+        byY.set(y, list);
+      }
+      list.push(pid);
+    }
+    for (const [y, group] of byY) {
+      const jid = `j-${[...group].sort().join("_")}`;
+      const old =
+        prev?.junctions[jid] ??
+        group.map((p) => prev?.junctions[`j-${p}`]).find(Boolean);
+      const junction: RoutingJunction = {
+        id: jid,
+        x:
+          old &&
+          Number.isFinite(old.x) &&
+          // Keep prior X only when it already sits on the outward rail
+          (railX >= ext.maxOut
+            ? old.x >= ext.maxOut - 1
+            : old.x <= ext.minIn + 1)
+            ? old.x
+            : railX,
+        y,
+      };
+      graph.junctions[jid] = junction;
+      bucket.push(junction);
+      for (const pid of group) {
+        portJunction.set(pid, jid);
+        const kind = portKind(nodes, pid);
+        const portEp: RoutingEndpoint = { kind: "port", portId: pid };
+        const jEp: RoutingEndpoint = { kind: "junction", junctionId: jid };
+        if (kind === "out") {
+          ensureSegment(graph, itemId, portEp, jEp, cornersPrev);
+        } else {
+          ensureSegment(graph, itemId, jEp, portEp, cornersPrev);
+        }
+      }
+    }
+  };
+
+  placeRail(outPorts, outRailX, outJunctions);
+  placeRail(inPorts, inRailX, inJunctions);
+
+  const wrapOutId = "j-wrap-out";
+  const wrapInId = "j-wrap-in";
+  const prevWrapOut = prev?.junctions[wrapOutId];
+  const prevWrapIn = prev?.junctions[wrapInId];
+  const wrapOut: RoutingJunction = {
+    id: wrapOutId,
+    x: prevWrapOut?.x ?? outRailX,
+    y: wrapY,
+  };
+  const wrapIn: RoutingJunction = {
+    id: wrapInId,
+    x: prevWrapIn?.x ?? inRailX,
+    y: wrapY,
+  };
+  graph.junctions[wrapOutId] = wrapOut;
+  graph.junctions[wrapInId] = wrapIn;
+
+  const outChain = linkVerticalChain(
+    graph,
+    itemId,
+    [...outJunctions, wrapOut],
+    cornersPrev,
+  );
+  const inChain = linkVerticalChain(
+    graph,
+    itemId,
+    [...inJunctions, wrapIn],
+    cornersPrev,
+  );
+  ensureSegment(
+    graph,
+    itemId,
+    { kind: "junction", junctionId: wrapOutId },
+    { kind: "junction", junctionId: wrapInId },
+    cornersPrev,
+  );
+  const wrapSeg = segmentIdFor(
+    { kind: "junction", junctionId: wrapOutId },
+    { kind: "junction", junctionId: wrapInId },
+  );
+
+  const stubId = (pid: string): string | null => {
+    const jid = portJunction.get(pid);
+    if (!jid) return null;
+    const kind = portKind(nodes, pid);
+    const portEp: RoutingEndpoint = { kind: "port", portId: pid };
+    const jEp: RoutingEndpoint = { kind: "junction", junctionId: jid };
+    return kind === "out" ? segmentIdFor(portEp, jEp) : segmentIdFor(jEp, portEp);
+  };
+
+  for (const e of netEdges) {
+    const jSrc = portJunction.get(e.source);
+    const jTgt = portJunction.get(e.target);
+    const sStub = stubId(e.source);
+    const tStub = stubId(e.target);
+    if (!jSrc || !jTgt || !sStub || !tStub) continue;
+    const path = [
+      sStub,
+      ...busSegmentsAlongChain(graph, outChain, jSrc, wrapOutId),
+      wrapSeg,
+      ...busSegmentsAlongChain(graph, inChain, wrapInId, jTgt),
+      tStub,
+    ];
+    routePaths.set(e.id, path);
+  }
+
+  return routePaths;
+}
+
+function buildForwardNetworkBus(
   graph: RoutingGraph,
   nodes: Node[],
   netEdges: Edge[],
   netId: string,
   cornersPrev: Map<string, OrthoPoint[]>,
   prev: RoutingGraph | undefined,
+  ext: PortExtents,
 ): Map<string, string[]> {
   const routePaths = new Map<string, string[]>();
   const portIds = new Set<string>();
@@ -166,6 +458,12 @@ function buildNetworkBus(
   const ports = [...portIds];
   const junctionIds = ports.map((p) => `j-${p}`);
   const busX = pickBusX(nodes, ports, prev, junctionIds);
+  const corridorLeft = ext.hasOut ? ext.maxOut + BUS_INSET : -Infinity;
+  const corridorRight = ext.hasIn ? ext.minIn - BUS_INSET : Infinity;
+  const hasCorridor =
+    ext.hasOut &&
+    ext.hasIn &&
+    corridorRight - corridorLeft >= FORWARD_MIN_GAP;
 
   const portJunction = new Map<string, string>();
   // Group ports that share the same bus Y so they attach to one junction
@@ -188,9 +486,15 @@ function buildNetworkBus(
     const old =
       prev?.junctions[jid] ??
       group.map((p) => prev?.junctions[`j-${p}`]).find(Boolean);
+    let x = busX;
+    if (old && Number.isFinite(old.x)) {
+      x = hasCorridor
+        ? Math.max(corridorLeft, Math.min(corridorRight, old.x))
+        : old.x;
+    }
     const junction: RoutingJunction = {
       id: jid,
-      x: old && Number.isFinite(old.x) ? old.x : busX,
+      x: snapToGrid(x),
       y,
     };
     graph.junctions[jid] = junction;
@@ -212,22 +516,7 @@ function buildNetworkBus(
     .filter(Boolean)
     .sort((a, b) => a.y - b.y || a.id.localeCompare(b.id));
 
-  // Deduplicate visually coincident junctions for bus links: still keep per-port
-  // junctions, but skip zero-length verticals.
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const a = sorted[i]!;
-    const b = sorted[i + 1]!;
-    if (Math.abs(a.y - b.y) < 0.51 && Math.abs(a.x - b.x) < 0.51) continue;
-    ensureSegment(
-      graph,
-      itemId,
-      { kind: "junction", junctionId: a.id },
-      { kind: "junction", junctionId: b.id },
-      cornersPrev,
-    );
-  }
-
-  const sortedIds = sorted.map((j) => j.id);
+  const sortedIds = linkVerticalChain(graph, itemId, sorted, cornersPrev);
 
   const stubId = (pid: string): string | null => {
     const jid = portJunction.get(pid);
@@ -238,60 +527,57 @@ function buildNetworkBus(
     return kind === "out" ? segmentIdFor(portEp, jEp) : segmentIdFor(jEp, portEp);
   };
 
-  const busSegmentsBetween = (jFrom: string, jTo: string): string[] => {
-    if (jFrom === jTo) return [];
-    const i = sortedIds.indexOf(jFrom);
-    const j = sortedIds.indexOf(jTo);
-    if (i < 0 || j < 0) return [];
-    const ids: string[] = [];
-    if (i < j) {
-      for (let k = i; k < j; k++) {
-        const a = sortedIds[k]!;
-        const b = sortedIds[k + 1]!;
-        const ja = graph.junctions[a]!;
-        const jb = graph.junctions[b]!;
-        if (Math.abs(ja.y - jb.y) < 0.51 && Math.abs(ja.x - jb.x) < 0.51) {
-          continue;
-        }
-        ids.push(
-          segmentIdFor(
-            { kind: "junction", junctionId: a },
-            { kind: "junction", junctionId: b },
-          ),
-        );
-      }
-    } else {
-      for (let k = i; k > j; k--) {
-        const a = sortedIds[k]!;
-        const b = sortedIds[k - 1]!;
-        const ja = graph.junctions[a]!;
-        const jb = graph.junctions[b]!;
-        if (Math.abs(ja.y - jb.y) < 0.51 && Math.abs(ja.x - jb.x) < 0.51) {
-          continue;
-        }
-        ids.push(
-          segmentIdFor(
-            { kind: "junction", junctionId: a },
-            { kind: "junction", junctionId: b },
-          ),
-        );
-      }
-    }
-    return ids;
-  };
-
   for (const e of netEdges) {
     const jSrc = portJunction.get(e.source);
     const jTgt = portJunction.get(e.target);
     const sStub = stubId(e.source);
     const tStub = stubId(e.target);
     if (!jSrc || !jTgt || !sStub || !tStub) continue;
-    const path = [sStub, ...busSegmentsBetween(jSrc, jTgt), tStub];
+    const path = [
+      sStub,
+      ...busSegmentsAlongChain(graph, sortedIds, jSrc, jTgt),
+      tStub,
+    ];
     routePaths.set(e.id, path);
     void netId;
   }
 
   return routePaths;
+}
+
+function buildNetworkBus(
+  graph: RoutingGraph,
+  nodes: Node[],
+  netEdges: Edge[],
+  netId: string,
+  cornersPrev: Map<string, OrthoPoint[]>,
+  prev: RoutingGraph | undefined,
+): Map<string, string[]> {
+  const portIds = new Set<string>();
+  for (const e of netEdges) {
+    portIds.add(e.source);
+    portIds.add(e.target);
+  }
+  const ext = portExtents(nodes, [...portIds]);
+  if (isBackwardsNetwork(ext)) {
+    return buildBackwardsNetworkBus(
+      graph,
+      nodes,
+      netEdges,
+      cornersPrev,
+      prev,
+      ext,
+    );
+  }
+  return buildForwardNetworkBus(
+    graph,
+    nodes,
+    netEdges,
+    netId,
+    cornersPrev,
+    prev,
+    ext,
+  );
 }
 
 export type RoutingRebuildResult = {
@@ -417,11 +703,11 @@ export function resolveSegmentPoints(
   if (!a || !b) return null;
 
   if (segment.cornersAbs && segment.cornersAbs.length >= 1) {
-    return forceOrthogonal([
+    return assembleOpenPolyline(
       { x: a.x, y: a.y },
-      ...segment.cornersAbs.map((p) => ({ x: p.x, y: p.y })),
+      segment.cornersAbs,
       { x: b.x, y: b.y },
-    ]);
+    );
   }
 
   // Legacy norms — only usable when the a→b box is non-degenerate on both axes
@@ -455,6 +741,26 @@ export function resolveSegmentPoints(
     { itemId: segment.itemId },
     edgeIdForPreview,
   );
+}
+
+/** Move junction endpoints (e.g. after translating a shared bus segment). */
+export function moveRoutingJunctions(
+  graph: RoutingGraph,
+  updates: Record<string, { x?: number; y?: number }>,
+): RoutingGraph {
+  let changed = false;
+  const junctions = { ...graph.junctions };
+  for (const [id, patch] of Object.entries(updates)) {
+    const j = junctions[id];
+    if (!j) continue;
+    const x = patch.x !== undefined ? snapToGrid(patch.x) : j.x;
+    const y = patch.y !== undefined ? snapToGrid(patch.y) : j.y;
+    if (Math.abs(x - j.x) > 0.01 || Math.abs(y - j.y) > 0.01) {
+      junctions[id] = { ...j, x, y };
+      changed = true;
+    }
+  }
+  return changed ? { ...graph, junctions } : graph;
 }
 
 /** Compose absolute points for a logical edge that has a routePath. */

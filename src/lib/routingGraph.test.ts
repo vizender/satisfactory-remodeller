@@ -6,6 +6,7 @@ import {
   buildSegmentEdges,
   composeLogicalRoutePoints,
   countSegmentsDrawnOnce,
+  portAbsPos,
   rebuildRoutingGraph,
   resolveEndpointPos,
   resolveSegmentPoints,
@@ -325,5 +326,89 @@ describe("shared routing graph (N×M)", () => {
       if (s.source.startsWith("rj-")) expect(s.sourceHandle).toBe("js");
       if (s.target.startsWith("rj-")) expect(s.targetHandle).toBe("jt");
     }
+  });
+
+  it("backwards N×M wraps outside machines (out rail right, in rail left)", () => {
+    // Consumer on the left, feeder on the right → classic backwards route
+    const nodes: Node[] = [
+      frame("consumer", 0, 0),
+      port("in1", "consumer", "in", 0, 0),
+      frame("consumer2", 0, 200),
+      port("in2", "consumer2", "in", 0, 0),
+      frame("feeder", 400, 0),
+      port("out1", "feeder", "out", 96, 0),
+      frame("feeder2", 400, 200),
+      port("out2", "feeder2", "out", 96, 0),
+    ];
+    const edges = [
+      edge("e11", "out1", "in1"),
+      edge("e12", "out1", "in2"),
+      edge("e21", "out2", "in1"),
+      edge("e22", "out2", "in2"),
+    ];
+    const { graph, edges: next } = rebuildRoutingGraph(nodes, edges);
+    expect(graph.junctions["j-wrap-out"]).toBeTruthy();
+    expect(graph.junctions["j-wrap-in"]).toBeTruthy();
+    const outPos = portAbsPos(nodes, "out1")!;
+    const inPos = portAbsPos(nodes, "in1")!;
+    expect(graph.junctions["j-wrap-out"]!.x).toBeGreaterThan(outPos.x);
+    expect(graph.junctions["j-wrap-in"]!.x).toBeLessThan(inPos.x);
+    expect(graph.junctions["j-wrap-out"]!.y).toBeGreaterThan(
+      Math.max(outPos.y, inPos.y),
+    );
+    // Composed path should not be a straight horizontal through the machines
+    for (const e of next) {
+      const pts = composeLogicalRoutePoints(e, nodes, graph)!;
+      const midY = graph.junctions["j-wrap-out"]!.y;
+      expect(pts.some((p) => Math.abs(p.y - midY) < 1)).toBe(true);
+      // No point sits between the two machines at port height (through-body)
+      const throughBody = pts.filter(
+        (p) =>
+          p.x > inPos.x + 20 &&
+          p.x < outPos.x - 20 &&
+          Math.abs(p.y - outPos.y) < 8,
+      );
+      expect(throughBody.length).toBe(0);
+    }
+  });
+
+  it("stub kink survives resolveSegmentPoints (no forceOrthogonal collapse)", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const edges = [edge("e1", "out", "in1"), edge("e2", "out", "in2")];
+    let { graph } = rebuildRoutingGraph(nodes, edges);
+    const stubId = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in2"),
+    )!;
+    const seg = graph.segments[stubId]!;
+    const a = resolveEndpointPos(seg.a, nodes, graph)!;
+    const b = resolveEndpointPos(seg.b, nodes, graph)!;
+    // Input stub: junction → port. Kink away from the port attachment.
+    const kinkPts = [
+      { x: a.x, y: a.y + 40 },
+      { x: (a.x + b.x) / 2, y: a.y + 40 },
+      { x: (a.x + b.x) / 2, y: b.y },
+    ];
+    graph = setSegmentCornersNorm(graph, stubId, kinkPts, {
+      sx: a.x,
+      sy: a.y,
+      tx: b.x,
+      ty: b.y,
+    });
+    const resolved = resolveSegmentPoints(
+      graph.segments[stubId]!,
+      nodes,
+      graph,
+    )!;
+    expect(resolved[0]).toEqual(a);
+    expect(resolved[resolved.length - 1]).toEqual(b);
+    expect(resolved.some((p) => Math.abs(p.y - (a.y + 40)) < 1)).toBe(true);
+    expect(resolved.length).toBeGreaterThan(2);
   });
 });
