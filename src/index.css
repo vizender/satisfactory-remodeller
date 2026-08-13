@@ -120,6 +120,23 @@ body {
   stroke-linecap: round;
 }
 
+.rf-shared-seg.rf-shared-seg-selected {
+  filter: drop-shadow(
+    0 0 3px color-mix(in srgb, var(--accent) 70%, transparent)
+  );
+  animation: rf-shared-seg-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rf-shared-seg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
 /* Au-dessus des traits SVG (y compris conflits) pour que les poignées de kink restent cliquables. */
 .react-flow__edgelabel-renderer {
   z-index: 1002;

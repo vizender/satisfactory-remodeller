@@ -15,6 +15,11 @@ import {
   resolveSegmentPoints,
   segmentNetworkEdgeId,
 } from "@/lib/routingGraph";
+import {
+  getSegmentSelectionVersion,
+  getSelectedSegmentIds,
+  subscribeSegmentSelection,
+} from "@/lib/segmentSelection";
 import { useDocumentStore } from "@/store/useDocumentStore";
 import { useFlowSolveResult } from "@/hooks/useFlowSolve";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
@@ -36,6 +41,11 @@ function SharedRoutingOverlayImpl() {
     getOrthoDragPreviewVersion,
     getOrthoDragPreviewVersion,
   );
+  const selectionVersion = useSyncExternalStore(
+    subscribeSegmentSelection,
+    getSegmentSelectionVersion,
+    getSegmentSelectionVersion,
+  );
 
   const conflictSegs = useMemo(
     () => conflictSegmentIdsFromLogical(edges, solve.conflictEdgeIds),
@@ -45,7 +55,14 @@ function SharedRoutingOverlayImpl() {
   const paths = useMemo(() => {
     if (edgeRoutingMode !== "orthogonal") return [];
     void previewVersion;
-    const out: { id: string; d: string; conflict: boolean }[] = [];
+    void selectionVersion;
+    const selected = getSelectedSegmentIds();
+    const out: {
+      id: string;
+      d: string;
+      conflict: boolean;
+      selected: boolean;
+    }[] = [];
     for (const seg of Object.values(routingGraph.segments)) {
       const preview = getOrthoDragPreview(seg.id);
       const pts =
@@ -64,6 +81,7 @@ function SharedRoutingOverlayImpl() {
         id: seg.id,
         d,
         conflict: conflictSegs.has(seg.id),
+        selected: selected.has(seg.id),
       });
     }
     return out;
@@ -74,6 +92,7 @@ function SharedRoutingOverlayImpl() {
     edges,
     conflictSegs,
     previewVersion,
+    selectionVersion,
   ]);
 
   if (paths.length === 0) return null;
@@ -96,16 +115,23 @@ function SharedRoutingOverlayImpl() {
           <path
             key={p.id}
             d={p.d}
-            className={
-              p.conflict
-                ? "react-flow__edge-path rf-shared-seg rf-edge-conflict"
-                : "react-flow__edge-path rf-shared-seg"
-            }
+            className={[
+              "react-flow__edge-path",
+              "rf-shared-seg",
+              p.conflict ? "rf-edge-conflict" : "",
+              p.selected ? "rf-shared-seg-selected" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             fill="none"
             stroke={
-              p.conflict ? "var(--conflict-edge-stroke)" : "#b1b1b7"
+              p.conflict
+                ? "var(--conflict-edge-stroke)"
+                : p.selected
+                  ? "var(--accent)"
+                  : "#b1b1b7"
             }
-            strokeWidth={1.5}
+            strokeWidth={p.selected ? 3.25 : 1.5}
             strokeLinecap="round"
             strokeLinejoin="round"
           />

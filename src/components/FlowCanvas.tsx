@@ -21,6 +21,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type SetStateAction,
 } from "react";
@@ -81,6 +82,12 @@ import {
   conflictSegmentIdsFromLogical,
   resolveSegmentPoints,
 } from "@/lib/routingGraph";
+import {
+  clearSegmentSelection,
+  getSegmentSelectionVersion,
+  getSelectedSegmentIds,
+  subscribeSegmentSelection,
+} from "@/lib/segmentSelection";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
@@ -387,9 +394,15 @@ function FlowCanvasInner() {
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
   /** Selection for display-only routing segment edges (not in the document store). */
-  const [selectedSegmentIds, setSelectedSegmentIds] = useState<Set<string>>(
-    () => new Set(),
+  const selectedSegmentVersion = useSyncExternalStore(
+    subscribeSegmentSelection,
+    getSegmentSelectionVersion,
+    getSegmentSelectionVersion,
   );
+  const selectedSegmentIds = useMemo(() => {
+    void selectedSegmentVersion;
+    return getSelectedSegmentIds();
+  }, [selectedSegmentVersion]);
 
   const solve = useFlowSolveResult();
   const tutorialGates = useTutorialGates();
@@ -583,25 +596,18 @@ function FlowCanvasInner() {
     (changes: EdgeChange[]) => {
       if (changes.length === 0) return;
       const docChanges: EdgeChange[] = [];
-      let segSelection: Set<string> | null = null;
       for (const c of changes) {
         const id = "id" in c ? c.id : undefined;
         const isSeg = typeof id === "string" && id.startsWith("rs-");
-        if (isSeg && c.type === "select") {
-          if (!segSelection) segSelection = new Set(selectedSegmentIds);
-          if (c.selected) segSelection.add(id!);
-          else segSelection.delete(id!);
-          continue;
-        }
-        if (isSeg && (c.type === "remove" || c.type === "add")) {
-          continue;
-        }
+        // Segment selection is owned by segmentSelection (shift-only multi).
+        // Ignore RF select churn so it cannot re-merge prior ids.
+        if (isSeg && c.type === "select") continue;
+        if (isSeg && (c.type === "remove" || c.type === "add")) continue;
         if (!isSeg) docChanges.push(c);
       }
-      if (segSelection) setSelectedSegmentIds(segSelection);
       if (docChanges.length > 0) applyEdgesChange(docChanges);
     },
-    [applyEdgesChange, selectedSegmentIds],
+    [applyEdgesChange],
   );
 
   const onNodesChangeHandler = useCallback(
@@ -978,6 +984,7 @@ function FlowCanvasInner() {
         }}
         onPaneClick={() => {
           clearMachineSelection();
+          clearSegmentSelection();
           setConnectionPreview(null);
           setEdgeMenu(null);
           setMachineMenu(null);

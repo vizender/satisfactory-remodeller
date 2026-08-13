@@ -30,7 +30,9 @@ export const VERTICAL_FUSE_HOLD = 54;
 /** Generous pad so short kink jogs still snap onto long foreign trunks. */
 export const CORNER_SNAP_OVERLAP_PAD = 80;
 /** Min length of the horizontal stub leaving/entering a port (keeps line off the machine). */
-export const MIN_PORT_STUB = 20;
+export const MIN_PORT_STUB = 8;
+/** Clearance past a machine frame before a leave-column V is allowed. */
+export const PORT_FRAME_CLEARANCE = 16;
 
 /** Per-edge free-vertical ordinals currently fused onto a lock (drag session). */
 const fuseSession = new Map<string, Set<number>>();
@@ -144,7 +146,7 @@ export function getSessionLocks(edgeId: string): LockedVertical[] {
 
 const EPS = 0.51;
 const MIN_SEG = 16;
-const STUB_LEN = 28;
+const STUB_LEN = 12;
 const KINK_JOG = 32;
 
 export function isBackwardsRoute(sourceX: number, targetX: number): boolean {
@@ -1004,7 +1006,7 @@ export function orthogonalizeOpen(points: OrthoPoint[]): OrthoPoint[] {
 }
 
 /**
- * Move an interior corner on an open orthogonal chain (no port-stub clamps).
+ * Move an interior corner on an open orthogonal chain.
  * Endpoints stay fixed — critical for routing stubs attached to ports.
  */
 export function moveCorner2DOpen(
@@ -1013,20 +1015,33 @@ export function moveCorner2DOpen(
   x: number,
   y: number,
   pin: OpenKinkPin = "both",
+  frame?: PortFrameBounds | null,
 ): OrthoPoint[] {
   if (cornerIndex <= 0 || cornerIndex >= points.length - 1) {
-    return clampOpenPortClearance(orthogonalizeOpen(points), pin);
+    return orthogonalizeOpen(points);
   }
   const start = { ...points[0]! };
   const end = { ...points[points.length - 1]! };
   const pts = points.map((p) => ({ ...p }));
-  const nx = snapToGrid(x);
+  let nx = snapToGrid(x);
   const ny = snapToGrid(y);
   const prev = pts[cornerIndex - 1]!;
   const next = pts[cornerIndex + 1]!;
   const wasH =
     Math.abs(prev.y - pts[cornerIndex]!.y) <=
     Math.abs(prev.x - pts[cornerIndex]!.x) + EPS;
+
+  // If this corner sits on the port-adjacent V, keep X outside the machine.
+  const segs = routeSegments(points);
+  const onPortAdjV = segs.some(
+    (s) =>
+      !s.horizontal &&
+      (s.index === cornerIndex - 1 || s.index === cornerIndex) &&
+      isPortAdjacentVertical(points, s.index, pin),
+  );
+  if (onPortAdjV) {
+    nx = clampPortAdjacentVerticalX(nx, points, pin, frame);
+  }
 
   if (wasH) {
     pts[cornerIndex] = { x: nx, y: prev.y };
@@ -1049,45 +1064,69 @@ export function moveCorner2DOpen(
   // Never move pinned endpoints — local simplify only (avoids reshape stutter)
   pts[0] = start;
   pts[pts.length - 1] = end;
-  return clampOpenPortClearance(simplifyOrthoPoints(pts), pin);
+  return simplifyOrthoPoints(pts);
 }
 
 /** Which endpoint is the port attachment on a shared stub (pin that side). */
 export type OpenKinkPin = "start" | "end" | "both";
 
+export type PortFrameBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 /**
- * Open port↔junction stubs: keep interior geometry outside the machine by
- * enforcing MIN_PORT_STUB past the port handle so the closest V cannot be
- * dragged into the body.
+ * Vertical run attached to the port's H stub (elbow at the stub end).
+ * That V stays planted on the stub end — it may slide only outside the machine.
  */
-export function clampOpenPortClearance(
+export function isPortAdjacentVertical(
+  points: OrthoPoint[],
+  segmentIndex: number,
+  pin: OpenKinkPin,
+): boolean {
+  if (pin === "both" || points.length < 3) return false;
+  const base = orthogonalizeOpen(points);
+  const segs = routeSegments(base);
+  const seg = segs[segmentIndex];
+  if (!seg || seg.horizontal) return false;
+  if (pin === "start") {
+    // port —H— elbow —V— …
+    return segmentIndex === 1 || (segmentIndex === 0 && base.length === 2);
+  }
+  // … —V— elbow —H— port
+  return (
+    segmentIndex === base.length - 3 ||
+    (segmentIndex === 0 && base.length === 2)
+  );
+}
+
+/**
+ * Clamp a proposed X for the port-adjacent V so it cannot enter the machine
+ * frame (same idea as wrap-Y avoiding the body). Falls back to a short stub
+ * past the port handle when no frame is available.
+ */
+export function clampPortAdjacentVerticalX(
+  proposedX: number,
   points: OrthoPoint[],
   pin: OpenKinkPin,
-): OrthoPoint[] {
-  if (pin === "both" || points.length < 3) {
-    return simplifyOrthoPoints(points);
-  }
-  const pts = points.map((p) => ({ ...p }));
-  const start = pts[0]!;
-  const end = pts[pts.length - 1]!;
-
+  frame?: PortFrameBounds | null,
+): number {
+  if (pin === "both") return snapToGrid(proposedX);
+  const port = pin === "start" ? points[0]! : points[points.length - 1]!;
   if (pin === "start") {
-    // Output port at start — exit to the right; interiors stay ≥ port + stub.
-    const minX = start.x + MIN_PORT_STUB;
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (pts[i]!.x < minX) pts[i] = { x: minX, y: pts[i]!.y };
-    }
-  } else if (pin === "end") {
-    // Input port at end — approach from the left; interiors stay ≤ port − stub.
-    const maxX = end.x - MIN_PORT_STUB;
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (pts[i]!.x > maxX) pts[i] = { x: maxX, y: pts[i]!.y };
-    }
+    // Output: exit right — stay right of the frame (or port + short stub).
+    const minX = frame
+      ? frame.right + PORT_FRAME_CLEARANCE
+      : port.x + MIN_PORT_STUB;
+    return snapToGrid(Math.max(proposedX, minX));
   }
-
-  pts[0] = { ...start };
-  pts[pts.length - 1] = { ...end };
-  return simplifyOrthoPoints(pts);
+  // Input: approach from left — stay left of the frame (or port − short stub).
+  const maxX = frame
+    ? frame.left - PORT_FRAME_CLEARANCE
+    : port.x - MIN_PORT_STUB;
+  return snapToGrid(Math.min(proposedX, maxX));
 }
 
 /**
@@ -1173,6 +1212,8 @@ export function moveSegmentOpen(
     translateStraight?: boolean;
     /** Pin the port side so the kink's free run faces the junction. */
     pin?: OpenKinkPin;
+    /** Machine frame for the port — keeps the port-adjacent V outside the body. */
+    portFrame?: PortFrameBounds | null;
   },
 ): MoveSegmentResult {
   const base = orthogonalizeOpen(startPoints);
@@ -1180,11 +1221,12 @@ export function moveSegmentOpen(
   const seg = segs[segmentIndex] ?? segs[0];
   if (!seg) return { points: base, activeSegmentIndex: 0 };
   const pin = options?.pin ?? "both";
+  const frame = options?.portFrame ?? null;
   const finish = (
     points: OrthoPoint[],
     activeSegmentIndex: number,
   ): MoveSegmentResult => ({
-    points: clampOpenPortClearance(points, pin),
+    points: simplifyOrthoPoints(points),
     activeSegmentIndex,
   });
 
@@ -1201,7 +1243,10 @@ export function moveSegmentOpen(
         0,
       );
     }
-    const newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
+    if (isPortAdjacentVertical(base, 0, pin)) {
+      newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
+    }
     return finish(
       [
         { x: newX, y: base[0]!.y },
@@ -1227,8 +1272,7 @@ export function moveSegmentOpen(
       return finish(pts, Math.min(1, pts.length - 3));
     }
     let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
-    if (pin === "start") newX = Math.max(newX, base[0]!.x + MIN_PORT_STUB);
-    if (pin === "end") newX = Math.min(newX, base[base.length - 1]!.x - MIN_PORT_STUB);
+    newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
     if (Math.abs(newX - seg.a.x) < MIN_SEG / 2) {
       return finish(base, 0);
     }
@@ -1274,6 +1318,7 @@ export function moveSegmentOpen(
         pointerFlow.x,
         newY,
         pin,
+        frame,
       );
       return finish(
         moved,
@@ -1290,8 +1335,10 @@ export function moveSegmentOpen(
 
   let newX = snapToGrid(seg.a.x + (pointerFlow.x - startPointer.x));
   newX = snapAxisToSiblings(newX, siblingVertXs(base, segmentIndex));
-  if (pin === "start") newX = Math.max(newX, base[0]!.x + MIN_PORT_STUB);
-  if (pin === "end") newX = Math.min(newX, base[base.length - 1]!.x - MIN_PORT_STUB);
+  // Port-adjacent V stays on the H-stub elbow and cannot enter the machine.
+  if (isPortAdjacentVertical(base, segmentIndex, pin)) {
+    newX = clampPortAdjacentVerticalX(newX, base, pin, frame);
+  }
   if (segmentIndex === 0 || segmentIndex === base.length - 2) {
     const kinked = beginMidHandleKink(
       base,
@@ -1308,6 +1355,7 @@ export function moveSegmentOpen(
       newX,
       pointerFlow.y,
       pin,
+      frame,
     );
     return finish(
       moved,
@@ -1321,6 +1369,7 @@ export function moveSegmentOpen(
   pts[pts.length - 1] = { ...base[base.length - 1]! };
   return finish(simplifyOrthoPoints(pts), segmentIndex);
 }
+
 
 
 /**

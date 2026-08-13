@@ -9,7 +9,7 @@ import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   beginMidHandleKink,
   clampPortStubs,
-  clampOpenPortClearance,
+  clampPortAdjacentVerticalX,
   collectHorizontalSegments,
   collectVerticalSegments,
   detectIntersectionLocks,
@@ -18,6 +18,7 @@ import {
   fuseRouteOnRelease,
   interiorCorners,
   isDetourWrapRail,
+  isPortAdjacentVertical,
   locksChanged,
   MIN_PORT_STUB,
   moveCorner2D,
@@ -47,11 +48,18 @@ import {
 } from "@/lib/orthoDragPreview";
 import {
   composeLogicalRoutePoints,
+  frameBoundsForPort,
   previewSegmentsForJunctionY,
   resolveEndpointPos,
   resolveSegmentPoints,
   segmentNetworkEdgeId,
 } from "@/lib/routingGraph";
+import {
+  ensureSegmentSelected,
+  getSelectedSegmentIds,
+  replaceSegmentSelection,
+  toggleSegmentInSelection,
+} from "@/lib/segmentSelection";
 import type { RoutingSegment } from "@/types/routingGraph";
 import {
   getEdgeBendX,
@@ -276,14 +284,47 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   const networkEdgeIdRef = useRef(networkEdgeId);
   networkEdgeIdRef.current = networkEdgeId;
 
-  const selectThisEdge = (mode: "replace" | "keep-multi" = "replace") => {
+  const selectThisEdge = (mode: "replace" | "add" | "keep-multi" = "replace") => {
+    const id = idRef.current;
+    if (mode === "add") {
+      toggleSegmentInSelection(id);
+    } else if (mode === "keep-multi") {
+      ensureSegmentSelected(id);
+    } else {
+      replaceSegmentSelection(id);
+    }
     const st = storeApi.getState();
-    if (mode === "keep-multi") {
-      st.addSelectedEdges([idRef.current]);
+    const selected = [...getSelectedSegmentIds()];
+    st.resetSelectedElements();
+    if (selected.length > 0) st.addSelectedEdges(selected);
+  };
+
+  /** Plain click replaces; Shift adds/toggles; dragging an already-selected member keeps the group. */
+  const selectForPointer = (shiftKey: boolean) => {
+    const id = idRef.current;
+    const already = getSelectedSegmentIds();
+    if (shiftKey) {
+      selectThisEdge("add");
       return;
     }
-    st.resetSelectedElements();
-    st.addSelectedEdges([idRef.current]);
+    if (already.has(id) && already.size > 1) {
+      selectThisEdge("keep-multi");
+      return;
+    }
+    selectThisEdge("replace");
+  };
+
+  const portFrameForSeg = () => {
+    const { nodes, routingGraph: rg } = useDocumentStore.getState();
+    const meta = rg.segments[idRef.current];
+    if (!meta) return null;
+    const portId =
+      meta.a.kind === "port"
+        ? meta.a.portId
+        : meta.b.kind === "port"
+          ? meta.b.portId
+          : null;
+    return portId ? frameBoundsForPort(nodes, portId) : null;
   };
 
   const resolveLogicalPoints = (e: (typeof docEdges)[number]) =>
@@ -388,6 +429,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       if (st.mode === "corner") {
         const isSeg = isRoutingSegmentRef.current;
         const pin = st.openPin ?? "both";
+        const frame = isSeg ? portFrameForSeg() : null;
         let next = isSeg
           ? moveCorner2DOpen(
               st.startPoints,
@@ -395,6 +437,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
               pointer.x,
               pointer.y,
               pin,
+              frame,
             )
           : moveCorner2D(
               st.startPoints,
@@ -411,9 +454,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
           st.heldSnapY,
           isSeg,
         );
-        next = isSeg
-          ? clampOpenPortClearance(snapped.points, pin)
-          : snapped.points;
+        next = snapped.points;
         st.heldSnapX = snapped.heldSnapX;
         st.heldSnapY = snapped.heldSnapY;
         st.latestPoints = next;
@@ -436,6 +477,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
               // Shift-selected companions mirror the same local edit.
               translateStraight: false,
               pin: openKinkPin(segMeta),
+              portFrame: portFrameForSeg(),
             },
           )
         : moveSegment(
@@ -488,10 +530,13 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             const pin = openKinkPin(
               useDocumentStore.getState().routingGraph.segments[idRef.current],
             );
-            if (pin === "start") {
-              x = Math.max(x, next[0]!.x + MIN_PORT_STUB);
-            } else if (pin === "end") {
-              x = Math.min(x, next[next.length - 1]!.x - MIN_PORT_STUB);
+            if (isPortAdjacentVertical(next, st.segmentIndex, pin)) {
+              x = clampPortAdjacentVerticalX(
+                x,
+                next,
+                pin,
+                portFrameForSeg(),
+              );
             }
           }
           const pts = next.map((p) => ({ ...p }));
@@ -501,16 +546,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[i + 1] = { x, y: pts[i + 1]!.y };
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
-            if (isSeg) {
-              const pin = openKinkPin(
-                useDocumentStore.getState().routingGraph.segments[
-                  idRef.current
-                ],
-              );
-              next = clampOpenPortClearance(orthogonalizeOpen(pts), pin);
-            } else {
-              next = clampPortStubs(forceOrthogonal(pts));
-            }
+            next = isSeg
+              ? orthogonalizeOpen(pts)
+              : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapX = x;
         } else if (
@@ -541,14 +579,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pts[0] = { ...next[0]! };
             pts[pts.length - 1] = { ...next[next.length - 1]! };
             next = isSeg
-              ? clampOpenPortClearance(
-                  orthogonalizeOpen(pts),
-                  openKinkPin(
-                    useDocumentStore.getState().routingGraph.segments[
-                      idRef.current
-                    ],
-                  ),
-                )
+              ? orthogonalizeOpen(pts)
               : clampPortStubs(forceOrthogonal(pts));
           }
           st.heldSnapY = snappedY;
@@ -603,7 +634,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pointer,
             c.startPoints,
             st.startPointer,
-            { pin: openKinkPin(meta) },
+            { pin: openKinkPin(meta), portFrame: portFrameForSeg() },
           );
           c.latestPoints = moved.points;
           c.segmentIndex = moved.activeSegmentIndex;
@@ -620,14 +651,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       const edgeId = idRef.current;
       const isSeg = isRoutingSegmentRef.current;
       const pts = isSeg
-        ? clampOpenPortClearance(
-            orthogonalizeOpen(st.latestPoints),
-            st.mode === "corner"
-              ? (st.openPin ?? "both")
-              : openKinkPin(
-                  useDocumentStore.getState().routingGraph.segments[edgeId],
-                ),
-          )
+        ? orthogonalizeOpen(st.latestPoints)
         : fuseRouteOnRelease(st.latestPoints, edgeId, edges, nodes);
       const companions =
         st.mode === "segment" ? st.companions.map((c) => ({ ...c })) : [];
@@ -719,13 +743,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    const rfEdges = storeApi.getState().edges;
-    const selfSelected = rfEdges.some((ed) => ed.id === id && ed.selected);
-    const multiSelected =
-      selfSelected &&
-      rfEdges.filter((ed) => ed.selected && ed.id.startsWith("rs-")).length > 1;
-    // Keep an existing shift-multi selection; otherwise solo-select this edge.
-    selectThisEdge(e.shiftKey || multiSelected ? "keep-multi" : "replace");
+    selectForPointer(e.shiftKey);
     const seg = segs[segmentIndex];
     if (!seg) return;
     const pointer = clientToFlow(e.clientX, e.clientY, transformRef.current);
@@ -734,7 +752,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     const companions: SegmentDragState["companions"] = [];
     let wrapJunctionId: string | undefined;
     if (isRoutingSegment) {
-      const selectedNow = storeApi.getState().edges;
+      const selectedIds = getSelectedSegmentIds();
       const { nodes, routingGraph: rg } = useDocumentStore.getState();
       const meta = rg.segments[id];
       const pin = openKinkPin(meta);
@@ -742,12 +760,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         if (meta.a.kind === "junction") wrapJunctionId = meta.a.junctionId;
         else if (meta.b.kind === "junction") wrapJunctionId = meta.b.junctionId;
       }
-      for (const ed of selectedNow) {
-        if (!ed.selected || ed.id === id) continue;
-        if (!ed.id.startsWith("rs-")) continue;
-        const otherMeta = rg.segments[ed.id];
+      for (const sid of selectedIds) {
+        if (sid === id) continue;
+        if (!sid.startsWith("rs-")) continue;
+        const otherMeta = rg.segments[sid];
         if (!otherMeta) continue;
-        const resolved = resolveSegmentPoints(otherMeta, nodes, rg, ed.id);
+        const resolved = resolveSegmentPoints(otherMeta, nodes, rg, sid);
         if (!resolved || resolved.length < 2) continue;
         const otherSegs = routeSegments(resolved);
         // Only mirror onto same-orientation free runs so H stubs aren't
@@ -757,7 +775,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         );
         if (!match) continue;
         companions.push({
-          id: ed.id,
+          id: sid,
           startPoints: resolved.map((p) => ({ ...p })),
           latestPoints: resolved.map((p) => ({ ...p })),
           segmentIndex: match.index,
@@ -787,11 +805,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    const rfEdges = storeApi.getState().edges;
-    const selfSelected = rfEdges.some((ed) => ed.id === id && ed.selected);
-    const multiSelected =
-      selfSelected && rfEdges.filter((ed) => ed.selected).length > 1;
-    selectThisEdge(e.shiftKey || multiSelected ? "keep-multi" : "replace");
+    selectForPointer(e.shiftKey);
     const startPoints = points.map((p) => ({ ...p }));
     const segMeta = isRoutingSegment
       ? routingGraph.segments[id]
@@ -813,11 +827,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    const rfEdges = storeApi.getState().edges;
-    const selfSelected = rfEdges.some((ed) => ed.id === id && ed.selected);
-    const multiSelected =
-      selfSelected && rfEdges.filter((ed) => ed.selected).length > 1;
-    selectThisEdge(e.shiftKey || multiSelected ? "keep-multi" : "replace");
+    selectForPointer(e.shiftKey);
     const pointer = clientToFlow(e.clientX, e.clientY, transformRef.current);
     const segMeta = isRoutingSegment
       ? routingGraph.segments[id]
@@ -839,7 +849,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       return;
     }
     const placed = isRoutingSegment
-      ? moveCorner2DOpen(kinked, cornerIndex, pointer.x, pointer.y, pin)
+      ? moveCorner2DOpen(
+          kinked,
+          cornerIndex,
+          pointer.x,
+          pointer.y,
+          pin,
+          portFrameForSeg(),
+        )
       : moveCorner2D(kinked, cornerIndex, pointer.x, pointer.y);
     // Re-find elbow after orthogonalize may have shifted indices
     const elbow = placed[cornerIndex] ?? kinked[cornerIndex];
@@ -907,15 +924,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         className="react-flow__edge-hitpad"
         onPointerDown={(e) => {
           if (e.button !== 0) return;
-          const rfEdges = storeApi.getState().edges;
-          const selfSelected = rfEdges.some(
-            (ed) => ed.id === id && ed.selected,
-          );
-          const multiSelected =
-            selfSelected && rfEdges.filter((ed) => ed.selected).length > 1;
-          selectThisEdge(
-            e.shiftKey || multiSelected ? "keep-multi" : "replace",
-          );
+          selectForPointer(e.shiftKey);
         }}
       />
       <g className="nodrag nopan">

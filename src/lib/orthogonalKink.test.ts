@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   assembleOpenPolyline,
   beginMidHandleKink,
-  clampOpenPortClearance,
+  clampPortAdjacentVerticalX,
   isDetourWrapRail,
-  MIN_PORT_STUB,
+  isPortAdjacentVertical,
   moveCorner2D,
   moveCorner2DOpen,
   moveSegment,
   moveSegmentOpen,
+  PORT_FRAME_CLEARANCE,
 } from "@/lib/orthogonalEdgePath";
 
 describe("orthogonal kink placement", () => {
@@ -231,53 +232,38 @@ describe("orthogonal kink placement", () => {
     expect(freeYs.every((y) => Math.abs(y - 100) < 1)).toBe(true);
   });
 
-  it("clampOpenPortClearance keeps port-adjacent V outside the machine", () => {
-    // Output stub: port at x=100, V dragged into the body (x=90)
-    const inside = [
-      { x: 100, y: 100 },
-      { x: 90, y: 100 },
-      { x: 90, y: 160 },
-      { x: 200, y: 160 },
+  it("clampPortAdjacentVerticalX keeps leave-column V outside the machine frame", () => {
+    const pts = [
+      { x: 300, y: 200 },
+      { x: 100, y: 200 },
+      { x: 100, y: 80 },
+      { x: 140, y: 80 },
     ];
-    const out = clampOpenPortClearance(inside, "start");
-    expect(out.every((p, i) => i === 0 || p.x >= 100 + MIN_PORT_STUB - 0.5)).toBe(
-      true,
-    );
-
-    // Input stub: port at x=200, V dragged into the body (x=210)
-    const insideIn = [
-      { x: 80, y: 160 },
-      { x: 210, y: 160 },
-      { x: 210, y: 100 },
-      { x: 200, y: 100 },
-    ];
-    const inn = clampOpenPortClearance(insideIn, "end");
-    expect(
-      inn.every(
-        (p, i) => i === inn.length - 1 || p.x <= 200 - MIN_PORT_STUB + 0.5,
-      ),
-    ).toBe(true);
+    const frame = { left: 120, right: 320, top: 0, bottom: 200 };
+    expect(isPortAdjacentVertical(pts, 1, "end")).toBe(true);
+    const clamped = clampPortAdjacentVerticalX(200, pts, "end", frame);
+    expect(clamped).toBeLessThanOrEqual(frame.left - PORT_FRAME_CLEARANCE + 0.5);
   });
 
-  it("moveSegmentOpen refuses to drag leave-column V into an input port", () => {
+  it("moveSegmentOpen refuses to drag leave-column V into an input machine", () => {
     const start = [
       { x: 300, y: 200 },
       { x: 100, y: 200 },
       { x: 100, y: 80 },
       { x: 140, y: 80 },
     ];
-    // Drag leave V toward the port/machine (to the right)
+    const frame = { left: 120, right: 320, top: 0, bottom: 200 };
     const result = moveSegmentOpen(
       1,
-      { x: 160, y: 140 },
+      { x: 200, y: 140 },
       start,
       { x: 100, y: 140 },
-      { pin: "end" },
+      { pin: "end", portFrame: frame },
     );
-    const leaveXs = result.points
-      .slice(1, -1)
-      .map((p) => p.x);
-    expect(Math.max(...leaveXs)).toBeLessThanOrEqual(140 - MIN_PORT_STUB + 0.5);
+    const leaveXs = result.points.slice(1, -1).map((p) => p.x);
+    expect(Math.max(...leaveXs)).toBeLessThanOrEqual(
+      frame.left - PORT_FRAME_CLEARANCE + 0.5,
+    );
   });
 
   it("assembleOpenPolyline keeps around-machine leave columns outside the stub span", () => {
