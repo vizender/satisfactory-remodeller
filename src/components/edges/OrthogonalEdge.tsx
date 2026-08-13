@@ -87,12 +87,16 @@ function clientToFlow(
   };
 }
 
-/** Foreign segments a kink can snap onto while dragging (same-edge fuse is release-only). */
+/** Same-network segments only — foreign feeds must not snap/fuse trunks. */
 function cornerSnapTargets(edgeId: string) {
   const { nodes, edges } = useDocumentStore.getState();
   return {
-    othersV: collectVerticalSegments(edges, nodes, edgeId),
-    othersH: collectHorizontalSegments(edges, nodes, edgeId),
+    othersV: collectVerticalSegments(edges, nodes, edgeId, {
+      sameNetworkAs: edgeId,
+    }),
+    othersH: collectHorizontalSegments(edges, nodes, edgeId, {
+      sameNetworkAs: edgeId,
+    }),
   };
 }
 
@@ -324,7 +328,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       const movedSeg = routeSegments(next)[st.segmentIndex];
       if (movedSeg && !movedSeg.horizontal) {
         const { nodes, edges } = useDocumentStore.getState();
-        const others = collectVerticalSegments(edges, nodes, idRef.current);
+        const others = collectVerticalSegments(edges, nodes, idRef.current, {
+          sameNetworkAs: idRef.current,
+        });
         const snappedX = snapVerticalX(
           movedSeg.a.x,
           Math.min(movedSeg.a.y, movedSeg.b.y),
@@ -359,7 +365,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         }
       } else if (movedSeg?.horizontal) {
         const { nodes, edges } = useDocumentStore.getState();
-        const others = collectHorizontalSegments(edges, nodes, idRef.current);
+        const others = collectHorizontalSegments(edges, nodes, idRef.current, {
+          sameNetworkAs: idRef.current,
+        });
         const snappedY = snapHorizontalY(
           movedSeg.a.y,
           Math.min(movedSeg.a.x, movedSeg.b.x),

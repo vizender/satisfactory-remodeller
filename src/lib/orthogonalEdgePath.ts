@@ -91,11 +91,14 @@ export function beginVerticalFuseSession(edges: Edge[], nodes: Node[]): void {
     );
   }
 
+  const edgeNet = buildEdgeNetworkIds(edges);
+
   for (const [edgeId, points] of rawById) {
     const verts = routeSegments(points).filter(
       (s) => !s.horizontal && s.length >= 4,
     );
     const locks: LockedVertical[] = [];
+    const myNet = edgeNet.get(edgeId);
     for (let ord = 0; ord < verts.length; ord++) {
       const s = verts[ord]!;
       const y1 = Math.min(s.a.y, s.b.y);
@@ -103,6 +106,7 @@ export function beginVerticalFuseSession(edges: Edge[], nodes: Node[]): void {
       let hitX: number | null = null;
       for (const [otherId, otherPts] of rawById) {
         if (otherId === edgeId) continue;
+        if (myNet === undefined || edgeNet.get(otherId) !== myNet) continue;
         for (const o of routeSegments(otherPts)) {
           if (o.horizontal || o.length < 4) continue;
           if (Math.abs(s.a.x - o.a.x) > VERTICAL_SNAP_HOLD) continue;
@@ -643,7 +647,9 @@ export function detectIntersectionLocks(
 ): LockedVertical[] {
   const locks: LockedVertical[] = [];
   const mine = routeSegments(points).filter((s) => !s.horizontal && s.length >= 4);
-  const others = collectVerticalSegments(edges, nodes, edgeId);
+  const others = collectVerticalSegments(edges, nodes, edgeId, {
+    sameNetworkAs: edgeId,
+  });
   let vertOrd = -1;
   const allVerts = routeSegments(points).filter((s) => !s.horizontal);
   for (const s of mine) {
@@ -697,7 +703,9 @@ export function partnerIdsNeedingLockRefresh(
 ): string[] {
   const ids = new Set<string>();
   const mine = routeSegments(points).filter((s) => !s.horizontal && s.length >= 4);
-  for (const o of collectVerticalSegments(edges, nodes, edgeId)) {
+  for (const o of collectVerticalSegments(edges, nodes, edgeId, {
+    sameNetworkAs: edgeId,
+  })) {
     for (const s of mine) {
       if (Math.abs(s.a.x - o.x) > VERTICAL_SNAP_HOLD) continue;
       if (
@@ -1187,8 +1195,12 @@ export function fuseRouteOnRelease(
   nodes: Node[],
 ): OrthoPoint[] {
   let pts = clampPortStubs(forceOrthogonal(points));
-  const othersV = collectVerticalSegments(edges, nodes, edgeId);
-  const othersH = collectHorizontalSegments(edges, nodes, edgeId);
+  const othersV = collectVerticalSegments(edges, nodes, edgeId, {
+    sameNetworkAs: edgeId,
+  });
+  const othersH = collectHorizontalSegments(edges, nodes, edgeId, {
+    sameNetworkAs: edgeId,
+  });
 
   // Snap each free vertical onto nearby foreign verticals
   for (const s of routeSegments(pts)) {
@@ -1319,6 +1331,7 @@ export function collectVerticalSegments(
   edges: Edge[],
   nodes: Node[],
   excludeEdgeId?: string,
+  opts?: { sameNetworkAs?: string },
 ): VerticalSegInfo[] {
   const out: VerticalSegInfo[] = [];
   for (const e of edges) {
@@ -1337,6 +1350,9 @@ export function collectVerticalSegments(
       });
     }
   }
+  if (opts?.sameNetworkAs) {
+    return filterSegmentsToSameNetwork(opts.sameNetworkAs, out, edges);
+  }
   return out;
 }
 
@@ -1344,6 +1360,7 @@ export function collectHorizontalSegments(
   edges: Edge[],
   nodes: Node[],
   excludeEdgeId?: string,
+  opts?: { sameNetworkAs?: string },
 ): HorizontalSegInfo[] {
   const out: HorizontalSegInfo[] = [];
   for (const e of edges) {
@@ -1362,7 +1379,22 @@ export function collectHorizontalSegments(
       });
     }
   }
+  if (opts?.sameNetworkAs) {
+    return filterSegmentsToSameNetwork(opts.sameNetworkAs, out, edges);
+  }
   return out;
+}
+
+/** Keep only segments belonging to the same undirected feed network as `edgeId`. */
+export function filterSegmentsToSameNetwork<T extends { edgeId: string }>(
+  edgeId: string,
+  segments: T[],
+  edges: Edge[],
+): T[] {
+  const net = buildEdgeNetworkIds(edges);
+  const mine = net.get(edgeId);
+  if (mine === undefined) return [];
+  return segments.filter((s) => net.get(s.edgeId) === mine);
 }
 
 function yRangesOverlap(
