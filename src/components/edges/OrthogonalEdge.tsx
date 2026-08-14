@@ -52,12 +52,15 @@ import {
   framesForRoutingSegment,
   previewSegmentsForJunctionX,
   previewSegmentsForJunctionY,
+  previewSegmentsForMovedJunctions,
   resolveEndpointPos,
   resolveSegmentPoints,
   segmentNetworkEdgeId,
   busColumnPortLimits,
   clampBusColumnX,
+  portLimitsForJunctionIds,
   shouldTranslateBusColumn,
+  spanTranslateJunctionIds,
 } from "@/lib/routingGraph";
 import {
   ensureSegmentSelected,
@@ -102,6 +105,10 @@ type SegmentDragState = {
   /** Straight jj vertical: slide the bus column instead of U-bending a T spur. */
   translateRail?: boolean;
   railColumnX?: number;
+  /** Single (or partial) bus V: slide this span's junctions so H stubs stretch. */
+  translateSpan?: boolean;
+  spanJunctionIds?: string[];
+  spanCompanionIds?: string[];
   /** Segment ids that received live junction previews (cleared on release). */
   junctionPreviewIds?: string[];
 };
@@ -126,6 +133,47 @@ function openKinkPin(seg: RoutingSegment | undefined): OpenKinkPin {
   if (seg.a.kind === "port") return "start";
   if (seg.b.kind === "port") return "end";
   return "both";
+}
+
+function clampDraggedBusX(
+  next: OrthoPoint[],
+  opts: {
+    nodes: Parameters<typeof framesForRoutingSegment>[0];
+    rg: Parameters<typeof framesForRoutingSegment>[1];
+    meta: RoutingSegment;
+    wholeColumn: boolean;
+    junctionIds?: string[];
+    companionIds?: string[];
+  },
+): OrthoPoint[] {
+  if (next.length < 2) return next;
+  let frames = framesForRoutingSegment(opts.nodes, opts.rg, opts.meta);
+  if (!opts.wholeColumn) {
+    for (const sid of opts.companionIds ?? []) {
+      const m = opts.rg.segments[sid];
+      if (m) {
+        frames = frames.concat(framesForRoutingSegment(opts.nodes, opts.rg, m));
+      }
+    }
+  }
+  const limits = opts.wholeColumn
+    ? busColumnPortLimits(opts.nodes, opts.rg, opts.meta)
+    : portLimitsForJunctionIds(
+        opts.nodes,
+        opts.rg,
+        new Set(opts.junctionIds ?? []),
+      );
+  const x = clampBusColumnX(
+    next[0]!.x,
+    next[0]!.y,
+    next[next.length - 1]!.y,
+    frames,
+    limits,
+  );
+  return [
+    { x, y: next[0]!.y },
+    { x, y: next[next.length - 1]!.y },
+  ];
 }
 
 function clientToFlow(
@@ -279,6 +327,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
   const setEdgeCorners = useDocumentStore((s) => s.setEdgeCorners);
   const translateRailJunctions = useDocumentStore(
     (s) => s.translateRailJunctions,
+  );
+  const translateSpanJunctions = useDocumentStore(
+    (s) => s.translateSpanJunctions,
   );
   const setEdgeLockedVerticalXs = useDocumentStore(
     (s) => s.setEdgeLockedVerticalXs,
@@ -483,6 +534,8 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         ? useDocumentStore.getState().routingGraph.segments[idRef.current]
         : undefined;
       const translateRail = isSeg && !!st.translateRail;
+      const translateSpan = isSeg && !!st.translateSpan;
+      const translatingV = translateRail || translateSpan;
       const result = isSeg
         ? moveSegmentOpen(
             st.segmentIndex,
@@ -490,9 +543,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             st.startPoints,
             st.startPointer,
             {
-              // Straight shared bus V: slide the column so T-junctions stay
-              // T-junctions (no H spur / excroissance). Port stubs still U-bend.
-              translateStraight: translateRail,
+              // Straight shared bus V: slide junctions so attached H stubs
+              // stretch. Port stubs still U-bend.
+              translateStraight: translatingV,
               pin: openKinkPin(segMeta),
               portFrame: portFrameForSeg(),
             },
@@ -509,26 +562,21 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
       if (
         isSeg &&
-        translateRail &&
+        translatingV &&
         next.length >= 2 &&
         Math.abs(next[0]!.x - next[next.length - 1]!.x) < 0.51
       ) {
         const { nodes, routingGraph: rg } = useDocumentStore.getState();
         const meta = rg.segments[idRef.current];
         if (meta) {
-          const frames = framesForRoutingSegment(nodes, rg, meta);
-          const limits = busColumnPortLimits(nodes, rg, meta);
-          const x = clampBusColumnX(
-            next[0]!.x,
-            next[0]!.y,
-            next[next.length - 1]!.y,
-            frames,
-            limits,
-          );
-          next = [
-            { x, y: next[0]!.y },
-            { x, y: next[next.length - 1]!.y },
-          ];
+          next = clampDraggedBusX(next, {
+            nodes,
+            rg,
+            meta,
+            wholeColumn: translateRail,
+            junctionIds: st.spanJunctionIds,
+            companionIds: st.spanCompanionIds,
+          });
         }
       }
 
@@ -654,24 +702,21 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
       if (
         isSeg &&
-        translateRail &&
+        translatingV &&
         next.length >= 2 &&
         Math.abs(next[0]!.x - next[next.length - 1]!.x) < 0.51
       ) {
         const { nodes, routingGraph: rg } = useDocumentStore.getState();
         const meta = rg.segments[idRef.current];
         if (meta) {
-          const x = clampBusColumnX(
-            next[0]!.x,
-            next[0]!.y,
-            next[next.length - 1]!.y,
-            framesForRoutingSegment(nodes, rg, meta),
-            busColumnPortLimits(nodes, rg, meta),
-          );
-          next = [
-            { x, y: next[0]!.y },
-            { x, y: next[next.length - 1]!.y },
-          ];
+          next = clampDraggedBusX(next, {
+            nodes,
+            rg,
+            meta,
+            wholeColumn: translateRail,
+            junctionIds: st.spanJunctionIds,
+            companionIds: st.spanCompanionIds,
+          });
         }
       }
 
@@ -733,13 +778,42 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         st.junctionPreviewIds = [...previews.keys()];
       }
 
+      // Single / partial bus V: only this span's junctions slide; stubs stretch.
+      if (
+        isSeg &&
+        st.mode === "segment" &&
+        st.translateSpan &&
+        st.spanJunctionIds &&
+        st.spanJunctionIds.length > 0 &&
+        next.length >= 2
+      ) {
+        const { nodes, routingGraph: rg } = useDocumentStore.getState();
+        const previews = previewSegmentsForMovedJunctions(
+          rg,
+          nodes,
+          new Set(st.spanJunctionIds),
+          "x",
+          next[0]!.x,
+          idRef.current,
+        );
+        const prevIds = st.junctionPreviewIds ?? [];
+        for (const [sid, pts] of previews) {
+          setOrthoDragPreview(sid, pts);
+        }
+        for (const sid of prevIds) {
+          if (!previews.has(sid)) clearOrthoDragPreview(sid);
+        }
+        st.junctionPreviewIds = [...previews.keys()];
+      }
+
       // Shift-multi-select: mirror the same pointer delta onto other selected
       // same-axis routing segments — never rewrite unselected neighbors.
       if (
         isSeg &&
         st.mode === "segment" &&
         st.companions.length > 0 &&
-        !st.translateRail
+        !st.translateRail &&
+        !st.translateSpan
       ) {
         const { nodes, routingGraph: rg } = useDocumentStore.getState();
         for (const c of st.companions) {
@@ -778,6 +852,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         st.mode === "segment" ? st.companions.map((c) => ({ ...c })) : [];
       const junctionPreviewIds =
         st.mode === "segment" ? [...(st.junctionPreviewIds ?? [])] : [];
+      const commitRail =
+        st.mode === "segment" && !!st.translateRail;
+      const commitSpan =
+        st.mode === "segment" && !!st.translateSpan;
+      const spanCompanionIds =
+        st.mode === "segment" ? [...(st.spanCompanionIds ?? [])] : [];
       dragRef.current = null;
       setDragPoints(null);
       for (const sid of junctionPreviewIds) {
@@ -803,10 +883,16 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       const locks = isSeg
         ? []
         : detectIntersectionLocks(edgeId, pts, edges, nodes);
-      // Straight shared bus V: persist by sliding the column so T-junctions
-      // stay clean. Otherwise store local U-bend / kink corners only.
-      if (isSeg && st.mode === "segment" && st.translateRail && pts.length >= 2) {
+      // Straight shared bus V: persist by sliding junctions so H stubs stretch.
+      if (isSeg && commitRail && pts.length >= 2) {
         translateRailJunctions(edgeId, "x", pts[0]!.x);
+        for (const c of companions) {
+          clearOrthoDragPreview(c.id);
+        }
+        return;
+      }
+      if (isSeg && commitSpan && pts.length >= 2) {
+        translateSpanJunctions(edgeId, "x", pts[0]!.x, spanCompanionIds);
         for (const c of companions) {
           clearOrthoDragPreview(c.id);
         }
@@ -865,7 +951,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [setEdgeCorners, setEdgeLockedVerticalXs, translateRailJunctions]);
+  }, [setEdgeCorners, setEdgeLockedVerticalXs, translateRailJunctions, translateSpanJunctions]);
 
   const beginSegmentDrag = (e: React.PointerEvent, segmentIndex: number) => {
     if (e.button !== 0) return;
@@ -927,6 +1013,9 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       junctionPreviewIds: [],
       translateRail: false,
       railColumnX: undefined,
+      translateSpan: false,
+      spanJunctionIds: undefined,
+      spanCompanionIds: undefined,
     };
 
     if (isRoutingSegment && startPoints.length === 2 && !seg.horizontal) {
@@ -937,6 +1026,24 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
         if (shouldTranslateBusColumn(rg, id, selected)) {
           dragRef.current.translateRail = true;
           dragRef.current.railColumnX = startPoints[0]!.x;
+        } else {
+          const extra = companions
+            .map((c) => c.id)
+            .filter((sid) => {
+              const m = rg.segments[sid];
+              if (!m || m.a.kind !== "junction" || m.b.kind !== "junction") {
+                return false;
+              }
+              const ja = rg.junctions[m.a.junctionId];
+              const jb = rg.junctions[m.b.junctionId];
+              if (!ja || !jb) return false;
+              return Math.abs(ja.x - jb.x) <= 0.51;
+            });
+          dragRef.current.translateSpan = true;
+          dragRef.current.spanCompanionIds = extra;
+          dragRef.current.spanJunctionIds = [
+            ...spanTranslateJunctionIds(rg, [id, ...extra]),
+          ];
         }
       }
     }

@@ -1303,6 +1303,31 @@ export function previewSegmentsForJunctionX(
   return out;
 }
 
+/** Port stubs attached to these junctions (min-stub clamp). */
+export function portLimitsForJunctionIds(
+  nodes: Node[],
+  graph: RoutingGraph,
+  jids: ReadonlySet<string>,
+): { x: number; kind: "in" | "out" }[] {
+  const out: { x: number; kind: "in" | "out" }[] = [];
+  for (const s of Object.values(graph.segments)) {
+    const pid =
+      s.a.kind === "port" && s.b.kind === "junction" && jids.has(s.b.junctionId)
+        ? s.a.portId
+        : s.b.kind === "port" &&
+            s.a.kind === "junction" &&
+            jids.has(s.a.junctionId)
+          ? s.b.portId
+          : null;
+    if (!pid) continue;
+    const kind = portKind(nodes, pid);
+    const pos = portAbsPos(nodes, pid);
+    if (!kind || !pos) continue;
+    out.push({ x: pos.x, kind });
+  }
+  return out;
+}
+
 /** Port attachments on a bus column (for min-stub clamp while sliding the rail). */
 export function busColumnPortLimits(
   nodes: Node[],
@@ -1322,23 +1347,7 @@ export function busColumnPortLimits(
       jids.add(oid);
     }
   }
-  const out: { x: number; kind: "in" | "out" }[] = [];
-  for (const s of Object.values(graph.segments)) {
-    const pid =
-      s.a.kind === "port" && s.b.kind === "junction" && jids.has(s.b.junctionId)
-        ? s.a.portId
-        : s.b.kind === "port" &&
-            s.a.kind === "junction" &&
-            jids.has(s.a.junctionId)
-          ? s.b.portId
-          : null;
-    if (!pid) continue;
-    const kind = portKind(nodes, pid);
-    const pos = portAbsPos(nodes, pid);
-    if (!kind || !pos) continue;
-    out.push({ x: pos.x, kind });
-  }
-  return out;
+  return portLimitsForJunctionIds(nodes, graph, jids);
 }
 
 export function clampBusColumnX(
@@ -1390,7 +1399,8 @@ export function junctionColumnVerticalIds(
 
 /**
  * Slide the whole bus column only when every vertical span on that column is
- * already in the selection (shift-click each). A single span jogs locally.
+ * already in the selection (shift-click each). A single span slides its own
+ * endpoints so attached H stubs stretch.
  */
 export function shouldTranslateBusColumn(
   graph: RoutingGraph,
@@ -1400,6 +1410,162 @@ export function shouldTranslateBusColumn(
   const col = junctionColumnVerticalIds(graph, segmentId);
   if (col.length < 2) return false;
   return col.every((id) => selectedIds.has(id));
+}
+
+/** Junctions that share a point with `id` (colocated T, no jj edge). */
+export function colocatedJunctionIds(
+  graph: RoutingGraph,
+  id: string,
+): Set<string> {
+  const out = new Set<string>([id]);
+  const seed = graph.junctions[id];
+  if (!seed) return out;
+  for (const [oid, j] of Object.entries(graph.junctions)) {
+    if (Math.abs(j.x - seed.x) > 0.51) continue;
+    if (Math.abs(j.y - seed.y) > 0.51) continue;
+    out.add(oid);
+  }
+  return out;
+}
+
+/**
+ * Endpoints of these spans plus colocated T junctions — the set that slides
+ * when a single bus V is dragged (attached H stubs stretch).
+ */
+export function spanTranslateJunctionIds(
+  graph: RoutingGraph,
+  segmentIds: Iterable<string>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const sid of segmentIds) {
+    const seg = graph.segments[sid];
+    if (!seg) continue;
+    if (seg.a.kind === "junction") {
+      for (const id of colocatedJunctionIds(graph, seg.a.junctionId)) {
+        ids.add(id);
+      }
+    }
+    if (seg.b.kind === "junction") {
+      for (const id of colocatedJunctionIds(graph, seg.b.junctionId)) {
+        ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Live previews when only some bus junctions slide in X or Y. Stubs attached
+ * to moved T-junctions stretch; unmoved neighbors become an L (no U-bend).
+ */
+export function previewSegmentsForMovedJunctions(
+  graph: RoutingGraph,
+  nodes: Node[],
+  movedIds: ReadonlySet<string>,
+  axis: "x" | "y",
+  newValue: number,
+  excludeSegmentId: string,
+): Map<string, OrthoPoint[]> {
+  const v = snapToGrid(newValue);
+  const out = new Map<string, OrthoPoint[]>();
+  const shifted = (p: OrthoPoint, move: boolean): OrthoPoint => {
+    if (!move) return { x: p.x, y: p.y };
+    return axis === "x" ? { x: v, y: p.y } : { x: p.x, y: v };
+  };
+  for (const seg of Object.values(graph.segments)) {
+    if (seg.id === excludeSegmentId) continue;
+    const atA = seg.a.kind === "junction" && movedIds.has(seg.a.junctionId);
+    const atB = seg.b.kind === "junction" && movedIds.has(seg.b.junctionId);
+    if (!atA && !atB) continue;
+    const a = resolveEndpointPos(seg.a, nodes, graph);
+    const b = resolveEndpointPos(seg.b, nodes, graph);
+    if (!a || !b) continue;
+    const a2 = shifted(a, atA);
+    const b2 = shifted(b, atB);
+    let pts: OrthoPoint[];
+    if (atA && atB) {
+      pts = [a2, b2];
+    } else if (
+      Math.abs(a2.x - b2.x) < 0.51 ||
+      Math.abs(a2.y - b2.y) < 0.51
+    ) {
+      pts = [a2, b2];
+    } else if (axis === "x") {
+      const moved = atA ? a2 : b2;
+      const unmoved = atA ? b2 : a2;
+      pts = [a2, { x: unmoved.x, y: moved.y }, b2];
+    } else {
+      const moved = atA ? a2 : b2;
+      const unmoved = atA ? b2 : a2;
+      pts = [a2, { x: moved.x, y: unmoved.y }, b2];
+    }
+    out.set(seg.id, simplifyOrthoPoints(pts));
+  }
+  return out;
+}
+
+/**
+ * Slide only this span's endpoints (and colocated T points). Attached H stubs
+ * change length. Neighbor jj runs that share one end become an L at the
+ * moved row so the rest of the column stays put.
+ */
+export function translateSpanJunctions(
+  graph: RoutingGraph,
+  segmentId: string,
+  axis: "x" | "y",
+  newValue: number,
+  extraSegmentIds?: Iterable<string>,
+): RoutingGraph {
+  const ids = spanTranslateJunctionIds(graph, [
+    segmentId,
+    ...(extraSegmentIds ?? []),
+  ]);
+  if (ids.size === 0) return graph;
+
+  const updates: Record<string, { x?: number; y?: number }> = {};
+  const snapped = snapToGrid(newValue);
+  for (const id of ids) {
+    updates[id] = axis === "x" ? { x: snapped } : { y: snapped };
+  }
+  let next = moveRoutingJunctions(graph, updates);
+
+  for (const sid of Object.keys(next.segments)) {
+    const s = next.segments[sid]!;
+    const atA = s.a.kind === "junction" && ids.has(s.a.junctionId);
+    const atB = s.b.kind === "junction" && ids.has(s.b.junctionId);
+    if (!atA && !atB) continue;
+    if (s.a.kind !== "junction" || s.b.kind !== "junction") {
+      continue;
+    }
+    if (atA && atB) {
+      if (s.cornersAbs?.length) {
+        next = setSegmentCornersNorm(next, sid, undefined);
+      }
+      continue;
+    }
+    const ja = next.junctions[s.a.junctionId];
+    const jb = next.junctions[s.b.junctionId];
+    if (!ja || !jb) continue;
+    if (Math.abs(ja.x - jb.x) < 0.51 || Math.abs(ja.y - jb.y) < 0.51) {
+      if (s.cornersAbs?.length) {
+        next = setSegmentCornersNorm(next, sid, undefined);
+      }
+      continue;
+    }
+    const moved = atA ? ja : jb;
+    const unmoved = atA ? jb : ja;
+    const elbow =
+      axis === "x"
+        ? { x: unmoved.x, y: moved.y }
+        : { x: moved.x, y: unmoved.y };
+    next = setSegmentCornersNorm(next, sid, [elbow], {
+      sx: ja.x,
+      sy: ja.y,
+      tx: jb.x,
+      ty: jb.y,
+    });
+  }
+  return next;
 }
 
 /**

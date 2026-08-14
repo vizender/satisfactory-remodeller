@@ -44,6 +44,7 @@ import {
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
   translateRailJunctions as applyRailTranslate,
+  translateSpanJunctions as applySpanTranslate,
 } from "@/lib/routingGraph";
 import type { RoutingGraph } from "@/types/routingGraph";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
@@ -92,6 +93,13 @@ export interface DocumentState {
     segmentId: string,
     axis: "x" | "y",
     newValue: number,
+  ) => void;
+  /** Translate one bus span's endpoints so attached H stubs stretch. */
+  translateSpanJunctions: (
+    segmentId: string,
+    axis: "x" | "y",
+    newValue: number,
+    extraSegmentIds?: string[],
   ) => void;
   /** Orthogonal mode: set / clear the vertical segment X (undefined = auto). */
   setEdgeBendX: (edgeId: string, bendX: number | undefined) => void;
@@ -301,6 +309,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   translateRailJunctions: (segmentId, axis, newValue) => {
     set((s) => ({
       routingGraph: applyRailTranslate(s.routingGraph, segmentId, axis, newValue),
+    }));
+  },
+  translateSpanJunctions: (segmentId, axis, newValue, extraSegmentIds) => {
+    set((s) => ({
+      routingGraph: applySpanTranslate(
+        s.routingGraph,
+        segmentId,
+        axis,
+        newValue,
+        extraSegmentIds,
+      ),
     }));
   },
   onNodesChange: (changes) => {

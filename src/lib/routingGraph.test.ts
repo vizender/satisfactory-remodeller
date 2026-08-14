@@ -16,12 +16,15 @@ import {
   setSegmentCornersNorm,
   syncRoutingJunctionPositions,
   translateRailJunctions,
+  translateSpanJunctions,
   previewSegmentsForJunctionY,
   previewSegmentsForJunctionX,
+  previewSegmentsForMovedJunctions,
   busColumnPortLimits,
   clampBusColumnX,
   shouldTranslateBusColumn,
   junctionColumnVerticalIds,
+  spanTranslateJunctionIds,
 } from "@/lib/routingGraph";
 import { MIN_PORT_STUB, moveSegmentOpen } from "@/lib/orthogonalEdgePath";
 import type { OrthoPoint } from "@/types/edgeData";
@@ -1132,5 +1135,151 @@ describe("shared routing graph (N×M)", () => {
       false,
     );
     expect(shouldTranslateBusColumn(graph, ids[0]!, new Set(ids))).toBe(true);
+  });
+
+  it("translateSpanJunctions stretches attached H stubs without kinking the top T", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+      frame("m4", 400, 400),
+      port("in3", "m4", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+      edge("e3", "out", "in3"),
+    ]);
+    const in3Y = portAbsPos(nodes, "in3")!.y;
+    const in1Y = portAbsPos(nodes, "in1")!.y;
+    const lower = Object.values(graph.segments).find((s) => {
+      if (s.a.kind !== "junction" || s.b.kind !== "junction") return false;
+      const ja = graph.junctions[s.a.junctionId]!;
+      const jb = graph.junctions[s.b.junctionId]!;
+      return (
+        Math.abs(ja.x - jb.x) < 0.51 &&
+        (Math.abs(ja.y - in3Y) < 1 || Math.abs(jb.y - in3Y) < 1)
+      );
+    })!;
+    expect(lower).toBeTruthy();
+    const beforeX = graph.junctions[
+      lower.a.kind === "junction" ? lower.a.junctionId : ""
+    ]!.x;
+    const targetX = beforeX - 40;
+    const topX = graph.junctions["j-out"]!.x;
+    const in1StubBefore = resolveSegmentPoints(
+      Object.values(graph.segments).find(
+        (s) =>
+          (s.a.kind === "port" && s.a.portId === "in1") ||
+          (s.b.kind === "port" && s.b.portId === "in1"),
+      )!,
+      nodes,
+      graph,
+    )!;
+    const in1LenBefore = Math.abs(in1StubBefore[0]!.x - in1StubBefore[1]!.x);
+
+    graph = translateSpanJunctions(graph, lower.id, "x", targetX);
+
+    expect(graph.junctions["j-out"]!.x).toBe(topX);
+    expect(graph.junctions["j-in1"]!.x).toBe(topX);
+    expect(Math.abs(graph.junctions["j-in3"]!.x - targetX)).toBeLessThan(0.51);
+
+    const stubOf = (portId: string) =>
+      resolveSegmentPoints(
+        Object.values(graph.segments).find(
+          (s) =>
+            (s.a.kind === "port" && s.a.portId === portId) ||
+            (s.b.kind === "port" && s.b.portId === portId),
+        )!,
+        nodes,
+        graph,
+      )!;
+
+    const in3 = stubOf("in3");
+    expect(in3).toHaveLength(2);
+    expect(in3.some((p) => Math.abs(p.x - targetX) < 1)).toBe(true);
+    expect(in3.every((p) => Math.abs(p.y - in3Y) < 1)).toBe(true);
+
+    const in1 = stubOf("in1");
+    expect(in1).toHaveLength(2);
+    expect(in1.every((p) => Math.abs(p.y - in1Y) < 1)).toBe(true);
+    expect(Math.abs(Math.abs(in1[0]!.x - in1[1]!.x) - in1LenBefore)).toBeLessThan(
+      0.51,
+    );
+    // No staircase on the top stub (the old U-bend kink).
+    expect(in1.every((p) => Math.abs(p.x - targetX) > 1 || Math.abs(p.x - topX) < 1)).toBe(
+      true,
+    );
+
+    const neighbor = Object.values(graph.segments).find((s) => {
+      if (s.a.kind !== "junction" || s.b.kind !== "junction") return false;
+      if (s.id === lower.id) return false;
+      const atA = s.a.kind === "junction" && (
+        s.a.junctionId === (lower.a.kind === "junction" ? lower.a.junctionId : "") ||
+        s.a.junctionId === (lower.b.kind === "junction" ? lower.b.junctionId : "")
+      );
+      const atB = s.b.kind === "junction" && (
+        s.b.junctionId === (lower.a.kind === "junction" ? lower.a.junctionId : "") ||
+        s.b.junctionId === (lower.b.kind === "junction" ? lower.b.junctionId : "")
+      );
+      return atA || atB;
+    });
+    expect(neighbor).toBeTruthy();
+    const nPts = resolveSegmentPoints(neighbor!, nodes, graph)!;
+    expect(nPts.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("previewSegmentsForMovedJunctions stretches the moved stub only", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+      frame("m4", 400, 400),
+      port("in3", "m4", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+      edge("e3", "out", "in3"),
+    ]);
+    const in3Y = portAbsPos(nodes, "in3")!.y;
+    const lower = Object.values(graph.segments).find((s) => {
+      if (s.a.kind !== "junction" || s.b.kind !== "junction") return false;
+      const ja = graph.junctions[s.a.junctionId]!;
+      const jb = graph.junctions[s.b.junctionId]!;
+      return (
+        Math.abs(ja.x - jb.x) < 0.51 &&
+        (Math.abs(ja.y - in3Y) < 1 || Math.abs(jb.y - in3Y) < 1)
+      );
+    })!;
+    const moved = spanTranslateJunctionIds(graph, [lower.id]);
+    const colX = graph.junctions["j-in3"]!.x;
+    const newX = colX - 40;
+    const previews = previewSegmentsForMovedJunctions(
+      graph,
+      nodes,
+      moved,
+      "x",
+      newX,
+      lower.id,
+    );
+    const in3Id = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in3"),
+    )!;
+    const in1Id = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    expect(previews.has(in3Id)).toBe(true);
+    expect(previews.get(in3Id)!).toHaveLength(2);
+    expect(previews.get(in3Id)!.some((p) => Math.abs(p.x - newX) < 1)).toBe(
+      true,
+    );
+    expect(previews.has(in1Id)).toBe(false);
   });
 });
