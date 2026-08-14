@@ -4,7 +4,9 @@ function cn(...parts: (string | false | undefined)[]) {
   return parts.filter(Boolean).join(" ");
 }
 
-/** Marque les liaisons impliquées dans un conflit de débit forcé. */
+/** Marque les liaisons impliquées dans un conflit de débit forcé.
+ *  Ne pas élever le z-index : les poignées de kink (EdgeLabelRenderer) resteraient
+ *  sous le SVG et le drag serait bloqué sur le trait rouge et ses voisins. */
 export function applySolverConflictToEdges(
   edges: Edge[],
   conflictEdgeIds: readonly string[],
@@ -16,7 +18,6 @@ export function applySolverConflictToEdges(
     return {
       ...e,
       className: cn(e.className, "rf-edge-conflict"),
-      zIndex: 1001,
     };
   });
 }

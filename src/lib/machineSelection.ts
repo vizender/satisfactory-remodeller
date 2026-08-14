@@ -1,28 +1,7 @@
 import type { NodeChange } from "@xyflow/react";
-import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useDocumentStore } from "@/store/useDocumentStore";
 
-/** Scale appliqué au corps central quand la machine est sélectionnée. */
-export const MACHINE_BODY_SELECT_SCALE = 1.035;
-
 export type MachineSelectMode = "replace" | "add" | "toggle";
-
-export function machineBodyHalfGrowPx(
-  scale = MACHINE_BODY_SELECT_SCALE,
-): number {
-  return (MACHINE_LAYOUT.BODY_W * (scale - 1)) / 2;
-}
-
-/** Décalage horizontal des ports pour rester collés au corps agrandi. */
-export function machinePortShiftXPx(
-  kind: "in" | "out",
-  selected: boolean,
-  scale = MACHINE_BODY_SELECT_SCALE,
-): number {
-  if (!selected) return 0;
-  const half = machineBodyHalfGrowPx(scale);
-  return kind === "in" ? -half : half;
-}
 
 const SELECTABLE_FRAME_TYPES = new Set([
   "machineFrame",

@@ -70,6 +70,9 @@ function sanitizeEdges(edges: unknown, nodeIds: Set<string>): Edge[] {
     if (typeof e.id !== "string" || !e.id || seen.has(e.id)) continue;
     if (typeof e.source !== "string" || typeof e.target !== "string") continue;
     if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) continue;
+    if ((e.data as { kind?: string } | undefined)?.kind === "routingSegment") {
+      continue;
+    }
     seen.add(e.id);
     const cloned = structuredClone(e);
     const data = isItemEdgeData(cloned.data)

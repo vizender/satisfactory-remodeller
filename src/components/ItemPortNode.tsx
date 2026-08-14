@@ -12,7 +12,6 @@ import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
 import { normalizePortSlotPermutation } from "@/lib/buildMachineGraph";
-import { machinePortShiftXPx } from "@/lib/machineSelection";
 import {
   computeVerticalSlotYs,
   nearestSlotIndex,
@@ -121,7 +120,6 @@ export function ItemPortNode(props: NodeProps) {
   const isForced = forced !== undefined && !Number.isNaN(forced);
 
   const balanced = Math.abs(delta) <= EPS;
-  const showDelta = !balanced;
   const surplus = delta > EPS;
   const deficit = delta < -EPS;
 
@@ -201,10 +199,6 @@ export function ItemPortNode(props: NodeProps) {
     ? conflictMachineIds.includes(parentId)
     : false;
   const portOnConflictEdge = conflictPortIds.includes(id);
-  const portShiftX = machinePortShiftXPx(
-    d.kind,
-    parentSelected || parentInConflict,
-  );
 
   const finishReorder = useCallback(
     (st: DragRef) => {
@@ -498,14 +492,13 @@ export function ItemPortNode(props: NodeProps) {
         (parentInConflict || portOnConflictEdge) && "rf-machine-port-conflict",
         parentSelected && "rf-machine-port-selected",
         parentContainerOutputOff && "opacity-45",
-        portOnConflictEdge && "border-red-500/70 ring-1 ring-red-500/35",
+        portOnConflictEdge && "border-red-500/70",
         cardBorder,
       )}
       style={{
         width: PORT_W,
-        minHeight: PORT_ROW,
-        transform:
-          portShiftX !== 0 ? `translateX(${portShiftX}px)` : undefined,
+        height: PORT_ROW,
+        boxSizing: "border-box",
       }}
     >
       {isIn ? (
@@ -549,12 +542,10 @@ export function ItemPortNode(props: NodeProps) {
             >
               {eff.toFixed(1)}/min
             </div>
-            {showDelta ? (
-              <div className={deltaClass}>
-                {surplus ? "+" : ""}
-                {delta.toFixed(1)}/min
-              </div>
-            ) : null}
+            <div className={deltaClass}>
+              {surplus ? "+" : ""}
+              {delta.toFixed(1)}/min
+            </div>
             <div className="text-[9px] text-[var(--muted)]">
               ×{d.amountPerCraft} / craft
             </div>
