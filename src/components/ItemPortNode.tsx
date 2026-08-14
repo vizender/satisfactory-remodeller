@@ -161,7 +161,7 @@ export function ItemPortNode(props: NodeProps) {
   );
 
   const handleIn = cn(
-    "!h-2.5 !w-2.5 !border !border-[var(--border)]",
+    "rf-port-handle-in !h-3 !w-3 !border !border-[var(--border)]",
     balanced
       ? "!bg-blue-500/90"
       : deficit
@@ -169,7 +169,7 @@ export function ItemPortNode(props: NodeProps) {
         : "!bg-emerald-500/90",
   );
   const handleOut = cn(
-    "!h-2.5 !w-2.5 !border !border-[var(--border)]",
+    "rf-port-handle-out !h-3 !w-3 !border !border-[var(--border)]",
     balanced
       ? "!bg-sky-500/90"
       : surplus

@@ -795,7 +795,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       nodes: slice.nodes,
       edges: slice.edges,
       forcedPortRates: slice.forcedPortRates,
-      routeGraph: keep,
+      routeGraph: followPortVertices(keep, portHandlesFromNodes(slice.nodes)),
       reorderDragSession: null,
     });
   },

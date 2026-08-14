@@ -82,6 +82,18 @@ body {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+/* Sit fully outside the port card: inner edge flush with the card edge. */
+.react-flow__handle.rf-port-handle-in {
+  left: 0;
+  top: 50%;
+  transform: translate(-100%, -50%);
+}
+.react-flow__handle.rf-port-handle-out {
+  right: 0;
+  top: 50%;
+  transform: translate(100%, -50%);
+}
+
 /* Drag de connexion : machine sans port compatible, ports invalides */
 .rf-machine-body {
   transition:
