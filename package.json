@@ -1,7 +1,7 @@
 {
   "name": "satisfactory-remodeller",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "Satisfactory : Remodeller — planificateur d’usines (web + React, Tauri optionnel)",
   "author": "vizender",
@@ -11,6 +11,7 @@
     "dev:browser": "vite --open",
     "dev:desktop": "tauri dev",
     "dev:web": "vite",
+    "dev:routing-lab": "vite --port 1422 --strictPort --open /routing-lab.html",
     "gen:recipes": "tsx scripts/generateRecipeIndex.ts",
     "download:icons": "tsx scripts/downloadWikiIcons.ts",
     "report:icons": "tsx scripts/reportRecipeIcons.ts",
@@ -19,6 +20,7 @@
     "build": "tsc && vite build",
     "build:desktop": "tauri build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -41,6 +43,7 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.20.6",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   }
 }

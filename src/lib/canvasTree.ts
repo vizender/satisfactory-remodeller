@@ -183,11 +183,14 @@ export function createChildCanvasRecord(
 
 export function sliceActiveCanvas(
   record: CanvasRecord,
-): Pick<CanvasRecord, "nodes" | "edges" | "forcedPortRates"> {
+): Pick<CanvasRecord, "nodes" | "edges" | "forcedPortRates" | "routeGraph"> {
   return {
     nodes: structuredClone(record.nodes) as Node[],
     edges: structuredClone(record.edges) as Edge[],
     forcedPortRates: { ...record.forcedPortRates },
+    routeGraph: record.routeGraph
+      ? structuredClone(record.routeGraph)
+      : undefined,
   };
 }
 

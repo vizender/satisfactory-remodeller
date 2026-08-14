@@ -9,6 +9,7 @@ import {
   type CanvasId,
   type CanvasRecord,
 } from "@/types/canvas";
+import { isItemEdgeData } from "@/types/edgeData";
 import {
   formatItemClassId,
   isPortItemAssigned,
@@ -70,7 +71,14 @@ function sanitizeEdges(edges: unknown, nodeIds: Set<string>): Edge[] {
     if (typeof e.source !== "string" || typeof e.target !== "string") continue;
     if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) continue;
     seen.add(e.id);
-    out.push(structuredClone(e));
+    const cloned = structuredClone(e);
+    const data = isItemEdgeData(cloned.data)
+      ? {
+          itemId: cloned.data.itemId,
+          ...(cloned.data.suggested ? { suggested: true as const } : {}),
+        }
+      : cloned.data;
+    out.push({ ...cloned, type: "default", data });
   }
   return out;
 }
@@ -141,6 +149,17 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
 
   if (r.appearance && typeof r.appearance === "object") {
     record.appearance = structuredClone(r.appearance);
+  }
+
+  if (r.routeGraph && typeof r.routeGraph === "object") {
+    const g = r.routeGraph;
+    if (
+      Array.isArray(g.vertices) &&
+      Array.isArray(g.segments) &&
+      Array.isArray(g.nets)
+    ) {
+      record.routeGraph = structuredClone(g);
+    }
   }
 
   return record;

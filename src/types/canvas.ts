@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import type { RouteGraph } from "@/lib/routing";
 
 export const WORLD_CANVAS_ID = "world" as const;
 export const WORLD_CANVAS_NAME = "World" as const;
@@ -33,6 +34,8 @@ export interface CanvasRecord {
   parent?: CanvasParentLink;
   viewport?: CanvasViewport;
   appearance?: CanvasAppearanceV1;
+  /** Shared orthogonal route graph (straight-line overlay). */
+  routeGraph?: RouteGraph;
 }
 
 export interface BreadcrumbItem {

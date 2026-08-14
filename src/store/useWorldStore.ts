@@ -71,7 +71,7 @@ function persistActiveSlice(
   activeCanvasId: CanvasId,
   clone = false,
 ): Record<CanvasId, CanvasRecord> {
-  const { nodes, edges, forcedPortRates } = useDocumentStore.getState();
+  const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
   const prev = canvasMap[activeCanvasId] ?? createEmptyWorldCanvas();
   return {
     ...canvasMap,
@@ -86,6 +86,9 @@ function persistActiveSlice(
       forcedPortRates: clone
         ? { ...forcedPortRates }
         : forcedPortRates,
+      routeGraph: clone
+        ? structuredClone(routeGraph)
+        : routeGraph,
     },
   };
 }
@@ -107,12 +110,13 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   flushActiveCanvas: () => {
     set((s) => {
-      const { nodes, edges, forcedPortRates } = useDocumentStore.getState();
+      const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
       const prev = s.canvasMap[s.activeCanvasId];
       if (
         prev?.nodes === nodes &&
         prev?.edges === edges &&
-        prev?.forcedPortRates === forcedPortRates
+        prev?.forcedPortRates === forcedPortRates &&
+        prev?.routeGraph === routeGraph
       ) {
         return s;
       }
@@ -135,6 +139,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
           nodes: slice.nodes,
           edges: slice.edges,
           forcedPortRates: slice.forcedPortRates,
+          routeGraph: slice.routeGraph,
         },
       },
     }));
@@ -159,6 +164,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
           nodes: slice.nodes,
           edges: slice.edges,
           forcedPortRates: slice.forcedPortRates,
+          routeGraph: slice.routeGraph,
         },
       },
     }));
@@ -225,11 +231,12 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       activeCanvasId,
     );
 
-    const { nodes, edges, forcedPortRates } = useDocumentStore.getState();
+    const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
     useDocumentStore.getState().replaceActiveCanvas({
       nodes: [...nodes, factoryNode],
       edges,
       forcedPortRates,
+      routeGraph,
     });
 
     set((s) => ({
@@ -346,15 +353,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     });
 
     set((s) => ({
-      canvasMap: {
-        ...persistActiveSlice(s.canvasMap, activeCanvasId),
-        [activeCanvasId]: {
-          ...s.canvasMap[activeCanvasId],
-          nodes: [],
-          edges: [],
-          forcedPortRates: {},
-        },
-      },
+      canvasMap: persistActiveSlice(s.canvasMap, activeCanvasId),
     }));
   },
 

@@ -139,10 +139,6 @@ export const messages = {
     snapToggle: "Snap",
     snapToggleTitle:
       "Aligner horizontalement les ports connectés lorsqu’ils sont proches",
-    edgeRoutingCurved: "Courbes",
-    edgeRoutingStraight: "Droites",
-    edgeRoutingToggleTitle:
-      "Basculer entre liaisons courbes et liaisons orthogonales (3 segments)",
     resetEdgeRoute: "Réinitialiser le tracé",
     addEdgeKink: "Ajouter un coude",
     removeEdgeKink: "Supprimer le coude",
@@ -335,10 +331,6 @@ export const messages = {
     snapToggle: "Snap",
     snapToggleTitle:
       "Snap connected ports horizontally when they are closely aligned",
-    edgeRoutingCurved: "Curved",
-    edgeRoutingStraight: "Straight",
-    edgeRoutingToggleTitle:
-      "Toggle between curved and orthogonal (3-segment) connections",
     resetEdgeRoute: "Reset route",
     addEdgeKink: "Add kink",
     removeEdgeKink: "Remove kink",
