@@ -1480,6 +1480,42 @@ function siblingVertXs(
 }
 
 /**
+ * Jog a vertical rail in X without putting H returns on the endpoints.
+ * Endpoint Y is typically a T (port stub); an H there is the excroissance.
+ */
+export function uBendVerticalClearingEnds(
+  start: OrthoPoint,
+  end: OrthoPoint,
+  newX: number,
+): OrthoPoint[] {
+  const busX = start.x;
+  const y0 = start.y;
+  const y1 = end.y;
+  const span = Math.abs(y1 - y0);
+  const dir = Math.sign(y1 - y0) || 1;
+  let pad = Math.min(MIN_SEG, Math.max(0, (span - MIN_SEG) / 2));
+  pad = snapToGrid(pad);
+  if (pad < 1) {
+    return simplifyOrthoPoints([
+      { x: busX, y: y0 },
+      { x: newX, y: y0 },
+      { x: newX, y: y1 },
+      { x: busX, y: y1 },
+    ]);
+  }
+  const yA = snapToGrid(y0 + dir * pad);
+  const yB = snapToGrid(y1 - dir * pad);
+  return simplifyOrthoPoints([
+    { x: busX, y: y0 },
+    { x: busX, y: yA },
+    { x: newX, y: yA },
+    { x: newX, y: yB },
+    { x: busX, y: yB },
+    { x: busX, y: y1 },
+  ]);
+}
+
+/**
  * Drag a segment on an open chain. Endpoints stay fixed — edits are local to
  * this segment so connected stubs/buses are not rewritten.
  * - Straight 2-point runs get a U-offset (parallel free run) instead of moving junctions.
@@ -1557,13 +1593,22 @@ export function moveSegmentOpen(
     if (Math.abs(newX - seg.a.x) < MIN_SEG / 2) {
       return finish(base, 0);
     }
-    const pts = simplifyOrthoPoints([
-      { ...base[0]! },
-      { x: newX, y: base[0]!.y },
-      { x: newX, y: base[1]!.y },
-      { ...base[1]! },
-    ]);
-    return finish(pts, Math.min(1, pts.length - 3));
+    // Junction rail: jog in the middle so H returns don't sit on the T / port
+    // row (that was the top-input excroissance). Port stubs keep an end U.
+    const pts =
+      pin === "both"
+        ? uBendVerticalClearingEnds(base[0]!, base[1]!, newX)
+        : simplifyOrthoPoints([
+            { ...base[0]! },
+            { x: newX, y: base[0]!.y },
+            { x: newX, y: base[1]!.y },
+            { ...base[1]! },
+          ]);
+    const segsNext = routeSegments(pts);
+    const active =
+      segsNext.find((s) => !s.horizontal && s.length >= MIN_SEG)?.index ??
+      Math.min(1, pts.length - 3);
+    return finish(pts, active);
   }
 
   if (seg.horizontal) {

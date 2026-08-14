@@ -1360,6 +1360,49 @@ export function clampBusColumnX(
 }
 
 /**
+ * Junction↔junction verticals that share this segment's bus column X.
+ */
+export function junctionColumnVerticalIds(
+  graph: RoutingGraph,
+  segmentId: string,
+): string[] {
+  const seg = graph.segments[segmentId];
+  if (!seg || seg.a.kind !== "junction" || seg.b.kind !== "junction") {
+    return [];
+  }
+  const ja = graph.junctions[seg.a.junctionId];
+  const jb = graph.junctions[seg.b.junctionId];
+  if (!ja || !jb) return [];
+  const colX = ja.x;
+  if (Math.abs(jb.x - colX) > 0.51) return [];
+  const ids: string[] = [];
+  for (const s of Object.values(graph.segments)) {
+    if (s.a.kind !== "junction" || s.b.kind !== "junction") continue;
+    const a = graph.junctions[s.a.junctionId];
+    const b = graph.junctions[s.b.junctionId];
+    if (!a || !b) continue;
+    if (Math.abs(a.x - colX) > 0.51 || Math.abs(b.x - colX) > 0.51) continue;
+    if (Math.abs(a.y - b.y) < 0.51) continue;
+    ids.push(s.id);
+  }
+  return ids;
+}
+
+/**
+ * Slide the whole bus column only when every vertical span on that column is
+ * already in the selection (shift-click each). A single span jogs locally.
+ */
+export function shouldTranslateBusColumn(
+  graph: RoutingGraph,
+  segmentId: string,
+  selectedIds: ReadonlySet<string>,
+): boolean {
+  const col = junctionColumnVerticalIds(graph, segmentId);
+  if (col.length < 2) return false;
+  return col.every((id) => selectedIds.has(id));
+}
+
+/**
  * Translate a junction↔junction rail/wrap: move every colinear connected
  * junction together and clear leftover U-bend cornersAbs on those bus runs.
  */

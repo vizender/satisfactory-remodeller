@@ -146,6 +146,15 @@ describe("orthogonal kink placement", () => {
     });
     expect(result.points.length).toBeGreaterThan(2);
     expect(result.points.some((p) => p.x > 220)).toBe(true);
+    // H returns stay off the endpoints (T / port row)
+    const interiors = result.points.slice(1, -1);
+    expect(
+      interiors.some(
+        (p) =>
+          (Math.abs(p.y - 50) < 1 || Math.abs(p.y - 250) < 1) &&
+          Math.abs(p.x - 220) > 1,
+      ),
+    ).toBe(false);
   });
 
   it("moveSegmentOpen frees detour wrap-rail Y when junction is off the port row", () => {

@@ -20,6 +20,8 @@ import {
   previewSegmentsForJunctionX,
   busColumnPortLimits,
   clampBusColumnX,
+  shouldTranslateBusColumn,
+  junctionColumnVerticalIds,
 } from "@/lib/routingGraph";
 import { MIN_PORT_STUB, moveSegmentOpen } from "@/lib/orthogonalEdgePath";
 import type { OrthoPoint } from "@/types/edgeData";
@@ -1101,5 +1103,34 @@ describe("shared routing graph (N×M)", () => {
     const pts = previews.get(stubId)!;
     expect(pts.some((p) => Math.abs(p.x - newX) < 1)).toBe(true);
     expect(pts).toHaveLength(2);
+  });
+
+  it("shouldTranslateBusColumn requires every vertical span on the column", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+      frame("m4", 400, 400),
+      port("in3", "m4", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+      edge("e3", "out", "in3"),
+    ]);
+    const col = Object.values(graph.segments)
+      .filter((s) => s.a.kind === "junction" && s.b.kind === "junction")
+      .map((s) => s.id);
+    const ids = col.length
+      ? junctionColumnVerticalIds(graph, col[0]!)
+      : [];
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(shouldTranslateBusColumn(graph, ids[0]!, new Set([ids[0]!]))).toBe(
+      false,
+    );
+    expect(shouldTranslateBusColumn(graph, ids[0]!, new Set(ids))).toBe(true);
   });
 });

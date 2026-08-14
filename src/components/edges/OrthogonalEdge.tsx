@@ -57,6 +57,7 @@ import {
   segmentNetworkEdgeId,
   busColumnPortLimits,
   clampBusColumnX,
+  shouldTranslateBusColumn,
 } from "@/lib/routingGraph";
 import {
   ensureSegmentSelected,
@@ -734,7 +735,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
 
       // Shift-multi-select: mirror the same pointer delta onto other selected
       // same-axis routing segments — never rewrite unselected neighbors.
-      if (isSeg && st.mode === "segment" && st.companions.length > 0) {
+      if (
+        isSeg &&
+        st.mode === "segment" &&
+        st.companions.length > 0 &&
+        !st.translateRail
+      ) {
         const { nodes, routingGraph: rg } = useDocumentStore.getState();
         for (const c of st.companions) {
           const meta = rg.segments[c.id];
@@ -924,10 +930,14 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     };
 
     if (isRoutingSegment && startPoints.length === 2 && !seg.horizontal) {
-      const meta = useDocumentStore.getState().routingGraph.segments[id];
+      const { routingGraph: rg } = useDocumentStore.getState();
+      const meta = rg.segments[id];
       if (meta?.a.kind === "junction" && meta.b.kind === "junction") {
-        dragRef.current.translateRail = true;
-        dragRef.current.railColumnX = startPoints[0]!.x;
+        const selected = getSelectedSegmentIds();
+        if (shouldTranslateBusColumn(rg, id, selected)) {
+          dragRef.current.translateRail = true;
+          dragRef.current.railColumnX = startPoints[0]!.x;
+        }
       }
     }
     setDragPoints(startPoints);
