@@ -25,6 +25,9 @@ export const NET_PALETTE = [
 
 export const NET_PALETTE_SIZE = NET_PALETTE.length;
 
+/** Max attempts to fix same-color crossings (including trying the other net). */
+export const COLOR_REPAIR_ITERS = 16;
+
 function addAdj(adj: Map<string, Set<string>>, a: string, b: string): void {
   if (a === b) return;
   let sa = adj.get(a);
@@ -66,49 +69,197 @@ export function crossingNetAdjacency(graph: RouteGraph): Map<string, Set<string>
   return adj;
 }
 
+function toHex(assigned: Map<string, number>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [id, i] of assigned) {
+    out.set(id, NET_PALETTE[i]!);
+  }
+  return out;
+}
+
+function cloneAssigned(assigned: Map<string, number>): Map<string, number> {
+  return new Map(assigned);
+}
+
+function restoreAssigned(
+  assigned: Map<string, number>,
+  snap: Map<string, number>,
+): void {
+  assigned.clear();
+  for (const [id, c] of snap) assigned.set(id, c);
+}
+
+function usage(assigned: Map<string, number>): number[] {
+  const u = new Array<number>(NET_PALETTE_SIZE).fill(0);
+  for (const c of assigned.values()) u[c] = (u[c] ?? 0) + 1;
+  return u;
+}
+
+function pickLeastUsed(
+  candidates: number[],
+  assigned: Map<string, number>,
+): number {
+  const u = usage(assigned);
+  let best = candidates[0]!;
+  let bestU = Infinity;
+  for (const c of candidates) {
+    const n = u[c] ?? 0;
+    if (n < bestU || (n === bestU && c < best)) {
+      bestU = n;
+      best = c;
+    }
+  }
+  return best;
+}
+
+function freeColors(
+  id: string,
+  assigned: Map<string, number>,
+  neighbors: Map<string, Set<string>>,
+): number[] {
+  const used = new Set<number>();
+  for (const n of neighbors.get(id) ?? []) {
+    const c = assigned.get(n);
+    if (c !== undefined) used.add(c);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < NET_PALETTE_SIZE; i++) {
+    if (!used.has(i)) out.push(i);
+  }
+  return out;
+}
+
+function conflictPairs(
+  netIds: string[],
+  assigned: Map<string, number>,
+  neighbors: Map<string, Set<string>>,
+): [string, string][] {
+  const pairs: [string, string][] = [];
+  for (const id of netIds) {
+    for (const n of neighbors.get(id) ?? []) {
+      if (id < n && assigned.get(id) === assigned.get(n)) {
+        pairs.push([id, n]);
+      }
+    }
+  }
+  return pairs;
+}
+
+function conflictCount(
+  netIds: string[],
+  assigned: Map<string, number>,
+  neighbors: Map<string, Set<string>>,
+): number {
+  return conflictPairs(netIds, assigned, neighbors).length;
+}
+
+function minConflictColor(
+  id: string,
+  assigned: Map<string, number>,
+  neighbors: Map<string, Set<string>>,
+): number {
+  const counts = new Array<number>(NET_PALETTE_SIZE).fill(0);
+  for (const n of neighbors.get(id) ?? []) {
+    const c = assigned.get(n);
+    if (c !== undefined) counts[c] = (counts[c] ?? 0) + 1;
+  }
+  const u = usage(assigned);
+  const current = assigned.get(id) ?? 0;
+  let best = current;
+  let bestC = counts[best] ?? 0;
+  let bestU = u[best] ?? 0;
+  for (let i = 0; i < NET_PALETTE_SIZE; i++) {
+    const cc = counts[i] ?? 0;
+    const uu = u[i] ?? 0;
+    if (
+      cc < bestC ||
+      (cc === bestC && uu < bestU) ||
+      (cc === bestC && uu === bestU && i < best)
+    ) {
+      best = i;
+      bestC = cc;
+      bestU = uu;
+    }
+  }
+  return best;
+}
+
+function laterFirst(
+  a: string,
+  b: string,
+  indexOf: Map<string, number>,
+): [string, string] {
+  const ia = indexOf.get(a) ?? 0;
+  const ib = indexOf.get(b) ?? 0;
+  return ia <= ib ? [b, a] : [a, b];
+}
+
 /**
- * Greedy coloring in `netIds` order. Prefers a color unused by already-colored
- * crossing neighbors. If all 15 are taken, reuses the least-used neighbor color.
+ * Give every net a distinct palette slot first (wrap after 15). Then, if two
+ * crossing nets share a color, recolor one to a slot unused by its crossing
+ * neighbors. If that would collide with another neighbor (a waterfall), try
+ * the other net instead. After `COLOR_REPAIR_ITERS` attempts, keep the
+ * assignment with the fewest remaining same-color crossings.
  */
 export function colorNets(
   netIds: string[],
   neighbors: Map<string, Set<string>>,
 ): Map<string, string> {
   const assigned = new Map<string, number>();
-  for (const id of netIds) {
-    const used = new Set<number>();
-    const counts = new Array<number>(NET_PALETTE_SIZE).fill(0);
-    for (const n of neighbors.get(id) ?? []) {
-      const c = assigned.get(n);
-      if (c === undefined) continue;
-      used.add(c);
-      counts[c] = (counts[c] ?? 0) + 1;
+  const indexOf = new Map<string, number>();
+  netIds.forEach((id, i) => {
+    indexOf.set(id, i);
+    assigned.set(id, i % NET_PALETTE_SIZE);
+  });
+
+  let best = cloneAssigned(assigned);
+  let bestScore = conflictCount(netIds, assigned, neighbors);
+
+  for (let iter = 0; iter < COLOR_REPAIR_ITERS && bestScore > 0; iter++) {
+    const pairs = conflictPairs(netIds, assigned, neighbors);
+    if (pairs.length === 0) break;
+    const [a, b] = pairs[0]!;
+    const order = laterFirst(a, b, indexOf);
+
+    let resolved = false;
+    for (const node of order) {
+      const free = freeColors(node, assigned, neighbors);
+      if (free.length === 0) continue;
+      assigned.set(node, pickLeastUsed(free, assigned));
+      resolved = true;
+      break;
     }
-    let pick = -1;
-    for (let i = 0; i < NET_PALETTE_SIZE; i++) {
-      if (!used.has(i)) {
-        pick = i;
-        break;
-      }
-    }
-    if (pick < 0) {
-      pick = 0;
-      let best = Infinity;
-      for (let i = 0; i < NET_PALETTE_SIZE; i++) {
-        const n = counts[i] ?? 0;
-        if (n < best) {
-          best = n;
-          pick = i;
+
+    if (!resolved) {
+      restoreAssigned(assigned, best);
+      let moved = false;
+      for (const node of order) {
+        const old = assigned.get(node);
+        if (old === undefined) continue;
+        const next = minConflictColor(node, assigned, neighbors);
+        if (next === old) continue;
+        assigned.set(node, next);
+        const score = conflictCount(netIds, assigned, neighbors);
+        if (score < bestScore) {
+          moved = true;
+          break;
         }
+        assigned.set(node, old);
       }
+      if (!moved) break;
     }
-    assigned.set(id, pick);
+
+    const score = conflictCount(netIds, assigned, neighbors);
+    if (score < bestScore) {
+      bestScore = score;
+      best = cloneAssigned(assigned);
+    } else {
+      restoreAssigned(assigned, best);
+      break;
+    }
   }
-  const out = new Map<string, string>();
-  for (const [id, i] of assigned) {
-    out.set(id, NET_PALETTE[i]!);
-  }
-  return out;
+
+  return toHex(best);
 }
 
 export function assignNetColors(graph: RouteGraph): Map<string, string> {
