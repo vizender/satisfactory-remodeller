@@ -465,6 +465,12 @@ export function ItemPortNode(props: NodeProps) {
           type="target"
           position={Position.Left}
           className={handleIn}
+          style={{
+            left: 0,
+            right: "auto",
+            top: "50%",
+            transform: "translate(-100%, -50%)",
+          }}
         />
       ) : parentContainerOutputOff ? null : (
         <Handle
@@ -472,6 +478,12 @@ export function ItemPortNode(props: NodeProps) {
           type="source"
           position={Position.Right}
           className={handleOut}
+          style={{
+            left: "100%",
+            right: "auto",
+            top: "50%",
+            transform: "translate(0, -50%)",
+          }}
         />
       )}
       <div className="flex flex-col gap-0.5">

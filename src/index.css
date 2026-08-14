@@ -82,16 +82,29 @@ body {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-/* Sit fully outside the port card: inner edge flush with the card edge. */
+/*
+ * Sit fully outside the port card (inner edge flush with the card edge).
+ * Use left/right:auto so we beat xyflow's .react-flow__handle-right
+ * (`right: 0; transform: translate(50%, -50%)`), which otherwise keeps
+ * output handles bisected on the card.
+ */
 .react-flow__handle.rf-port-handle-in {
-  left: 0;
-  top: 50%;
-  transform: translate(-100%, -50%);
+  left: 0 !important;
+  right: auto !important;
+  top: 50% !important;
+  transform: translate(-100%, -50%) !important;
 }
 .react-flow__handle.rf-port-handle-out {
-  right: 0;
-  top: 50%;
-  transform: translate(100%, -50%);
+  left: 100% !important;
+  right: auto !important;
+  top: 50% !important;
+  transform: translate(0, -50%) !important;
+}
+
+.react-flow__node-itemPort,
+.react-flow__node-machineFrame,
+.react-flow__node-containerFrame {
+  overflow: visible !important;
 }
 
 /* Drag de connexion : machine sans port compatible, ports invalides */
