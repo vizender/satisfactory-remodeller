@@ -1,9 +1,18 @@
 import { useReactFlow, useStore } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   computeHops,
   flowOnSegment,
+  assignNetColors,
   HOP_RADIUS,
+  NET_PALETTE,
   SNAP_ALIGN,
   SNAP_ALIGN_SCREEN,
   segmentEdgeUsers,
@@ -18,16 +27,6 @@ import {
   type TopologyEdge,
 } from "@/lib/routing";
 
-const NET_STROKES = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#a855f7",
-  "#06b6d4",
-  "#f43f5e",
-];
-
-/** Keep hit strokes off port handles so RF connection drags still start. */
 const PORT_HIT_INSET = 18;
 
 type DragMode = "idle" | "drag" | "kink";
@@ -40,9 +39,11 @@ type OverlayDrag = {
   snapshot: RouteGraph;
 };
 
-function netColor(netId: string, nets: RouteGraph["nets"]): string {
-  const i = Math.max(0, nets.findIndex((n) => n.id === netId));
-  return NET_STROKES[i % NET_STROKES.length]!;
+function vertexColor(kind: string): string {
+  if (kind === "port") return "#64748b";
+  if (kind === "3si") return "#ca8a04";
+  if (kind === "4si") return "#6d28d9";
+  return "#94a3b8";
 }
 
 function hopPath(
@@ -110,13 +111,6 @@ function hitEndpoints(
     a: { x: a.x + ux * insetA, y: a.y + uy * insetA },
     b: { x: b.x - ux * insetB, y: b.y - uy * insetB },
   };
-}
-
-function vertexColor(kind: string): string {
-  if (kind === "port") return "#64748b";
-  if (kind === "3si") return "#f59e0b";
-  if (kind === "4si") return "#ef4444";
-  return "#94a3b8";
 }
 
 export function RouteOverlay({
@@ -195,6 +189,7 @@ export function RouteOverlay({
     () => new Set(conflictEdgeIds),
     [conflictEdgeIds],
   );
+  const netColors = useMemo(() => assignNetColors(graph), [graph]);
 
   const toFlow = useCallback(
     (e: { clientX: number; clientY: number }): Point =>
@@ -356,7 +351,7 @@ export function RouteOverlay({
           const inConflict = users.some((id) => conflictSet.has(id));
           const color = inConflict
             ? "var(--conflict-edge-stroke)"
-            : netColor(seg.netId, graph.nets);
+            : (netColors.get(seg.netId) ?? NET_PALETTE[0]);
           const flow =
             edgeFlow && users.length > 0
               ? flowOnSegment(graph, seg.id, topology, edgeFlow)
@@ -398,8 +393,9 @@ export function RouteOverlay({
                   selectedThis ? "route-seg route-seg-selected" : "route-seg"
                 }
                 d={d}
-                stroke={selectedThis ? undefined : color}
+                stroke={color}
                 strokeWidth={selectedThis ? 3.2 : 2.15}
+                style={{ ["--route-color"]: color } as CSSProperties}
               />
               {flow > 0.05 ? (
                 <text
@@ -419,6 +415,11 @@ export function RouteOverlay({
         {selectedSegs.map((seg) => {
           const mid = segmentMidpoint(graph, seg.id);
           if (!mid) return null;
+          const users = usersBySeg.get(seg.id) ?? [];
+          const inConflict = users.some((id) => conflictSet.has(id));
+          const color = inConflict
+            ? "var(--conflict-edge-stroke)"
+            : (netColors.get(seg.netId) ?? NET_PALETTE[0]);
           return (
             <circle
               key={`h-${seg.id}`}
@@ -427,7 +428,7 @@ export function RouteOverlay({
               cy={mid.y}
               r={6 / zoom}
               fill="var(--surface)"
-              stroke="var(--accent)"
+              stroke={color}
               strokeWidth={1.6 / zoom}
               onPointerDown={(ev) => beginDrag(ev, seg, "kink")}
             />

@@ -47,6 +47,11 @@ export { deleteSegment, pruneRouteGraph, removeTopologyEdge } from "./delete";
 export { dragSegment, kinkSegment, mergeVerticesIfPossible } from "./ops";
 export { snapDragPointer, type AlignHit, type DragSnapOpts } from "./snap";
 export { computeHops } from "./hops";
+export {
+  assignNetColors,
+  NET_PALETTE,
+  NET_PALETTE_SIZE,
+} from "./netColors";
 export { nextSegmentSelection } from "./selection";
 export { applyMachineDrag, followPortVertices } from "./machineDrag";
 export {

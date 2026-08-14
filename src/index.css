@@ -212,7 +212,7 @@ body {
 }
 
 .route-seg-selected {
-  stroke: var(--accent);
+  stroke: var(--route-color, currentColor);
   animation: route-shimmer 1.15s ease-in-out infinite;
 }
 
@@ -220,11 +220,15 @@ body {
   0%,
   100% {
     stroke-opacity: 1;
-    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 50%, transparent));
+    filter: drop-shadow(
+      0 0 2px color-mix(in srgb, var(--route-color, currentColor) 50%, transparent)
+    );
   }
   50% {
     stroke-opacity: 0.42;
-    filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 80%, transparent));
+    filter: drop-shadow(
+      0 0 7px color-mix(in srgb, var(--route-color, currentColor) 80%, transparent)
+    );
   }
 }
 
