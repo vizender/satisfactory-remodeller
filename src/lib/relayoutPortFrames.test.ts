@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Node } from "@xyflow/react";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { getContainerFrameDimensions } from "@/lib/buildContainerGraph";
-import { computeVerticalSlotYs } from "@/lib/machinePortLayout";
+import { centeredSingleSlotY, computeVerticalSlotYs } from "@/lib/machinePortLayout";
 import {
   inputPortX,
   outputPortX,
@@ -10,7 +10,7 @@ import {
   relayoutPortFrames,
 } from "./relayoutPortFrames";
 
-const { PORT_W, BODY_W, GUTTER, FRAME_MIN_H, PORT_COL_TOP } = MACHINE_LAYOUT;
+const { PORT_W, BODY_W, GUTTER, FRAME_MIN_H } = MACHINE_LAYOUT;
 
 const BODY_LEFT = PORT_W + GUTTER;
 const BODY_RIGHT = BODY_LEFT + BODY_W;
@@ -75,11 +75,11 @@ describe("relayoutPortFrames", () => {
     expect(outp.position.x).toBe(PORT_FRAME_W - PORT_W - GUTTER);
     expect(inn.position.x + PORT_W).toBe(BODY_LEFT);
     expect(outp.position.x).toBe(BODY_RIGHT);
-    expect(inn.position.y).toBe(PORT_COL_TOP);
-    expect(outp.position.y).toBe(PORT_COL_TOP);
+    expect(inn.position.y).toBe(centeredSingleSlotY(FRAME_MIN_H));
+    expect(outp.position.y).toBe(centeredSingleSlotY(FRAME_MIN_H));
   });
 
-  it("aligns the first slot of a 2-port machine with a 1-port machine", () => {
+  it("keeps a 2-port column top-aligned and centers a lone port", () => {
     const nodes: Node[] = [
       {
         id: "m1",
@@ -104,10 +104,12 @@ describe("relayoutPortFrames", () => {
       port("m2-out-1", "m2", "out", 50, 200, 2, 1),
     ];
     const out = relayoutPortFrames(nodes);
-    const ys = computeVerticalSlotYs(2);
-    expect(out.find((n) => n.id === "m1-out-0")!.position.y).toBe(ys[0]);
-    expect(out.find((n) => n.id === "m2-out-0")!.position.y).toBe(ys[0]);
-    expect(out.find((n) => n.id === "m2-out-1")!.position.y).toBe(ys[1]);
+    const two = computeVerticalSlotYs(2, FRAME_MIN_H);
+    expect(out.find((n) => n.id === "m1-out-0")!.position.y).toBe(
+      centeredSingleSlotY(FRAME_MIN_H),
+    );
+    expect(out.find((n) => n.id === "m2-out-0")!.position.y).toBe(two[0]);
+    expect(out.find((n) => n.id === "m2-out-1")!.position.y).toBe(two[1]);
   });
 
   it("is idempotent once ports are already current", () => {
@@ -120,8 +122,8 @@ describe("relayoutPortFrames", () => {
         style: { width: PORT_FRAME_W, height: frameH },
         data: { label: "Storage", variant: "standard" },
       },
-      port("c1-in-0", "c1", "in", GUTTER, PORT_COL_TOP),
-      port("c1-out-0", "c1", "out", outputPortX(), PORT_COL_TOP),
+      port("c1-in-0", "c1", "in", GUTTER, centeredSingleSlotY(frameH)),
+      port("c1-out-0", "c1", "out", outputPortX(), centeredSingleSlotY(frameH)),
     ];
     expect(relayoutPortFrames(nodes)).toBe(nodes);
   });

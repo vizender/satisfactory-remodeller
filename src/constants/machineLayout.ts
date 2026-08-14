@@ -2,8 +2,8 @@
  * Port cards sit flush on the machine body (`GUTTER` is 0).
  * Machine cores snap to `MACHINE_SNAP_GRID` on X.
  * Port *handles* sit on that grid vertically: `PORT_COL_TOP + PORT_ROW / 2`
- * is a multiple of 16, and every machine uses the same first-slot Y so a
- * 2-port top node lines up with a 1-port node when the cores share a row.
+ * is a multiple of 16. Multi-port columns start at `PORT_COL_TOP`; a lone
+ * input or output is centered in the machine as close as the grid allows.
  */
 export const MACHINE_LAYOUT = {
   PORT_W: 96,
