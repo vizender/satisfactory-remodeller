@@ -138,7 +138,7 @@ export const messages = {
     factoryNavTitle: "Navigation",
     snapToggle: "Snap",
     snapToggleTitle:
-      "Aligner horizontalement les ports connectés lorsqu’ils sont proches",
+      "Accrocher les machines à la grille (horizontal et vertical). Les courroies s’alignent entre elles, pas sur la grille.",
     resetEdgeRoute: "Réinitialiser le tracé",
     addEdgeKink: "Ajouter un coude",
     removeEdgeKink: "Supprimer le coude",
@@ -330,7 +330,7 @@ export const messages = {
     factoryNavTitle: "Navigation",
     snapToggle: "Snap",
     snapToggleTitle:
-      "Snap connected ports horizontally when they are closely aligned",
+      "Snap machines to the grid on both axes. Belts snap to each other, not to the grid.",
     resetEdgeRoute: "Reset route",
     addEdgeKink: "Add kink",
     removeEdgeKink: "Remove kink",

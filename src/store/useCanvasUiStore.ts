@@ -1,13 +1,13 @@
 import { create } from "zustand";
 
 interface CanvasUiState {
-  /** When true, connected ports snap to horizontal alignment when close. */
-  rigidPortSnap: boolean;
-  toggleRigidPortSnap: () => void;
+  /** When true, machines snap to the visible grid on both axes. */
+  machineGridSnap: boolean;
+  toggleMachineGridSnap: () => void;
 }
 
 export const useCanvasUiStore = create<CanvasUiState>((set) => ({
-  rigidPortSnap: true,
-  toggleRigidPortSnap: () =>
-    set((s) => ({ rigidPortSnap: !s.rigidPortSnap })),
+  machineGridSnap: true,
+  toggleMachineGridSnap: () =>
+    set((s) => ({ machineGridSnap: !s.machineGridSnap })),
 }));

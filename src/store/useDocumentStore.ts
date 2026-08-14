@@ -14,8 +14,10 @@ import {
   applyContainerItemAssignment,
 } from "@/lib/containerPortAssign";
 import { CONTAINER_DEFAULT_LABEL } from "@/constants/container";
-import { snapPointToGrid } from "@/constants/flowGrid";
-import { snapBuiltFrameToLinkOrigin } from "@/lib/rigidPortSnap";
+import {
+  machinePlacementGridSize,
+  snapPointToGrid,
+} from "@/constants/flowGrid";
 import type { ContainerVariant } from "@/types/graph";
 import {
   buildMachineNodes,
@@ -53,6 +55,16 @@ import {
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
+
+function snapForMachine(point: { x: number; y: number }): {
+  x: number;
+  y: number;
+} {
+  return snapPointToGrid(
+    point,
+    machinePlacementGridSize(useCanvasUiStore.getState().machineGridSnap),
+  );
+}
 
 function rebuildRouteGraph(nodes: Node[], edges: Edge[]): RouteGraph {
   return buildRouteGraph(
@@ -437,10 +449,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
     }
 
-    const position = computeMachineFramePosition(
-      recipeKey,
-      snapPointToGrid(flowPosition),
-      placement,
+    const position = snapForMachine(
+      computeMachineFramePosition(
+        recipeKey,
+        snapForMachine(flowPosition),
+        placement,
+      ),
     );
 
     const bp: MachineBlueprint = {
@@ -451,7 +465,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     };
     const built = buildMachineNodes(bp);
     let extraEdges: Edge[] = [];
-    let connectedPortId: string | null = null;
     if (linkId) {
       const origin = get().nodes.find((n) => n.id === linkId);
       if (origin?.type === "itemPort") {
@@ -464,7 +477,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             !hasEdgeBetweenPorts(get().edges, linkId, targetIn)
           ) {
             extraEdges.push(makeItemEdge(linkId, targetIn, itemId));
-            connectedPortId = targetIn;
           }
         } else {
           const sourceOut = findItemPortIdOnMachine(built, id, "out", itemId);
@@ -473,23 +485,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             !hasEdgeBetweenPorts(get().edges, sourceOut, linkId)
           ) {
             extraEdges.push(makeItemEdge(sourceOut, linkId, itemId));
-            connectedPortId = sourceOut;
           }
         }
       }
-    }
-    if (
-      linkId &&
-      connectedPortId &&
-      useCanvasUiStore.getState().rigidPortSnap
-    ) {
-      snapBuiltFrameToLinkOrigin(
-        built,
-        id,
-        linkId,
-        connectedPortId,
-        get().nodes,
-      );
     }
     set((s) => {
       const nodes = [...s.nodes, ...built];
@@ -505,9 +503,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   addContainer: (variant, flowPosition, options) => {
     const id = nextContainerFrameId(get().nodes);
-    const position = computeContainerFramePosition(
-      variant,
-      snapPointToGrid(flowPosition),
+    const position = snapForMachine(
+      computeContainerFramePosition(variant, snapForMachine(flowPosition)),
     );
     const bp: ContainerBlueprint = {
       id,
@@ -518,7 +515,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     };
     const built = buildContainerNodes(bp);
     let extraEdges: Edge[] = [];
-    let connectedPortId: string | null = null;
     const linkId = options?.linkOriginPortId;
     if (linkId) {
       const origin = get().nodes.find((n) => n.id === linkId);
@@ -539,7 +535,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
               !hasEdgeBetweenPorts(get().edges, linkId, targetIn.id)
             ) {
               extraEdges.push(makeItemEdge(linkId, targetIn.id, itemId));
-              connectedPortId = targetIn.id;
             }
           } else {
             const sourceOut = built.find(
@@ -554,24 +549,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
               !hasEdgeBetweenPorts(get().edges, sourceOut.id, linkId)
             ) {
               extraEdges.push(makeItemEdge(sourceOut.id, linkId, itemId));
-              connectedPortId = sourceOut.id;
             }
           }
         }
       }
-    }
-    if (
-      linkId &&
-      connectedPortId &&
-      useCanvasUiStore.getState().rigidPortSnap
-    ) {
-      snapBuiltFrameToLinkOrigin(
-        built,
-        id,
-        linkId,
-        connectedPortId,
-        get().nodes,
-      );
     }
     let nextNodes = built;
     for (const e of extraEdges) {

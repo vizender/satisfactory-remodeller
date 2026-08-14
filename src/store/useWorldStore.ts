@@ -19,6 +19,11 @@ import {
   sliceActiveCanvas,
 } from "@/lib/canvasTree";
 import { useDocumentStore } from "@/store/useDocumentStore";
+import { useCanvasUiStore } from "@/store/useCanvasUiStore";
+import {
+  machinePlacementGridSize,
+  snapPointToGrid,
+} from "@/constants/flowGrid";
 import type { CanvasId, CanvasRecord, CanvasViewport } from "@/types/canvas";
 import {
   WORLD_CANVAS_ID,
@@ -224,7 +229,14 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     const factoryId = nextFactoryId(canvasMap);
     const { label } = nextFactoryLabel(canvasMap, activeCanvasId);
 
-    const factoryNode = buildFactoryNode(factoryId, flowPosition, label);
+    const factoryNode = buildFactoryNode(
+      factoryId,
+      snapPointToGrid(
+        flowPosition,
+        machinePlacementGridSize(useCanvasUiStore.getState().machineGridSnap),
+      ),
+      label,
+    );
     const childCanvas = createChildCanvasRecord(
       factoryId,
       label,

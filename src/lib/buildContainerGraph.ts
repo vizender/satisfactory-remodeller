@@ -5,7 +5,7 @@ import {
   CONTAINER_DEFAULT_LABEL,
   CONTAINER_SLOT_COUNT,
 } from "@/constants/container";
-import { computeVerticalSlotYs } from "@/lib/machinePortLayout";
+import { alignFrameHeight, computeVerticalSlotYs } from "@/lib/machinePortLayout";
 import {
   CONTAINER_UNASSIGNED_ITEM,
   formatItemClassId,
@@ -14,8 +14,7 @@ import {
   type ItemPortData,
 } from "@/types/graph";
 
-const { PORT_W, PORT_ROW, PORT_STACK_STEP, BODY_W, GUTTER } = MACHINE_LAYOUT;
-const FRAME_V_MARGIN = 20;
+const { PORT_W, BODY_W, GUTTER } = MACHINE_LAYOUT;
 
 export interface ContainerBlueprint {
   id: string;
@@ -51,10 +50,8 @@ export function getContainerFrameDimensions(variant: ContainerVariant): {
   const slotCount = CONTAINER_SLOT_COUNT[variant];
   const frameW = PORT_W + GUTTER + BODY_W + GUTTER + PORT_W;
   const maxCol = Math.max(slotCount, 1);
-  const portColumnMinH =
-    (maxCol - 1) * PORT_STACK_STEP + PORT_ROW + 2 * FRAME_V_MARGIN;
   const bodyMin = bodyPanelMinHeight(slotCount);
-  const frameH = Math.max(196, portColumnMinH, bodyMin + 24);
+  const frameH = alignFrameHeight(bodyMin + 24, maxCol);
   return { frameW, frameH, slotCount };
 }
 

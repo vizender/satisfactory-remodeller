@@ -9,7 +9,7 @@ export const BACKWARDS_STUB = 40;
 
 /**
  * Min distance from every port to the reverse U-turn bus, so the long H
- * clears a min-height machine (~196px, port near vertical center) plus a
+ * clears a min-height machine (~208px, port near vertical center) plus a
  * visible gutter. The bus sits above, below, or in a gap — whichever makes
  * the verticals shorter.
  */

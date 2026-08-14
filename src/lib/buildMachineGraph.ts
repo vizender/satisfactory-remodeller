@@ -1,15 +1,12 @@
 import type { Node } from "@xyflow/react";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
-import { computeVerticalSlotYs } from "@/lib/machinePortLayout";
+import { alignFrameHeight, computeVerticalSlotYs } from "@/lib/machinePortLayout";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 import { itemRatesForRecipe } from "@/types/graph";
 
-const { PORT_W, PORT_ROW, PORT_STACK_STEP, BODY_W, GUTTER } = MACHINE_LAYOUT;
-
-/** Marge verticale min sous / au-dessus des colonnes de ports (centrage). */
-const FRAME_V_MARGIN = 20;
+const { PORT_W, PORT_ROW, BODY_W, GUTTER, FRAME_MIN_H } = MACHINE_LAYOUT;
 
 export function normalizePortSlotPermutation(
   n: number,
@@ -91,10 +88,8 @@ export function getMachineFrameDimensions(
   const outN = rates.outputs.length;
   const frameW = PORT_W + GUTTER + BODY_W + GUTTER + PORT_W;
   const maxCol = Math.max(inN, outN, 1);
-  const portColumnMinH =
-    (maxCol - 1) * PORT_STACK_STEP + PORT_ROW + 2 * FRAME_V_MARGIN;
   const bodyMin = bodyPanelMinHeight(inN, outN);
-  const frameH = Math.max(196, portColumnMinH, bodyMin + 24);
+  const frameH = alignFrameHeight(bodyMin + 24, maxCol);
   return { frameW, frameH, inCount: inN, outCount: outN };
 }
 
@@ -133,7 +128,7 @@ export function computeMachineFramePosition(
   const dims = getMachineFrameDimensions(recipeKey);
   if (!dims) {
     const frameW = BODY_W + 2 * (PORT_W + GUTTER);
-    const frameH = 196;
+    const frameH = FRAME_MIN_H;
     return {
       x: anchorInFlow.x - frameW / 2,
       y: anchorInFlow.y - frameH / 2,
@@ -178,7 +173,7 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
         id: pid,
         type: "machineFrame",
         position: bp.position,
-        style: { width: frameW, height: 196 },
+        style: { width: frameW, height: FRAME_MIN_H },
         connectable: false,
         draggable: true,
         selectable: true,

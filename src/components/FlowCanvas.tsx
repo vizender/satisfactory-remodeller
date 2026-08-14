@@ -27,7 +27,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   BACKGROUND_GRID_GAP,
-  SNAP_GRID_SIZE,
+  MACHINE_SNAP_GRID,
 } from "@/constants/flowGrid";
 import { EdgeContextMenu } from "@/components/EdgeContextMenu";
 import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
@@ -57,10 +57,6 @@ import {
   applyReorderTransitionToNodes,
   type ConnectionDragPreview,
 } from "@/lib/nodeDisplayDecorators";
-import {
-  isRigidSnapFrameType,
-  rigidSnapFramePosition,
-} from "@/lib/rigidPortSnap";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
 import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
@@ -194,6 +190,7 @@ function FlowCanvasInner() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
+  const machineGridSnap = useCanvasUiStore((s) => s.machineGridSnap);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
   const edges = useDocumentStore((s) => s.edges);
   const routeGraph = useDocumentStore((s) => s.routeGraph);
@@ -407,32 +404,6 @@ function FlowCanvasInner() {
             } else {
               machineIds.add(n.parentId);
             }
-            continue;
-          }
-        }
-        if (
-          useCanvasUiStore.getState().rigidPortSnap &&
-          change.type === "position" &&
-          change.position &&
-          change.dragging !== undefined
-        ) {
-          const n = useDocumentStore
-            .getState()
-            .nodes.find((node) => node.id === change.id);
-          if (n && isRigidSnapFrameType(n.type)) {
-            const { nodes: list, edges: edgeList } =
-              useDocumentStore.getState();
-            const snapped = rigidSnapFramePosition(
-              change.id,
-              change.position,
-              list,
-              edgeList,
-              {
-                currentPos: n.position,
-                onRelease: change.dragging === false,
-              },
-            );
-            forwarded.push({ ...change, position: snapped });
             continue;
           }
         }
@@ -904,8 +875,8 @@ function FlowCanvasInner() {
         edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        snapToGrid
-        snapGrid={[SNAP_GRID_SIZE, SNAP_GRID_SIZE]}
+        snapToGrid={machineGridSnap}
+        snapGrid={[MACHINE_SNAP_GRID, MACHINE_SNAP_GRID]}
         className="bg-[var(--bg)]"
         proOptions={{ hideAttribution: true }}
         elevateEdgesOnSelect

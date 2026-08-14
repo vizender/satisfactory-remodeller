@@ -1,13 +1,16 @@
 /**
  * Aligné avec `buildMachineGraph.ts` et `ItemPortNode` (carte port avec icône + débits + forçage).
- * `PORT_STACK_STEP` doit être ≥ hauteur réelle d’un port pour éviter le chevauchement vertical.
+ * Widths, heights and `PORT_STACK_STEP` are multiples of `MACHINE_SNAP_GRID` (16)
+ * so every port node of a multi-IO machine can sit on the grid at once.
  */
 export const MACHINE_LAYOUT = {
   PORT_W: 96,
-  /** Hauteur mini d’une rangée port (contenu + « Forcer »). */
-  PORT_ROW: 108,
-  /** Distance entre les `y` de deux ports consécutifs sur une même colonne. */
+  /** Hauteur d’une rangée port (contenu + « Forcer »). Multiple of 16. */
+  PORT_ROW: 112,
+  /** Distance between consecutive port node tops on a column. */
   PORT_STACK_STEP: 112,
-  BODY_W: 220,
-  GUTTER: 6,
+  BODY_W: 224,
+  GUTTER: 16,
+  FRAME_V_MARGIN: 16,
+  FRAME_MIN_H: 208,
 } as const;
