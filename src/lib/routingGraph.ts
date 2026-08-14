@@ -7,6 +7,7 @@ import {
   BACKWARDS_BUS_OFFSET,
   BACKWARDS_STUB,
   buildEdgeNetworkIds,
+  clampXOutsidePortFrame,
   enforcePortStubElbow,
   FORWARD_MIN_GAP,
   interiorCorners,
@@ -1266,6 +1267,96 @@ export function previewSegmentsForJunctionY(
     out.set(seg.id, simplifyOrthoPoints(next));
   }
   return out;
+}
+
+/**
+ * Live previews when a vertical bus column slides in X. Stubs stay attached
+ * at the T (no U-bend H spur). Vertices that sat on the old column follow.
+ */
+export function previewSegmentsForJunctionX(
+  graph: RoutingGraph,
+  nodes: Node[],
+  columnX: number,
+  newX: number,
+  excludeSegmentId: string,
+): Map<string, OrthoPoint[]> {
+  const x = snapToGrid(newX);
+  const movedIds = new Set<string>();
+  for (const [id, j] of Object.entries(graph.junctions)) {
+    if (Math.abs(j.x - columnX) <= 0.51) movedIds.add(id);
+  }
+  const out = new Map<string, OrthoPoint[]>();
+  for (const seg of Object.values(graph.segments)) {
+    if (seg.id === excludeSegmentId) continue;
+    const atA =
+      seg.a.kind === "junction" && movedIds.has(seg.a.junctionId);
+    const atB =
+      seg.b.kind === "junction" && movedIds.has(seg.b.junctionId);
+    if (!atA && !atB) continue;
+    const pts = resolveSegmentPoints(seg, nodes, graph, seg.id);
+    if (!pts || pts.length < 2) continue;
+    const next = pts.map((p) =>
+      Math.abs(p.x - columnX) < 1.5 ? { x, y: p.y } : { ...p },
+    );
+    out.set(seg.id, simplifyOrthoPoints(next));
+  }
+  return out;
+}
+
+/** Port attachments on a bus column (for min-stub clamp while sliding the rail). */
+export function busColumnPortLimits(
+  nodes: Node[],
+  graph: RoutingGraph,
+  segment: RoutingSegment,
+): { x: number; kind: "in" | "out" }[] {
+  const jids = new Set<string>();
+  if (segment.a.kind === "junction") jids.add(segment.a.junctionId);
+  if (segment.b.kind === "junction") jids.add(segment.b.junctionId);
+  if (jids.size === 0) return [];
+  const seeds = [...jids];
+  for (const id of seeds) {
+    const seed = graph.junctions[id];
+    if (!seed) continue;
+    for (const [oid, j] of Object.entries(graph.junctions)) {
+      if (Math.abs(j.x - seed.x) > 0.51) continue;
+      jids.add(oid);
+    }
+  }
+  const out: { x: number; kind: "in" | "out" }[] = [];
+  for (const s of Object.values(graph.segments)) {
+    const pid =
+      s.a.kind === "port" && s.b.kind === "junction" && jids.has(s.b.junctionId)
+        ? s.a.portId
+        : s.b.kind === "port" &&
+            s.a.kind === "junction" &&
+            jids.has(s.a.junctionId)
+          ? s.b.portId
+          : null;
+    if (!pid) continue;
+    const kind = portKind(nodes, pid);
+    const pos = portAbsPos(nodes, pid);
+    if (!kind || !pos) continue;
+    out.push({ x: pos.x, kind });
+  }
+  return out;
+}
+
+export function clampBusColumnX(
+  proposedX: number,
+  y1: number,
+  y2: number,
+  frames: FrameBounds[],
+  portLimits: { x: number; kind: "in" | "out" }[],
+): number {
+  let x = clampXOutsidePortFrame(proposedX, y1, y2, frames, "nearest");
+  let minX = -Infinity;
+  let maxX = Infinity;
+  for (const p of portLimits) {
+    if (p.kind === "out") minX = Math.max(minX, p.x + MIN_PORT_STUB);
+    else maxX = Math.min(maxX, p.x - MIN_PORT_STUB);
+  }
+  if (minX <= maxX) x = Math.max(minX, Math.min(maxX, x));
+  return snapToGrid(x);
 }
 
 /**

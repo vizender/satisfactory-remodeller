@@ -17,6 +17,9 @@ import {
   syncRoutingJunctionPositions,
   translateRailJunctions,
   previewSegmentsForJunctionY,
+  previewSegmentsForJunctionX,
+  busColumnPortLimits,
+  clampBusColumnX,
 } from "@/lib/routingGraph";
 import { MIN_PORT_STUB, moveSegmentOpen } from "@/lib/orthogonalEdgePath";
 import type { OrthoPoint } from "@/types/edgeData";
@@ -989,5 +992,114 @@ describe("shared routing graph (N×M)", () => {
           p.y < top.bottom - 1,
       ),
     ).toBe(false);
+  });
+
+  it("sliding the bus column keeps the top input T clean (no H spur)", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    )!;
+    const top = frameBoundsForPort(nodes, "in1")!;
+    const portPos = portAbsPos(nodes, "in1")!;
+    const beforeX = resolveEndpointPos(bus.a, nodes, graph)!.x;
+    const targetX = Math.min(beforeX + 80, top.left - MIN_PORT_STUB);
+    graph = translateRailJunctions(graph, bus.id, "x", targetX);
+    const stub = Object.values(graph.segments).find(
+      (s) =>
+        (s.a.kind === "port" && s.a.portId === "in1") ||
+        (s.b.kind === "port" && s.b.portId === "in1"),
+    )!;
+    const pts = resolveSegmentPoints(stub, nodes, graph)!;
+    expect(pts).toHaveLength(2);
+    const xs = pts.map((p) => p.x).sort((a, b) => a - b);
+    expect(xs[0]!).toBeGreaterThanOrEqual(targetX - 0.51);
+    expect(xs[1]!).toBeLessThanOrEqual(portPos.x + 0.51);
+    // No vertex left of the bus (T overshoot) or inside the constructor
+    expect(pts.every((p) => p.x >= targetX - 0.51)).toBe(true);
+    expect(
+      pts.some(
+        (p) =>
+          p.x > top.left + 1 &&
+          p.x < top.right - 1 &&
+          p.y > top.top + 1 &&
+          p.y < top.bottom - 1,
+      ),
+    ).toBe(false);
+  });
+
+  it("clampBusColumnX refuses to slide the rail into the top input", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    )!;
+    const a = resolveEndpointPos(bus.a, nodes, graph)!;
+    const b = resolveEndpointPos(bus.b, nodes, graph)!;
+    const top = frameBoundsForPort(nodes, "in1")!;
+    const x = clampBusColumnX(
+      (top.left + top.right) / 2,
+      a.y,
+      b.y,
+      framesForRoutingSegment(nodes, graph, bus),
+      busColumnPortLimits(nodes, graph, bus),
+    );
+    expect(x).toBeLessThanOrEqual(top.left - MIN_PORT_STUB + 0.5);
+    const portPos = portAbsPos(nodes, "in1")!;
+    expect(x).toBeLessThanOrEqual(portPos.x - MIN_PORT_STUB + 0.5);
+  });
+
+  it("previewSegmentsForJunctionX keeps the top stub attached to the sliding bus", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    )!;
+    const colX = resolveEndpointPos(bus.a, nodes, graph)!.x;
+    const newX = colX - 40;
+    const stubId = Object.keys(graph.segments).find((id) =>
+      id.includes("p:in1"),
+    )!;
+    const previews = previewSegmentsForJunctionX(
+      graph,
+      nodes,
+      colX,
+      newX,
+      bus.id,
+    );
+    expect(previews.has(stubId)).toBe(true);
+    const pts = previews.get(stubId)!;
+    expect(pts.some((p) => Math.abs(p.x - newX) < 1)).toBe(true);
+    expect(pts).toHaveLength(2);
   });
 });
