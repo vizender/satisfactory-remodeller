@@ -20,6 +20,8 @@ import {
   interiorCorners,
   isDetourWrapRail,
   locksChanged,
+  mergeColinearVerticals,
+  filterSegmentsToSameNetwork,
   MIN_PORT_STUB,
   moveCorner2D,
   moveCorner2DOpen,
@@ -58,6 +60,7 @@ import {
   segmentNetworkEdgeId,
   busColumnPortLimits,
   clampBusColumnX,
+  collectRoutingGraphVerticals,
   portLimitsForJunctionIds,
   shouldTranslateBusColumn,
   spanTranslateJunctionIds,
@@ -188,16 +191,39 @@ function clientToFlow(
   };
 }
 
+/** Same-network verticals, including merged bus rails from the routing graph. */
+function snapVerticalTargets(excludeId: string, networkEdgeId: string) {
+  const { nodes, edges, routingGraph } = useDocumentStore.getState();
+  const fromGraph = collectRoutingGraphVerticals(
+    routingGraph,
+    nodes,
+    edges,
+    new Set([excludeId]),
+  );
+  const graphForNet = filterSegmentsToSameNetwork(
+    networkEdgeId,
+    fromGraph,
+    edges,
+  );
+  // Shared networks: graph segments are the snap source (excludes the dragged
+  // span so it cannot hold to its own old X). Classic 1-to-1 edges have no
+  // graph segments — fall back to composed logical polylines.
+  if (graphForNet.length > 0) {
+    return mergeColinearVerticals(graphForNet);
+  }
+  return collectVerticalSegments(edges, nodes, excludeId, {
+    sameNetworkAs: networkEdgeId,
+    resolvePoints: (e) => composeLogicalRoutePoints(e, nodes, routingGraph),
+  });
+}
+
 /** Same-network segments only — foreign feeds must not snap/fuse trunks. */
 function cornerSnapTargets(edgeId: string, networkEdgeId: string) {
   const { nodes, edges, routingGraph } = useDocumentStore.getState();
-  const resolvePoints = (e: typeof edges[number]) =>
+  const resolvePoints = (e: (typeof edges)[number]) =>
     composeLogicalRoutePoints(e, nodes, routingGraph);
   return {
-    othersV: collectVerticalSegments(edges, nodes, edgeId, {
-      sameNetworkAs: networkEdgeId,
-      resolvePoints,
-    }),
+    othersV: snapVerticalTargets(edgeId, networkEdgeId),
     othersH: collectHorizontalSegments(edges, nodes, edgeId, {
       sameNetworkAs: networkEdgeId,
       resolvePoints,
@@ -594,17 +620,17 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
       // Soft-snap free H/V onto same-network neighbors (also open routing stubs).
       const movedSeg = routeSegments(next)[st.segmentIndex];
       if (movedSeg && !movedSeg.horizontal) {
-        const { nodes, edges, routingGraph: rg } = useDocumentStore.getState();
-        const others = collectVerticalSegments(edges, nodes, idRef.current, {
-          sameNetworkAs: networkEdgeIdRef.current,
-          resolvePoints: (ed) => composeLogicalRoutePoints(ed, nodes, rg),
-        });
+        const others = snapVerticalTargets(
+          idRef.current,
+          networkEdgeIdRef.current,
+        );
         const snappedX = snapVerticalX(
           movedSeg.a.x,
           Math.min(movedSeg.a.y, movedSeg.b.y),
           Math.max(movedSeg.a.y, movedSeg.b.y),
           others,
           st.heldSnapX,
+          CORNER_SNAP_OVERLAP_PAD,
         );
         if (Math.abs(snappedX - movedSeg.a.x) > 0.5) {
           const ends = endsRef.current;

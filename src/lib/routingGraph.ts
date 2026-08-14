@@ -13,8 +13,10 @@ import {
   interiorCorners,
   MIN_PORT_STUB,
   resolveRoutePoints,
+  routeSegments,
   simplifyOrthoPoints,
 } from "@/lib/orthogonalEdgePath";
+import type { VerticalSegInfo } from "@/lib/orthogonalEdgePath";
 import type { OrthoNorm, OrthoPoint, RouteAnchor } from "@/types/edgeData";
 import { isItemEdgeData, type ItemEdgeData } from "@/types/edgeData";
 import {
@@ -1946,6 +1948,38 @@ export function segmentNetworkEdgeId(
     if (path?.includes(segmentId)) return e.id;
   }
   return undefined;
+}
+
+/**
+ * Vertical runs from the shared routing graph. Junction↔junction spans are
+ * bus rails (snap without needing Y overlap). `excludeSegmentIds` drops the
+ * segment currently being dragged so it cannot snap to its own old X.
+ */
+export function collectRoutingGraphVerticals(
+  graph: RoutingGraph,
+  nodes: Node[],
+  edges: Edge[],
+  excludeSegmentIds?: ReadonlySet<string>,
+): VerticalSegInfo[] {
+  const out: VerticalSegInfo[] = [];
+  for (const seg of Object.values(graph.segments)) {
+    if (excludeSegmentIds?.has(seg.id)) continue;
+    const pts = resolveSegmentPoints(seg, nodes, graph, seg.id);
+    if (!pts || pts.length < 2) continue;
+    const logical = segmentNetworkEdgeId(seg.id, edges) ?? seg.id;
+    const rail = seg.a.kind === "junction" && seg.b.kind === "junction";
+    for (const s of routeSegments(pts)) {
+      if (s.horizontal || s.length < 4) continue;
+      out.push({
+        edgeId: logical,
+        x: s.a.x,
+        y1: Math.min(s.a.y, s.b.y),
+        y2: Math.max(s.a.y, s.b.y),
+        rail,
+      });
+    }
+  }
+  return out;
 }
 
 export function countSegmentsDrawnOnce(graph: RoutingGraph): number {

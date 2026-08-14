@@ -2316,6 +2316,8 @@ export type VerticalSegInfo = {
   x: number;
   y1: number;
   y2: number;
+  /** Shared bus rail (junction↔junction). Snap even without Y overlap. */
+  rail?: boolean;
 };
 
 export type HorizontalSegInfo = {
@@ -2431,9 +2433,18 @@ export function filterSegmentsToSameNetwork<T extends { edgeId: string }>(
   edges: Edge[],
 ): T[] {
   const net = buildEdgeNetworkIds(edges);
-  const mine = net.get(edgeId);
+  const lookup = (id: string): string | undefined => {
+    const direct = net.get(id);
+    if (direct !== undefined) return direct;
+    for (const e of edges) {
+      const path = (e.data as { routePath?: unknown } | undefined)?.routePath;
+      if (Array.isArray(path) && path.includes(id)) return net.get(e.id);
+    }
+    return undefined;
+  };
+  const mine = lookup(edgeId);
   if (mine === undefined) return [];
-  return segments.filter((s) => net.get(s.edgeId) === mine);
+  return segments.filter((s) => lookup(s.edgeId) === mine);
 }
 
 function yRangesOverlap(
@@ -2456,6 +2467,25 @@ function xRangesOverlap(
   return a1 - pad <= b2 && b1 - pad <= a2;
 }
 
+/** Union verticals that share an X so a split bus is one snap column. */
+export function mergeColinearVerticals(
+  segs: VerticalSegInfo[],
+): VerticalSegInfo[] {
+  const groups = new Map<string, VerticalSegInfo>();
+  for (const s of segs) {
+    const key = `${Math.round(s.x)}`;
+    const g = groups.get(key);
+    if (!g) {
+      groups.set(key, { ...s });
+      continue;
+    }
+    g.y1 = Math.min(g.y1, s.y1);
+    g.y2 = Math.max(g.y2, s.y2);
+    if (s.rail) g.rail = true;
+  }
+  return [...groups.values()];
+}
+
 export function snapVerticalX(
   proposedX: number,
   segY1: number,
@@ -2464,17 +2494,19 @@ export function snapVerticalX(
   heldSnapX: number | null,
   overlapPad = 8,
 ): number {
+  const overlaps = (o: VerticalSegInfo) =>
+    o.rail || yRangesOverlap(segY1, segY2, o.y1, o.y2, overlapPad);
   if (heldSnapX !== null) {
     for (const o of others) {
       if (Math.abs(o.x - heldSnapX) > 0.5) continue;
-      if (!yRangesOverlap(segY1, segY2, o.y1, o.y2, overlapPad)) continue;
+      if (!overlaps(o)) continue;
       if (Math.abs(proposedX - o.x) < VERTICAL_SNAP_HOLD) return o.x;
     }
   }
   let best: number | null = null;
   let bestDist = VERTICAL_SNAP_ENGAGE;
   for (const o of others) {
-    if (!yRangesOverlap(segY1, segY2, o.y1, o.y2, overlapPad)) continue;
+    if (!overlaps(o)) continue;
     const d = Math.abs(proposedX - o.x);
     if (d < bestDist) {
       bestDist = d;
