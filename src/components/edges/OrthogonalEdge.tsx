@@ -26,7 +26,7 @@ import {
   moveSegment,
   moveSegmentOpen,
   type OpenKinkPin,
-  type PortFrameBounds,
+  type PortFrames,
   orthogonalizeOpen,
   orthogonalLabelPosition,
   partnerIdsNeedingLockRefresh,
@@ -49,7 +49,7 @@ import {
 } from "@/lib/orthoDragPreview";
 import {
   composeLogicalRoutePoints,
-  frameBoundsForPort,
+  framesForRoutingSegment,
   previewSegmentsForJunctionY,
   resolveEndpointPos,
   resolveSegmentPoints,
@@ -159,7 +159,7 @@ function applyCornerSnaps(
   heldSnapY: number | null,
   openChain = false,
   openPin: OpenKinkPin = "both",
-  portFrame: PortFrameBounds | null = null,
+  portFrame: PortFrames = null,
 ): { points: OrthoPoint[]; heldSnapX: number | null; heldSnapY: number | null } {
   if (!points[cornerIndex]) return { points, heldSnapX, heldSnapY };
 
@@ -320,35 +320,12 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
     selectThisEdge("replace");
   };
 
-  const portFrameForSeg = (): PortFrameBounds | null => {
+  const portFrameForSeg = (): PortFrames => {
     const { nodes, routingGraph: rg } = useDocumentStore.getState();
     const meta = rg.segments[idRef.current];
     if (!meta) return null;
-    const portId =
-      meta.a.kind === "port"
-        ? meta.a.portId
-        : meta.b.kind === "port"
-          ? meta.b.portId
-          : null;
-    if (portId) return frameBoundsForPort(nodes, portId);
-
-    // Junction↔junction: use any connected port's machine frame so a bus V
-    // cannot be dragged through that machine body.
-    const jids = new Set<string>();
-    if (meta.a.kind === "junction") jids.add(meta.a.junctionId);
-    if (meta.b.kind === "junction") jids.add(meta.b.junctionId);
-    for (const s of Object.values(rg.segments)) {
-      const jp =
-        s.a.kind === "port" && s.b.kind === "junction"
-          ? { portId: s.a.portId, jid: s.b.junctionId }
-          : s.b.kind === "port" && s.a.kind === "junction"
-            ? { portId: s.b.portId, jid: s.a.junctionId }
-            : null;
-      if (!jp || !jids.has(jp.jid)) continue;
-      const frame = frameBoundsForPort(nodes, jp.portId);
-      if (frame) return frame;
-    }
-    return null;
+    const frames = framesForRoutingSegment(nodes, rg, meta);
+    return frames.length > 0 ? frames : null;
   };
 
   const resolveLogicalPoints = (e: (typeof docEdges)[number]) =>
@@ -682,7 +659,7 @@ function OrthogonalEdgeImpl(props: EdgeProps) {
             pointer,
             c.startPoints,
             st.startPointer,
-            { pin: openKinkPin(meta), portFrame: portFrameForSeg() },
+            { pin: openKinkPin(meta), portFrame: meta ? framesForRoutingSegment(nodes, rg, meta) : null },
           );
           c.latestPoints = moved.points;
           c.segmentIndex = moved.activeSegmentIndex;

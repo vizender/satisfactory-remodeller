@@ -193,6 +193,62 @@ export function frameBoundsForPort(
   };
 }
 
+/**
+ * Every machine AABB a routing segment can collide with: its own port's
+ * frame plus any port stub sharing a junction (so a bus V between the
+ * output and the top input is clamped against BOTH machines).
+ */
+export function framesForRoutingSegment(
+  nodes: Node[],
+  graph: RoutingGraph,
+  segment: RoutingSegment,
+): FrameBounds[] {
+  const portIds = new Set<string>();
+  if (segment.a.kind === "port") portIds.add(segment.a.portId);
+  if (segment.b.kind === "port") portIds.add(segment.b.portId);
+  const jids = new Set<string>();
+  if (segment.a.kind === "junction") jids.add(segment.a.junctionId);
+  if (segment.b.kind === "junction") jids.add(segment.b.junctionId);
+  // Colocated T-junctions (output aligned with the top input) share a point
+  // with no jj edge — still collide with that port's machine.
+  if (jids.size > 0) {
+    for (const id of [...jids]) {
+      const seed = graph.junctions[id];
+      if (!seed) continue;
+      for (const [oid, j] of Object.entries(graph.junctions)) {
+        if (jids.has(oid)) continue;
+        if (Math.abs(j.x - seed.x) > 0.51) continue;
+        if (Math.abs(j.y - seed.y) > 0.51) continue;
+        jids.add(oid);
+      }
+    }
+  }
+  if (jids.size > 0) {
+    for (const s of Object.values(graph.segments)) {
+      const pid =
+        s.a.kind === "port" && s.b.kind === "junction" && jids.has(s.b.junctionId)
+          ? s.a.portId
+          : s.b.kind === "port" &&
+              s.a.kind === "junction" &&
+              jids.has(s.a.junctionId)
+            ? s.b.portId
+            : null;
+      if (pid) portIds.add(pid);
+    }
+  }
+  const frames: FrameBounds[] = [];
+  const seen = new Set<string>();
+  for (const pid of portIds) {
+    const f = frameBoundsForPort(nodes, pid);
+    if (!f) continue;
+    const key = `${f.left}:${f.top}:${f.right}:${f.bottom}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    frames.push(f);
+  }
+  return frames;
+}
+
 function wrapYCollides(
   wrapY: number,
   frame: FrameBounds | null,
@@ -966,7 +1022,53 @@ export function syncRoutingJunctionPositions(
   }
   const withY = changed ? { ...graph, junctions } : graph;
   // Local stub follow / around-machine detours — never translate the shared bus.
-  return applyLocalStubDetours(withY, nodes);
+  return sanitizeRoutingCornersOutsideFrames(
+    applyLocalStubDetours(withY, nodes),
+    nodes,
+  );
+}
+
+/** Eject stored kinks that sit inside a connected machine (bus U-bend H/V). */
+function sanitizeRoutingCornersOutsideFrames(
+  graph: RoutingGraph,
+  nodes: Node[],
+): RoutingGraph {
+  let segments = graph.segments;
+  let copied = false;
+  for (const seg of Object.values(graph.segments)) {
+    if (!seg.cornersAbs || seg.cornersAbs.length < 1) continue;
+    const frames = framesForRoutingSegment(nodes, graph, seg);
+    if (frames.length === 0) continue;
+    const a = resolveEndpointPos(seg.a, nodes, graph);
+    const b = resolveEndpointPos(seg.b, nodes, graph);
+    if (!a || !b) continue;
+    const pin =
+      seg.a.kind === "port"
+        ? ("start" as const)
+        : seg.b.kind === "port"
+          ? ("end" as const)
+          : ("both" as const);
+    const raw = assembleOpenPolyline(a, seg.cornersAbs, b);
+    const fixed = enforcePortStubElbow(raw, pin, frames);
+    const nextCorners = interiorCorners(fixed);
+    const same =
+      nextCorners.length === seg.cornersAbs.length &&
+      nextCorners.every(
+        (p, i) =>
+          Math.abs(p.x - seg.cornersAbs![i]!.x) < 0.01 &&
+          Math.abs(p.y - seg.cornersAbs![i]!.y) < 0.01,
+      );
+    if (same) continue;
+    if (!copied) {
+      segments = { ...graph.segments };
+      copied = true;
+    }
+    const next: RoutingSegment = { ...seg, cornersAbs: nextCorners };
+    delete next.cornersNorm;
+    if (nextCorners.length < 1) delete next.cornersAbs;
+    segments[seg.id] = next;
+  }
+  return copied ? { ...graph, segments } : graph;
 }
 
 export function endpointNodeId(ep: RoutingEndpoint): string {
@@ -1277,26 +1379,27 @@ export function setSegmentCornersNorm(
   } else {
     // Always store absolute corners — norms collapse on axis-aligned segments.
     let sanitized = corners.map((p) => ({ x: p.x, y: p.y }));
-    // Port stubs: never persist a leave column / kink vertex inside the body.
-    const portEp =
+    const pin =
       seg.a.kind === "port"
-        ? seg.a
+        ? ("start" as const)
         : seg.b.kind === "port"
-          ? seg.b
-          : null;
-    if (portEp && anchor) {
-      const pin =
-        seg.a.kind === "port" ? ("start" as const) : ("end" as const);
-      const frame =
+          ? ("end" as const)
+          : ("both" as const);
+    if (anchor) {
+      const frames =
         nodes && nodes.length > 0
-          ? frameBoundsForPort(nodes, portEp.portId)
-          : null;
+          ? framesForRoutingSegment(nodes, graph, seg)
+          : [];
       const raw = assembleOpenPolyline(
         { x: anchor.sx, y: anchor.sy },
         sanitized,
         { x: anchor.tx, y: anchor.ty },
       );
-      const fixed = enforcePortStubElbow(raw, pin, frame);
+      const fixed = enforcePortStubElbow(
+        raw,
+        pin,
+        frames.length > 0 ? frames : null,
+      );
       sanitized = interiorCorners(fixed);
     }
     next.cornersAbs = sanitized;

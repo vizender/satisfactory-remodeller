@@ -8,6 +8,7 @@ import {
   composeLogicalRoutePoints,
   countSegmentsDrawnOnce,
   frameBoundsForPort,
+  framesForRoutingSegment,
   portAbsPos,
   rebuildRoutingGraph,
   resolveEndpointPos,
@@ -17,6 +18,7 @@ import {
   translateRailJunctions,
   previewSegmentsForJunctionY,
 } from "@/lib/routingGraph";
+import { MIN_PORT_STUB, moveSegmentOpen } from "@/lib/orthogonalEdgePath";
 import type { OrthoPoint } from "@/types/edgeData";
 
 const { PORT_W, BODY_W, GUTTER } = MACHINE_LAYOUT;
@@ -877,5 +879,115 @@ describe("shared routing graph (N×M)", () => {
         Math.abs(p.y - newY) < 1,
     );
     expect(atJunction).toBe(true);
+  });
+
+  it("framesForRoutingSegment includes the colocated top input on a 1→N bus", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    );
+    expect(bus).toBeTruthy();
+    const frames = framesForRoutingSegment(nodes, graph, bus!);
+    const top = frameBoundsForPort(nodes, "in1")!;
+    expect(
+      frames.some(
+        (f) => Math.abs(f.left - top.left) < 1 && Math.abs(f.top - top.top) < 1,
+      ),
+    ).toBe(true);
+  });
+
+  it("dragging the shared bus V cannot put a U-bend inside the top input", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    const { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    )!;
+    const start = resolveSegmentPoints(bus, nodes, graph)!;
+    expect(start).toHaveLength(2);
+    const frames = framesForRoutingSegment(nodes, graph, bus);
+    const top = frameBoundsForPort(nodes, "in1")!;
+    const midX = (top.left + top.right) / 2;
+    const midY = (start[0]!.y + start[1]!.y) / 2;
+    const result = moveSegmentOpen(
+      0,
+      { x: midX, y: midY },
+      start,
+      { x: start[0]!.x, y: midY },
+      { pin: "both", portFrame: frames },
+    );
+    const interiorsInside = result.points.slice(1, -1).filter(
+      (p) =>
+        p.x > top.left + 1 &&
+        p.x < top.right - 1 &&
+        p.y > top.top + 1 &&
+        p.y < top.bottom - 1,
+    );
+    expect(interiorsInside).toHaveLength(0);
+    // H return at the top T must not cross into the constructor
+    const maxInteriorX = Math.max(...result.points.slice(1, -1).map((p) => p.x));
+    expect(maxInteriorX).toBeLessThanOrEqual(top.left - MIN_PORT_STUB + 0.5);
+  });
+
+  it("setSegmentCornersNorm drops a bus kink that sits inside the top input", () => {
+    const nodes: Node[] = [
+      frame("m1", 0, 0),
+      port("out", "m1", "out", 96, 0),
+      frame("m2", 400, 0),
+      port("in1", "m2", "in", 0, 0),
+      frame("m3", 400, 200),
+      port("in2", "m3", "in", 0, 0),
+    ];
+    let { graph } = rebuildRoutingGraph(nodes, [
+      edge("e1", "out", "in1"),
+      edge("e2", "out", "in2"),
+    ]);
+    const bus = Object.values(graph.segments).find(
+      (s) => s.a.kind === "junction" && s.b.kind === "junction",
+    )!;
+    const a = resolveEndpointPos(bus.a, nodes, graph)!;
+    const b = resolveEndpointPos(bus.b, nodes, graph)!;
+    const top = frameBoundsForPort(nodes, "in1")!;
+    const insideX = (top.left + top.right) / 2;
+    graph = setSegmentCornersNorm(
+      graph,
+      bus.id,
+      [
+        { x: insideX, y: a.y },
+        { x: insideX, y: b.y },
+      ],
+      { sx: a.x, sy: a.y, tx: b.x, ty: b.y },
+      nodes,
+    );
+    const resolved = resolveSegmentPoints(graph.segments[bus.id]!, nodes, graph)!;
+    expect(
+      resolved.some(
+        (p) =>
+          p.x > top.left + 1 &&
+          p.x < top.right - 1 &&
+          p.y > top.top + 1 &&
+          p.y < top.bottom - 1,
+      ),
+    ).toBe(false);
   });
 });

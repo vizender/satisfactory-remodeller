@@ -1015,7 +1015,7 @@ export function moveCorner2DOpen(
   x: number,
   y: number,
   pin: OpenKinkPin = "both",
-  frame?: PortFrameBounds | null,
+  frame?: PortFrames,
 ): OrthoPoint[] {
   if (cornerIndex <= 0 || cornerIndex >= points.length - 1) {
     return orthogonalizeOpen(points);
@@ -1040,7 +1040,7 @@ export function moveCorner2DOpen(
   );
   if (vertOnCorner) {
     nx = clampOpenVerticalX(nx, points, vertOnCorner.index, pin, frame);
-  } else if (frame && pointInsidePortFrame({ x: nx, y: ny }, frame)) {
+  } else if (frame && pointInsideAnyPortFrame({ x: nx, y: ny }, frame)) {
     nx = clampXOutsidePortFrame(
       nx,
       ny,
@@ -1083,6 +1083,15 @@ export type PortFrameBounds = {
   top: number;
   bottom: number;
 };
+
+/** One or more machine frames a segment may not cut through. */
+export type PortFrames = PortFrameBounds | readonly PortFrameBounds[] | null | undefined;
+
+export function asPortFrameList(frames: PortFrames): PortFrameBounds[] {
+  if (!frames) return [];
+  if (Array.isArray(frames)) return [...frames];
+  return [frames as PortFrameBounds];
+}
 
 /**
  * Vertical run attached to the port's H stub (elbow at the stub end).
@@ -1145,10 +1154,10 @@ export function clampXToPortStubOutside(
 /** Prefer which side of a machine frame a vertical should escape to. */
 export function preferFrameEscapeSide(
   pin: OpenKinkPin,
-): "left" | "right" {
+): "left" | "right" | "nearest" {
   if (pin === "end") return "left";
   if (pin === "start") return "right";
-  return "left";
+  return "nearest";
 }
 
 export function pointInsidePortFrame(
@@ -1162,6 +1171,14 @@ export function pointInsidePortFrame(
     p.y > frame.top + inset &&
     p.y < frame.bottom - inset
   );
+}
+
+export function pointInsideAnyPortFrame(
+  p: OrthoPoint,
+  frames: PortFrames,
+  inset = 0.5,
+): boolean {
+  return asPortFrameList(frames).some((f) => pointInsidePortFrame(p, f, inset));
 }
 
 /** True when a vertical at x spanning [y1,y2] cuts through the machine body. */
@@ -1178,24 +1195,42 @@ export function verticalHitsPortFrame(
   return hi > frame.top + inset && lo < frame.bottom - inset;
 }
 
+function escapeXForFrame(
+  x: number,
+  frame: PortFrameBounds,
+  side: "left" | "right" | "nearest",
+): number {
+  const left = frame.left - MIN_PORT_STUB;
+  const right = frame.right + MIN_PORT_STUB;
+  if (side === "left") return left;
+  if (side === "right") return right;
+  return x - frame.left <= frame.right - x ? left : right;
+}
+
 /**
- * Push a vertical X just outside the machine AABB (short clearance).
- * Used while dragging any V that would otherwise cut through the node.
+ * Push a vertical X just outside every machine AABB the run would cut.
+ * Bus V between an output and the top input must respect BOTH frames —
+ * clamping only the output lets the U-bend H/V enter the top constructor.
  */
 export function clampXOutsidePortFrame(
   proposedX: number,
   y1: number,
   y2: number,
-  frame: PortFrameBounds | null | undefined,
-  side: "left" | "right",
+  frame: PortFrames,
+  side: "left" | "right" | "nearest" = "nearest",
 ): number {
-  if (!frame) return snapToGrid(proposedX);
   let x = proposedX;
-  if (verticalHitsPortFrame(x, y1, y2, frame)) {
-    x =
-      side === "left"
-        ? frame.left - MIN_PORT_STUB
-        : frame.right + MIN_PORT_STUB;
+  const frames = asPortFrameList(frame);
+  for (let pass = 0; pass < frames.length + 1; pass++) {
+    let hit: PortFrameBounds | null = null;
+    for (const f of frames) {
+      if (verticalHitsPortFrame(x, y1, y2, f)) {
+        hit = f;
+        break;
+      }
+    }
+    if (!hit) break;
+    x = escapeXForFrame(x, hit, side);
   }
   return snapToGrid(x);
 }
@@ -1208,7 +1243,7 @@ export function clampPortAdjacentVerticalX(
   proposedX: number,
   points: OrthoPoint[],
   pin: OpenKinkPin,
-  frame?: PortFrameBounds | null,
+  frame?: PortFrames,
   segmentIndex?: number,
 ): number {
   let x = snapToGrid(proposedX);
@@ -1251,7 +1286,7 @@ export function clampOpenVerticalX(
   points: OrthoPoint[],
   segmentIndex: number,
   pin: OpenKinkPin,
-  frame?: PortFrameBounds | null,
+  frame?: PortFrames,
 ): number {
   const a = points[segmentIndex] ?? points[0]!;
   const b = points[segmentIndex + 1] ?? points[points.length - 1]!;
@@ -1286,13 +1321,16 @@ export function clampOpenVerticalX(
 
 function pushPointOutsideFrame(
   p: OrthoPoint,
-  frame: PortFrameBounds,
-  side: "left" | "right",
+  frame: PortFrames,
+  side: "left" | "right" | "nearest",
 ): OrthoPoint {
-  if (!pointInsidePortFrame(p, frame)) return p;
-  const x =
-    side === "left" ? frame.left - MIN_PORT_STUB : frame.right + MIN_PORT_STUB;
-  return { x: snapToGrid(x), y: p.y };
+  let q = { ...p };
+  for (const f of asPortFrameList(frame)) {
+    if (pointInsidePortFrame(q, f)) {
+      q = { x: snapToGrid(escapeXForFrame(q.x, f, side)), y: q.y };
+    }
+  }
+  return q;
 }
 
 /**
@@ -1304,7 +1342,7 @@ function pushPointOutsideFrame(
 export function enforcePortStubElbow(
   points: OrthoPoint[],
   pin: OpenKinkPin,
-  frame?: PortFrameBounds | null,
+  frame?: PortFrames,
 ): OrthoPoint[] {
   if (points.length < 3) {
     return simplifyOrthoPoints(points);
@@ -1314,7 +1352,7 @@ export function enforcePortStubElbow(
   const end = { ...pts[pts.length - 1]! };
   const side = preferFrameEscapeSide(pin);
 
-  // 1) Eject vertices that sit inside the machine body (V-through-node).
+  // 1) Eject vertices that sit inside any connected machine body.
   if (frame) {
     for (let i = 1; i < pts.length - 1; i++) {
       pts[i] = pushPointOutsideFrame(pts[i]!, frame, side);
@@ -1457,8 +1495,8 @@ export function moveSegmentOpen(
     translateStraight?: boolean;
     /** Pin the port side so the kink's free run faces the junction. */
     pin?: OpenKinkPin;
-    /** Machine frame for the port — keeps the port-adjacent V outside the body. */
-    portFrame?: PortFrameBounds | null;
+    /** Machine frames the run may not cut through (port + connected bus). */
+    portFrame?: PortFrames;
   },
 ): MoveSegmentResult {
   const base = orthogonalizeOpen(startPoints);
