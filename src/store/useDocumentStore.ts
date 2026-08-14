@@ -16,8 +16,9 @@ import {
 import { CONTAINER_DEFAULT_LABEL } from "@/constants/container";
 import {
   machinePlacementGridSize,
-  snapPointToGrid,
+  snapToGrid,
 } from "@/constants/flowGrid";
+import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import type { ContainerVariant } from "@/types/graph";
 import {
   buildMachineNodes,
@@ -57,14 +58,19 @@ import {
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
+const CORE_LEFT = MACHINE_LAYOUT.PORT_W + MACHINE_LAYOUT.GUTTER;
+
 function snapForMachine(point: { x: number; y: number }): {
   x: number;
   y: number;
 } {
-  return snapPointToGrid(
-    point,
-    machinePlacementGridSize(useCanvasUiStore.getState().machineGridSnap),
+  const g = machinePlacementGridSize(
+    useCanvasUiStore.getState().machineGridSnap,
   );
+  return {
+    x: snapToGrid(point.x + CORE_LEFT, g) - CORE_LEFT,
+    y: snapToGrid(point.y, g),
+  };
 }
 
 function rebuildRouteGraph(nodes: Node[], edges: Edge[]): RouteGraph {
