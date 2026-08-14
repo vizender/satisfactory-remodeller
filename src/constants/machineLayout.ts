@@ -13,6 +13,4 @@ export const MACHINE_LAYOUT = {
   GUTTER: 16,
   FRAME_V_MARGIN: 16,
   FRAME_MIN_H: 208,
-  /** Tailwind `h-3` / `w-3` port handle. Even so the center stays on the 2px snap. */
-  HANDLE_SIZE: 12,
 } as const;

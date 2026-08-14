@@ -5,7 +5,7 @@ import { isItemEdgeData } from "@/types/edgeData";
 import type { PortHandle, TopologyEdge } from "./types";
 import type { Edge } from "@xyflow/react";
 
-const { PORT_W, PORT_ROW, HANDLE_SIZE } = MACHINE_LAYOUT;
+const { PORT_W, PORT_ROW } = MACHINE_LAYOUT;
 
 function absPosition(
   nodesById: Map<string, Node>,
@@ -34,8 +34,7 @@ export function portHandlesFromNodes(nodes: Node[]): PortHandle[] {
     const abs = absPosition(byId, n.id);
     if (!abs) continue;
     const y = abs.y + PORT_ROW / 2;
-    const r = HANDLE_SIZE / 2;
-    const x = d.kind === "in" ? abs.x - r : abs.x + PORT_W + r;
+    const x = d.kind === "in" ? abs.x : abs.x + PORT_W;
     out.push({
       portId: n.id,
       x,

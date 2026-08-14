@@ -10,6 +10,7 @@ import {
   type CanvasRecord,
 } from "@/types/canvas";
 import { isItemEdgeData } from "@/types/edgeData";
+import { relayoutPortFrames } from "@/lib/relayoutPortFrames";
 import {
   formatItemClassId,
   isPortItemAssigned,
@@ -111,7 +112,7 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
   const r = raw as Partial<CanvasRecord>;
   const id = typeof r.id === "string" && r.id ? r.id : fallbackId;
   const name = typeof r.name === "string" && r.name.trim() ? r.name : id;
-  const nodes = sanitizeNodes(r.nodes);
+  const nodes = relayoutPortFrames(sanitizeNodes(r.nodes));
   const nodeIds = new Set(nodes.map((n) => n.id));
   const edges = sanitizeEdges(r.edges, nodeIds);
   const forcedPortRates = sanitizeForcedPortRates(r.forcedPortRates, nodes);

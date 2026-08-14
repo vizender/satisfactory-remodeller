@@ -31,6 +31,7 @@ import type { ReorderDragSession } from "@/lib/nodeDisplayDecorators";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
 import { loadFactoryDocument } from "@/lib/factoryDocument";
+import { relayoutPortFrames } from "@/lib/relayoutPortFrames";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import type { FactoryDocumentV2 } from "@/types/factoryDocument";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
@@ -785,17 +786,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     });
   },
   replaceActiveCanvas: (slice) => {
+    const nodes = relayoutPortFrames(slice.nodes);
     const hasWires = slice.edges.length > 0;
     const g = slice.routeGraph;
     const keep =
       g && (g.segments.length > 0 || !hasWires)
         ? g
-        : rebuildRouteGraph(slice.nodes, slice.edges);
+        : rebuildRouteGraph(nodes, slice.edges);
     set({
-      nodes: slice.nodes,
+      nodes,
       edges: slice.edges,
       forcedPortRates: slice.forcedPortRates,
-      routeGraph: followPortVertices(keep, portHandlesFromNodes(slice.nodes)),
+      routeGraph: followPortVertices(keep, portHandlesFromNodes(nodes)),
       reorderDragSession: null,
     });
   },
