@@ -29,7 +29,7 @@ export function SummaryPanel() {
   const deficitMw = ledger.generatorCapacityMw - ledger.consumerTotalMw;
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]">
+    <aside className="relative z-10 flex w-80 shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]">
       <div className="flex border-b border-[var(--border)]">
         <button
           type="button"

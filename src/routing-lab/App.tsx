@@ -172,7 +172,7 @@ function LabCanvas() {
   );
 
   return (
-    <div className="relative h-full min-h-0 flex-1">
+    <div className="relative h-full min-h-0 flex-1 overflow-hidden">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -198,28 +198,28 @@ function LabCanvas() {
         defaultEdgeOptions={{ interactionWidth: 0 }}
       >
         <Background gap={BACKGROUND_GRID_GAP} color="var(--flow-grid)" />
+        <RouteOverlay
+          graph={graph}
+          selectedSegmentIds={selected}
+          debug={debug}
+          topology={topology}
+          onSelect={(id, opts) => {
+            const cur = useRoutingLabStore.getState().selectedSegmentIds;
+            useRoutingLabStore.getState().setSelectedSegmentIds(
+              nextSegmentSelection(
+                cur,
+                id,
+                useDocumentStore.getState().routeGraph.segments,
+                opts?.toggle,
+              ),
+            );
+          }}
+          onDrag={onDrag}
+          onKink={onKink}
+          onDragEnd={onDragEnd}
+          onDelete={onDelete}
+        />
       </ReactFlow>
-      <RouteOverlay
-        graph={graph}
-        selectedSegmentIds={selected}
-        debug={debug}
-        topology={topology}
-        onSelect={(id, opts) => {
-          const cur = useRoutingLabStore.getState().selectedSegmentIds;
-          useRoutingLabStore.getState().setSelectedSegmentIds(
-            nextSegmentSelection(
-              cur,
-              id,
-              useDocumentStore.getState().routeGraph.segments,
-              opts?.toggle,
-            ),
-          );
-        }}
-        onDrag={onDrag}
-        onKink={onKink}
-        onDragEnd={onDragEnd}
-        onDelete={onDelete}
-      />
     </div>
   );
 }

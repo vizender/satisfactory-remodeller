@@ -550,7 +550,7 @@ function FlowCanvasInner() {
   return (
     <div
       ref={canvasRef}
-      className="relative h-full w-full"
+      className="relative h-full w-full overflow-hidden"
       onContextMenu={(e) =>
         handleSuppressNativeContextMenu(e, canvasRef.current)
       }
@@ -920,28 +920,28 @@ function FlowCanvasInner() {
           edges={edges}
           onDismiss={() => setEdgeMenu(null)}
         />
+        <RouteOverlay
+          graph={routeGraph}
+          selectedSegmentIds={selectedSegmentIds}
+          topology={topology}
+          conflictEdgeIds={solve.conflictEdgeIds}
+          onSelect={(id, opts) => {
+            setSelectedSegmentIds((cur) =>
+              nextSegmentSelection(
+                cur,
+                id,
+                useDocumentStore.getState().routeGraph.segments,
+                opts?.toggle,
+              ),
+            );
+          }}
+          onDrag={onRouteDrag}
+          onKink={onRouteKink}
+          onDragEnd={onRouteDragEnd}
+          onDelete={onRouteDelete}
+          onSegmentContextMenu={onSegmentContextMenu}
+        />
       </ReactFlow>
-      <RouteOverlay
-        graph={routeGraph}
-        selectedSegmentIds={selectedSegmentIds}
-        topology={topology}
-        conflictEdgeIds={solve.conflictEdgeIds}
-        onSelect={(id, opts) => {
-          setSelectedSegmentIds((cur) =>
-            nextSegmentSelection(
-              cur,
-              id,
-              useDocumentStore.getState().routeGraph.segments,
-              opts?.toggle,
-            ),
-          );
-        }}
-        onDrag={onRouteDrag}
-        onKink={onRouteKink}
-        onDragEnd={onRouteDragEnd}
-        onDelete={onRouteDelete}
-        onSegmentContextMenu={onSegmentContextMenu}
-      />
       {machineMenu
         ? createPortal(
             <MachineContextMenu

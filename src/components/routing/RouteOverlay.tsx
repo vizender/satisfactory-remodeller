@@ -1,4 +1,4 @@
-import { useReactFlow, useStore } from "@xyflow/react";
+import { useReactFlow, useStore, ViewportPortal } from "@xyflow/react";
 import {
   useCallback,
   useEffect,
@@ -152,13 +152,12 @@ export function RouteOverlay({
   onSegmentContextMenu?: (segmentId: string, clientX: number, clientY: number) => void;
 }) {
   const { screenToFlowPosition } = useReactFlow();
-  const transform = useStore((s) => s.transform);
+  const zoom = useStore((s) => s.transform[2]);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<OverlayDrag | null>(null);
   const dragListeners = useRef<(() => void) | null>(null);
   const [guide, setGuide] = useState<AlignHit | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [tx, ty, zoom] = transform;
   const live = useRef({
     onDrag,
     onKink,
@@ -316,11 +315,12 @@ export function RouteOverlay({
   const selectedSegs = graph.segments.filter((s) => selectedSet.has(s.id));
 
   return (
-    <svg
-      ref={svgRef}
-      className={dragging ? "route-overlay is-dragging" : "route-overlay"}
-    >
-      <g transform={`translate(${tx}, ${ty}) scale(${zoom})`}>
+    <ViewportPortal>
+      <svg
+        ref={svgRef}
+        className={dragging ? "route-overlay is-dragging" : "route-overlay"}
+      >
+        <g>
         {guide ? (
           guide.axis === "v" ? (
             <line
@@ -457,7 +457,8 @@ export function RouteOverlay({
               </g>
             ))
           : null}
-      </g>
-    </svg>
+        </g>
+      </svg>
+    </ViewportPortal>
   );
 }
