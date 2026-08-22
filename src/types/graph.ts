@@ -106,6 +106,12 @@ const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   Desc_DarkEnergy_C: "Dark Matter Residue",
   /** Classe `SteelPlate` ; en jeu / wiki l’item s’appelle « Steel Beam ». */
   Desc_SteelPlate_C: "Steel Beam",
+  /** Classe `Cement` ; en jeu / wiki l’item s’appelle « Concrete ». */
+  Desc_Cement_C: "Concrete",
+  /** Classe `SteelPlateReinforced` ; distinct de « Encased Industrial Beam ». */
+  Desc_SteelPlateReinforced_C: "Reinforced Steel Plate",
+  /** Produit de `Recipe_EncasedIndustrialBeam_C` (pas `Desc_SteelPlateReinforced_C`). */
+  Desc_EncasedIndustrialBeam_C: "Encased Industrial Beam",
 };
 
 /**
@@ -115,9 +121,14 @@ function applyGoldToCateriumLabel(s: string): string {
   return s.replace(/\bGold\b/g, "Caterium");
 }
 
+/** Surcharge d’affichage explicite, ou `undefined` si le libellé est heuristique. */
+export function itemDisplayOverride(id: string): string | undefined {
+  return ITEM_DISPLAY_OVERRIDES[id];
+}
+
 /** Libellé lisible pour un `Desc_*_C` (Desc_OreIron_C → « Ore Iron »). */
 export function formatItemClassId(id: string): string {
-  const o = ITEM_DISPLAY_OVERRIDES[id];
+  const o = itemDisplayOverride(id);
   if (o) return o;
   const core = id.replace(/^Desc_/, "").replace(/_C$/, "");
   let base: string;

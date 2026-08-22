@@ -15,4 +15,10 @@ export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_Snow_C: "Actual_Snow.png",
   /** Classe `SteelPlate` → visuel wiki `Steel_Beam.png` (pas « Steel_Plate »). */
   Desc_SteelPlate_C: "Steel_Beam.png",
+  /** Classe `Cement` → visuel wiki `Concrete.png`. */
+  Desc_Cement_C: "Concrete.png",
+  /** Conserver `Reinforced_Steel_Plate.png` après le libellé « Reinforced Steel Plate ». */
+  Desc_SteelPlateReinforced_C: "Reinforced_Steel_Plate.png",
+  /** Item distinct de `Desc_SteelPlateReinforced_C`. */
+  Desc_EncasedIndustrialBeam_C: "Encased_Industrial_Beam.png",
 };

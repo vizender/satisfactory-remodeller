@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RECIPE_PRODUCT_ITEM_OVERRIDES } from "../src/data/recipeProductOverrides";
 import { SYNTHETIC_RECIPES } from "../src/data/syntheticRecipes";
 import type { RecipeIndex, RecipeIndexEntry, RecipesFile } from "../src/types/satisfactory";
 
@@ -17,11 +18,25 @@ const outFile = join(outDir, "recipeIndex.json");
 const raw = readFileSync(source, "utf-8");
 const data = JSON.parse(raw) as RecipesFile;
 
+function applyProductOverride(
+  recipeKey: string,
+  r: RecipeIndexEntry,
+): RecipeIndexEntry {
+  const override = RECIPE_PRODUCT_ITEM_OVERRIDES[recipeKey];
+  if (!override) return r;
+  return {
+    ...r,
+    products: r.products.map((p) =>
+      p.item === override.from ? { ...p, item: override.to } : p,
+    ),
+  };
+}
+
 const recipes: RecipeIndexEntry[] = [];
 for (const [recipeKey, list] of Object.entries(data)) {
   if (!Array.isArray(list)) continue;
   for (const r of list) {
-    recipes.push({ ...r, recipeKey });
+    recipes.push(applyProductOverride(recipeKey, { ...r, recipeKey }));
   }
 }
 
