@@ -11,4 +11,8 @@ export const RECIPE_PRODUCT_ITEM_OVERRIDES: Record<
     from: "Desc_SteelPlateReinforced_C",
     to: "Desc_EncasedIndustrialBeam_C",
   },
+  Recipe_Alternate_EncasedIndustrialBeam_C: {
+    from: "Desc_SteelPlateReinforced_C",
+    to: "Desc_EncasedIndustrialBeam_C",
+  },
 };
