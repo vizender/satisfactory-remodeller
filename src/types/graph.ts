@@ -112,6 +112,22 @@ const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   Desc_SteelPlateReinforced_C: "Reinforced Steel Plate",
   /** Produit de `Recipe_EncasedIndustrialBeam_C` (pas `Desc_SteelPlateReinforced_C`). */
   Desc_EncasedIndustrialBeam_C: "Encased Industrial Beam",
+  /** Classe `HighSpeedWire` ; libellé demandé « Caterium Wire » (wiki actuel : Quickwire). */
+  Desc_HighSpeedWire_C: "Caterium Wire",
+  /** Classe `CircuitBoardHighSpeed` ; en jeu / wiki « AI Limiter ». */
+  Desc_CircuitBoardHighSpeed_C: "AI Limiter",
+  /** Classe `Gunpowder` ; en jeu / wiki « Black Powder ». */
+  Desc_Gunpowder_C: "Black Powder",
+  /** Classe `NobeliskExplosive` ; en jeu l’item s’appelle « Nobelisk ». */
+  Desc_NobeliskExplosive_C: "Nobelisk",
+  /** Classe `NobeliskShockwave` ; en jeu / wiki « Pulse Nobelisk ». */
+  Desc_NobeliskShockwave_C: "Pulse Nobelisk",
+  /** Classe `SpikedRebar` ; en jeu / wiki « Iron Rebar ». */
+  Desc_SpikedRebar_C: "Iron Rebar",
+  /** Classe `Rebar_Spreadshot` ; en jeu / wiki « Shatter Rebar ». */
+  Desc_Rebar_Spreadshot_C: "Shatter Rebar",
+  /** Classe `Rebar_Stunshot` ; en jeu / wiki « Stun Rebar ». */
+  Desc_Rebar_Stunshot_C: "Stun Rebar",
 };
 
 /**

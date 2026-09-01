@@ -21,4 +21,14 @@ export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_SteelPlateReinforced_C: "Reinforced_Steel_Plate.png",
   /** Item distinct de `Desc_SteelPlateReinforced_C`. */
   Desc_EncasedIndustrialBeam_C: "Encased_Industrial_Beam.png",
+  /** Pas de `Caterium_Wire.png` local ; visuel wiki `Quickwire.png`. */
+  Desc_HighSpeedWire_C: "Quickwire.png",
+  Desc_CircuitBoardHighSpeed_C: "AI_Limiter.png",
+  Desc_Gunpowder_C: "Black_Powder.png",
+  Desc_NobeliskExplosive_C: "Nobelisk.png",
+  Desc_NobeliskShockwave_C: "Pulse_Nobelisk.png",
+  /** Le dump pointe souvent `Spiked_Rebar.png` ; le visuel jeu est `Iron_Rebar.png`. */
+  Desc_SpikedRebar_C: "Iron_Rebar.png",
+  Desc_Rebar_Spreadshot_C: "Shatter_Rebar.png",
+  Desc_Rebar_Stunshot_C: "Stun_Rebar.png",
 };
