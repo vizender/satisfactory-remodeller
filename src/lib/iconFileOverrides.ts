@@ -31,4 +31,6 @@ export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_SpikedRebar_C: "Iron_Rebar.png",
   Desc_Rebar_Spreadshot_C: "Shatter_Rebar.png",
   Desc_Rebar_Stunshot_C: "Stun_Rebar.png",
+  /** Wiki `High-Speed_Connector.png` (tiret), pas `High_Speed_Connector`. */
+  Desc_HighSpeedConnector_C: "High-Speed_Connector.png",
 };

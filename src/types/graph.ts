@@ -128,6 +128,8 @@ const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
   Desc_Rebar_Spreadshot_C: "Shatter Rebar",
   /** Classe `Rebar_Stunshot` ; en jeu / wiki « Stun Rebar ». */
   Desc_Rebar_Stunshot_C: "Stun Rebar",
+  /** Classe `HighSpeedConnector` ; wiki / recette « High-Speed Connector ». */
+  Desc_HighSpeedConnector_C: "High-Speed Connector",
 };
 
 /**
