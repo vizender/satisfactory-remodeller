@@ -3,13 +3,12 @@
   "private": true,
   "version": "1.4.9",
   "type": "module",
-  "description": "Satisfactory : Remodeller — planificateur d’usines (web + React, Tauri optionnel)",
+  "description": "Satisfactory : Remodeller — planificateur d’usines dans le navigateur",
   "author": "vizender",
   "license": "MIT",
   "scripts": {
     "dev": "vite",
     "dev:browser": "vite --open",
-    "dev:desktop": "tauri dev",
     "dev:web": "vite",
     "dev:routing-lab": "vite --port 1422 --strictPort --open /routing-lab.html",
     "gen:recipes": "tsx scripts/generateRecipeIndex.ts",
@@ -18,14 +17,10 @@
     "prebuild": "npm run gen:recipes",
     "predev": "npm run gen:recipes",
     "build": "tsc && vite build",
-    "build:desktop": "tauri build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "tauri": "tauri"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "@xyflow/react": "^12.9.3",
@@ -35,7 +30,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
-    "@tauri-apps/cli": "^2",
     "@types/node": "^24.9.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

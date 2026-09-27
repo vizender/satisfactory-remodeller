@@ -18,12 +18,6 @@ import {
   useSuppressNativeContextMenu,
 } from "@/hooks/useSuppressNativeContextMenu";
 
-/** Desktop Tauri shell — no web analytics. */
-function isTauriRuntime(): boolean {
-  if (typeof window === "undefined") return false;
-  return "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
-}
-
 /** Subpath for Vercel Analytics when `base` is not `/` (unused at root deploy). */
 const vercelAnalyticsBasePath =
   import.meta.env.BASE_URL.replace(/\/$/, "") || undefined;
@@ -74,15 +68,11 @@ function App() {
           <AppShell />
         </InputModalityProvider>
       </I18nProvider>
-      {!isTauriRuntime() ? (
-        <>
-          <Analytics
-            basePath={vercelAnalyticsBasePath}
-            mode={import.meta.env.PROD ? "production" : "development"}
-          />
-          <SpeedInsights />
-        </>
-      ) : null}
+      <Analytics
+        basePath={vercelAnalyticsBasePath}
+        mode={import.meta.env.PROD ? "production" : "development"}
+      />
+      <SpeedInsights />
     </ErrorBoundary>
   );
 }
