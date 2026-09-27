@@ -107,8 +107,6 @@ export interface DocumentState {
   setRouteGraph: (g: RouteGraph) => void;
   /** Débit /min forcé par id de port (undefined = nomina recette). */
   forcedPortRates: Record<string, number | undefined>;
-  solverReady: boolean;
-  setSolverReady: (v: boolean) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
@@ -274,10 +272,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   routeGraph: emptyRouteGraph(),
   setRouteGraph: (routeGraph) => set({ routeGraph }),
   forcedPortRates: {},
-  solverReady: false,
   reorderDragSession: null,
   setReorderDragSession: (session) => set({ reorderDragSession: session }),
-  setSolverReady: (solverReady) => set({ solverReady }),
   onNodesChange: (changes) => {
     const removed = changes.some((c) => c.type === "remove");
     if (!removed) {
@@ -403,9 +399,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setForcedPortRate: (portId, ratePerMin) =>
     set((s) => {
       const next = { ...s.forcedPortRates };
-      if (ratePerMin === undefined || Number.isNaN(ratePerMin)) {
+      if (ratePerMin === undefined) {
         delete next[portId];
-      } else {
+      } else if (Number.isFinite(ratePerMin) && ratePerMin >= 0) {
         next[portId] = ratePerMin;
       }
       return { forcedPortRates: next };

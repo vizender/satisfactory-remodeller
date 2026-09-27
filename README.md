@@ -12,6 +12,18 @@ Planificateur d’usines pour Satisfactory, accessible dans le navigateur.
 - Import et export des plans au format JSON.
 - Interface en français et en anglais, avec tutoriel intégré.
 
+## Calcul des débits
+
+Forcer une entrée ou une sortie recalcule les machines connectées dans les deux sens. En cas de manque, les objectifs les plus en aval sont prioritaires. Les débits imposés en amont restent respectés lorsqu’ils permettent un équilibre ou un surplus.
+
+- Les surplus restent visibles en vert ; les déficits impossibles à résoudre apparaissent en rouge.
+- Une cible ajustée reste enregistrée dans le champ de saisie, avec un badge indiquant l’ajustement et le débit calculé au-dessus.
+- Les retours de production alimentent leur boucle avant les apports externes.
+- Les branches suivent les besoins imposés ; les débits encore libres se répartissent aussi également que possible en items/min.
+- Les conteneurs transmettent les débits et stockent les excédents.
+
+Dans une même recette ou boucle, les sorties forcées sont prioritaires sur les entrées. Des cibles de même priorité incompatibles partagent l’écart relatif. L’ordre des saisies ne change pas les priorités. Une entrée sans liaison représente un apport externe disponible.
+
 ## Développement
 
 Prérequis : Node.js 22.12+ et npm.

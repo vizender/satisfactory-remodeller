@@ -94,7 +94,9 @@ export function ItemPortNode(props: NodeProps) {
   const setNodePosition = useDocumentStore((s) => s.setNodePosition);
   const setNodePositions = useDocumentStore((s) => s.setNodePositions);
   const swapMachinePortSlots = useDocumentStore((s) => s.swapMachinePortSlots);
-  const setReorderDragSession = useDocumentStore((s) => s.setReorderDragSession);
+  const setReorderDragSession = useDocumentStore(
+    (s) => s.setReorderDragSession,
+  );
   const tutorialGates = useTutorialGates();
 
   const {
@@ -104,6 +106,7 @@ export function ItemPortNode(props: NodeProps) {
     setForcedPortRate,
     conflictMachineIds,
     conflictPortIds,
+    overriddenPortIds,
   } = useFlowSolve();
 
   const dragRef = useRef<DragRef | null>(null);
@@ -114,7 +117,9 @@ export function ItemPortNode(props: NodeProps) {
   const [forceDraft, setForceDraft] = useState<string | null>(null);
   const forceDisplay =
     forceDraft ?? (forced !== undefined ? String(forced) : "");
-  const isForced = forced !== undefined && !Number.isNaN(forced);
+  const isForced =
+    forced !== undefined && Number.isFinite(forced) && forced >= 0;
+  const isOverridden = overriddenPortIds.includes(id);
 
   const balanced = Math.abs(delta) <= EPS;
   const surplus = delta > EPS;
@@ -394,13 +399,7 @@ export function ItemPortNode(props: NodeProps) {
         })),
       );
     },
-    [
-      id,
-      restoreAllSiblings,
-      setNodePositions,
-      setReorderDragSession,
-      zoom,
-    ],
+    [id, restoreAllSiblings, setNodePositions, setReorderDragSession, zoom],
   );
 
   const onReorderPointerUp = useCallback(
@@ -513,6 +512,8 @@ export function ItemPortNode(props: NodeProps) {
           className="block cursor-text text-[8px] text-[var(--muted)]"
           data-port-force-field
           onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={(ev) => ev.stopPropagation()}
+          onDoubleClick={(ev) => ev.stopPropagation()}
         >
           {t("portForceLabel")}
           <input
@@ -522,25 +523,27 @@ export function ItemPortNode(props: NodeProps) {
             spellCheck={false}
             className={cn(
               "port-force-input nodrag mt-px w-full rounded border bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)] outline-none focus:border-[var(--accent)]",
-              isForced
-                ? "border-[var(--accent)]/55 font-bold tabular-nums"
-                : "border-[var(--border)]",
+              isOverridden
+                ? "border-amber-400 font-bold tabular-nums"
+                : isForced
+                  ? "border-[var(--accent)]/55 font-bold tabular-nums"
+                  : "border-[var(--border)]",
             )}
+            title={t(isOverridden ? "portOverriddenHelp" : "portForceHelp")}
+            aria-label={t("portForceLabel")}
             placeholder={eff.toFixed(1)}
             value={forceDisplay}
             onChange={(e) => setForceDraft(e.target.value)}
             onFocus={() => {
-              setForceDraft(
-                forced !== undefined ? String(forced) : "",
-              );
+              setForceDraft(forced !== undefined ? String(forced) : "");
             }}
             onBlur={(e) => {
-              setForceDraft(null);
               const raw = e.target.value.trim();
+              setForceDraft(null);
               if (!raw) setForcedPortRate(id, undefined);
               else {
-                const v = parseFloat(raw.replace(",", "."));
-                if (!Number.isNaN(v)) setForcedPortRate(id, v);
+                const v = Number(raw.replace(",", "."));
+                if (Number.isFinite(v) && v >= 0) setForcedPortRate(id, v);
               }
             }}
             onKeyDown={(e) => {
@@ -551,11 +554,16 @@ export function ItemPortNode(props: NodeProps) {
         </label>
         {isForced ? (
           <div
-            className="mt-0.5 flex items-center gap-0.5 text-[7px] font-medium leading-none text-[var(--accent)]"
-            title={t("portForcedBadge")}
+            className={cn(
+              "mt-0.5 flex items-center gap-0.5 text-[7px] font-medium leading-none",
+              isOverridden ? "text-amber-400" : "text-[var(--accent)]",
+            )}
+            title={t(isOverridden ? "portOverriddenHelp" : "portForceHelp")}
           >
             <ForcedPinIcon />
-            <span>{t("portForcedBadge")}</span>
+            <span>
+              {t(isOverridden ? "portOverriddenBadge" : "portForcedBadge")}
+            </span>
           </div>
         ) : null}
       </div>

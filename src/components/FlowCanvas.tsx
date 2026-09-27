@@ -58,7 +58,6 @@ import {
   type ConnectionDragPreview,
 } from "@/lib/nodeDisplayDecorators";
 import { applySolverConflictToEdges } from "@/lib/solverDisplayDecorators";
-import { createSolverWorker, pingSolver } from "@/lib/solverClient";
 import {
   cloneRouteGraph,
   dragSegment,
@@ -296,8 +295,6 @@ function FlowCanvasInner() {
   const setMachineClockPercent = useDocumentStore(
     (s) => s.setMachineClockPercent,
   );
-  const solverReady = useDocumentStore((s) => s.solverReady);
-  const setSolverReady = useDocumentStore((s) => s.setSolverReady);
 
   const [edgeMenu, setEdgeMenu] = useState<{
     x: number;
@@ -477,14 +474,6 @@ function FlowCanvasInner() {
     }
     return true;
   }, []);
-
-  useEffect(() => {
-    const worker = createSolverWorker();
-    pingSolver(worker)
-      .then(() => setSolverReady(true))
-      .catch(() => setSolverReady(false));
-    return () => worker.terminate();
-  }, [setSolverReady]);
 
   useEffect(() => {
     const inst = rfRef.current;
@@ -904,13 +893,9 @@ function FlowCanvasInner() {
               >
                 {solve.errorMessage ?? t("solverConflict")}
               </div>
-            ) : solverReady ? (
+            ) : (
               <span className="text-xs text-emerald-400/90">
                 {t("solverReady")}
-              </span>
-            ) : (
-              <span className="text-xs text-amber-400/90">
-                {t("solverPending")}
               </span>
             )}
           </div>

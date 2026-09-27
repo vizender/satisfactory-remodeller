@@ -71,6 +71,11 @@ export const messages = {
     clearForcedRates: "Réinitialiser les débits forcés",
     portForceLabel: "Forcer /min",
     portForcedBadge: "Débit forcé",
+    portOverriddenBadge: "Débit ajusté",
+    portOverriddenHelp:
+      "Ce débit demandé est conservé, mais le débit calculé est ajusté pour satisfaire les besoins en aval. Une machine arrêtée ou une boucle incompatible peut rendre une cible impossible.",
+    portForceHelp:
+      "Les débits forcés en aval sont prioritaires. Les surplus sont autorisés ; les déficits ajustent les cibles en amont.",
     deleteMachine: "Supprimer la machine",
     branchEdge: "Brancher (autre destination)",
     branchEdgeHelp:
@@ -104,7 +109,6 @@ export const messages = {
     connectFromInputProduces:
       "Connexion depuis une entrée — recettes qui produisent « {item} »",
     solverReady: "Débits calculés",
-    solverPending: "Initialisation du solveur…",
     solverConflict: "Contraintes impossibles.",
     close: "Fermer",
     cancel: "Annuler",
@@ -263,6 +267,11 @@ export const messages = {
     clearForcedRates: "Reset forced flow rates",
     portForceLabel: "Force /min",
     portForcedBadge: "Forced rate",
+    portOverriddenBadge: "Adjusted rate",
+    portOverriddenHelp:
+      "This requested rate is saved, but the calculated rate is adjusted to meet downstream demand. A stopped machine or incompatible loop can make a target impossible.",
+    portForceHelp:
+      "Downstream forced rates take priority. Surplus is allowed; deficits adjust upstream targets.",
     deleteMachine: "Delete machine",
     branchEdge: "Branch (another destination)",
     branchEdgeHelp:
@@ -285,18 +294,14 @@ export const messages = {
     noRecipesMatch: "No matching recipes.",
     altBadge: "alt",
     newMachineAllRecipes: "New machine — all recipes",
-    changeRecipeInvalid:
-      "Change recipe — invalid links will be removed",
-    fromOutputConsumes:
-      "From output — recipes that consume « {item} »",
-    fromInputProduces:
-      "From input — recipes that produce « {item} »",
+    changeRecipeInvalid: "Change recipe — invalid links will be removed",
+    fromOutputConsumes: "From output — recipes that consume « {item} »",
+    fromInputProduces: "From input — recipes that produce « {item} »",
     connectFromOutputConsumes:
       "Connection from output — recipes that consume « {item} »",
     connectFromInputProduces:
       "Connection from input — recipes that produce « {item} »",
     solverReady: "Flow rates computed",
-    solverPending: "Initializing solver…",
     solverConflict: "Impossible constraints.",
     close: "Close",
     cancel: "Cancel",
@@ -351,7 +356,8 @@ export const messages = {
     importWorldJson: "Import world (JSON)",
     importFactoryJson: "Import factory (JSON)",
     summaryNestedFactories: "Includes {count} nested factory/factories",
-    errorInvalidSchemaV2: "Unrecognized format (schemaVersion 1 or 2 expected).",
+    errorInvalidSchemaV2:
+      "Unrecognized format (schemaVersion 1 or 2 expected).",
     settingsTutorial: "Tutorial",
     settingsStartTutorial: "Restart tutorial",
     tutorialTitle: "Tutorial",

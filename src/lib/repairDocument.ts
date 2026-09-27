@@ -98,7 +98,7 @@ function sanitizeForcedPortRates(
   if (!forced || typeof forced !== "object") return out;
   for (const [pid, rate] of Object.entries(forced as Record<string, unknown>)) {
     if (!portIds.has(pid)) continue;
-    if (typeof rate !== "number" || Number.isNaN(rate)) continue;
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) continue;
     out[pid] = rate;
   }
   return out;
