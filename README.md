@@ -24,6 +24,14 @@ Forcer une entrée ou une sortie recalcule les machines connectées dans les deu
 
 Dans une même recette ou boucle, les sorties forcées sont prioritaires sur les entrées. Des cibles de même priorité incompatibles partagent l’écart relatif. L’ordre des saisies ne change pas les priorités. Une entrée sans liaison représente un apport externe disponible.
 
+## Canvas et réglages
+
+- **Maj + clic** : ajouter ou retirer une machine, un conteneur ou une usine de la sélection. Déplacer une sélection déplace aussi ses liaisons internes.
+- **Ctrl/Cmd + C, X, V** : copier, couper et coller la sélection, avec les réglages et les usines imbriquées. Copier une liaison seule inclut ses machines aux extrémités ; couper une liaison seule ne supprime pas les machines. Le presse-papiers du canvas reste disponible entre les usines pendant la session.
+- **Machines / Overclock** : saisir une valeur ou utiliser les boutons ±1 machine / ±10 %. Le dernier réglage modifié détermine l’autre en conservant le débit calculé. Un nombre de machines insuffisant est ajusté au nombre nécessaire à 250 %.
+- **Ports** : ○ libre, ● forcé, ≈ calculé depuis une autre cible, △ lié à une contrainte ou une boucle, ! cible ajustée. Les infobulles expliquent chaque état ; tous les ports peuvent recevoir une cible.
+- **Clic droit sur un port** : ajouter une machine connectée ou déconnecter toutes ses liaisons. Changer la recette conserve les liaisons et cibles des items communs, du même côté.
+
 ## Développement
 
 Prérequis : Node.js 22.12+ et npm.

@@ -131,7 +131,7 @@ export function buildContainerNodes(bp: ContainerBlueprint): Node[] {
       position: { x: GUTTER, y: ysIn[slot] ?? 0 },
       data: inData,
       draggable: false,
-      selectable: true,
+      selectable: false,
       deletable: true,
       zIndex: 1,
     });
@@ -152,7 +152,7 @@ export function buildContainerNodes(bp: ContainerBlueprint): Node[] {
       position: { x: frameW - PORT_W - GUTTER, y: ysOut[slot] ?? 0 },
       data: outData,
       draggable: false,
-      selectable: true,
+      selectable: false,
       deletable: true,
       zIndex: 1,
     });

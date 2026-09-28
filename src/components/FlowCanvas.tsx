@@ -1,3 +1,11 @@
+import { PortContextMenu } from "@/components/PortContextMenu";
+import { followGroupMovement } from "@/lib/routing/groupDrag";
+import {
+  captureCanvasSelection,
+  pasteCanvasSelection,
+  cutCanvasSelection,
+  type CanvasClipboard,
+} from "@/lib/canvasClipboard";
 import {
   Background,
   Controls,
@@ -25,10 +33,7 @@ import {
   type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  BACKGROUND_GRID_GAP,
-  MACHINE_SNAP_GRID,
-} from "@/constants/flowGrid";
+import { BACKGROUND_GRID_GAP, MACHINE_SNAP_GRID } from "@/constants/flowGrid";
 import { EdgeContextMenu } from "@/components/EdgeContextMenu";
 import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
@@ -77,7 +82,7 @@ import {
   applyMachineSelection,
   clearMachineSelection,
 } from "@/lib/machineSelection";
-import { CLOCK_DEFAULT, clampClockPercent } from "@/lib/clockSpeed";
+import { CLOCK_DEFAULT } from "@/lib/clockSpeed";
 import {
   hasEdgeBetweenPorts,
   useDocumentStore,
@@ -88,13 +93,15 @@ import type {
   ContainerFrameData,
   FactoryFrameData,
   ItemPortData,
-  MachineFrameData,
 } from "@/types/graph";
 import {
   isPortItemAssigned,
   itemPortDisplayName,
   portItemsCompatible,
 } from "@/types/graph";
+
+let canvasClipboard: CanvasClipboard | null = null;
+let clipboardPasteCount = 0;
 
 const nodeTypes: NodeTypes = {
   machineFrame: MachineFrameNode,
@@ -202,11 +209,75 @@ function FlowCanvasInner() {
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
-  const machineDrag = useRef<{ snapshot: RouteGraph } | null>(null);
+  const machineDrag = useRef<{
+    snapshot: RouteGraph;
+    ports: ReturnType<typeof portHandlesFromNodes>;
+  } | null>(null);
 
   const solve = useFlowSolveResult();
   const tutorialGates = useTutorialGates();
   const tutorialActive = useTutorialStore((s) => s.active);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (tutorialActive || !(event.ctrlKey || event.metaKey) || event.altKey)
+        return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']",
+        )
+      )
+        return;
+      if (document.querySelector("[role='dialog']")) return;
+      const key = event.key.toLowerCase();
+      if (!["c", "x", "v"].includes(key)) return;
+      const world = useWorldStore.getState();
+      world.flushActiveCanvas();
+      const { canvasMap: canvases, activeCanvasId: canvasId } =
+        useWorldStore.getState();
+      if (key === "v") {
+        if (!canvasClipboard) return;
+        event.preventDefault();
+        clipboardPasteCount++;
+        const offset = 64 * clipboardPasteCount;
+        useWorldStore.setState({
+          canvasMap: pasteCanvasSelection(canvases, canvasId, canvasClipboard, {
+            x: offset,
+            y: offset,
+          }),
+        });
+        world.loadCanvasIntoDocument(canvasId);
+        setSelectedSegmentIds([]);
+        return;
+      }
+      // Preserve ordinary text copying elsewhere in the interface.
+      if (window.getSelection()?.toString()) return;
+      const state = useDocumentStore.getState();
+      const users = segmentEdgeUsers(
+        state.routeGraph,
+        topologyEdgesFromFlow(state.edges),
+      );
+      const selectedEdges = new Set(
+        selectedSegmentIds.flatMap((id) => users.get(id) ?? []),
+      );
+      const copied = captureCanvasSelection(canvases, canvasId, selectedEdges);
+      if (!copied) return;
+      event.preventDefault();
+      canvasClipboard = copied;
+      clipboardPasteCount = 0;
+      if (key === "x") {
+        useWorldStore.setState({
+          canvasMap: cutCanvasSelection(canvases, canvasId, selectedEdges),
+        });
+        world.loadCanvasIntoDocument(canvasId);
+        setSelectedSegmentIds([]);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [tutorialActive, selectedSegmentIds]);
 
   const displayNodes = useMemo(() => {
     let next = nodes;
@@ -261,7 +332,9 @@ function FlowCanvasInner() {
     [],
   );
   const clearForcedOnMachine = useDocumentStore((s) => s.clearForcedOnMachine);
-  const clearForcedOnContainer = useDocumentStore((s) => s.clearForcedOnContainer);
+  const clearForcedOnContainer = useDocumentStore(
+    (s) => s.clearForcedOnContainer,
+  );
   const setContainerOutputEnabled = useDocumentStore(
     (s) => s.setContainerOutputEnabled,
   );
@@ -277,10 +350,7 @@ function FlowCanvasInner() {
   const navigateToCanvas = useWorldStore((s) => s.navigateToCanvas);
   const navigateWithTutorial = useCallback(
     async (canvasId: string) => {
-      if (
-        tutorialActive &&
-        !tutorialGates.allowNavigateToCanvas(canvasId)
-      ) {
+      if (tutorialActive && !tutorialGates.allowNavigateToCanvas(canvasId)) {
         return;
       }
       await navigateToCanvas(canvasId);
@@ -288,7 +358,9 @@ function FlowCanvasInner() {
     },
     [navigateToCanvas, tutorialActive, tutorialGates],
   );
-  const setActiveCanvasViewport = useWorldStore((s) => s.setActiveCanvasViewport);
+  const setActiveCanvasViewport = useWorldStore(
+    (s) => s.setActiveCanvasViewport,
+  );
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
   const canvasMap = useWorldStore((s) => s.canvasMap);
   const setMachineRecipe = useDocumentStore((s) => s.setMachineRecipe);
@@ -309,15 +381,16 @@ function FlowCanvasInner() {
     label: string;
   } | null>(null);
 
-  const machineMenuClock = useMemo(() => {
-    if (!machineMenu) return CLOCK_DEFAULT;
-    const fr = nodes.find(
-      (n) => n.id === machineMenu.machineId && n.type === "machineFrame",
-    );
-    return clampClockPercent(
-      (fr?.data as MachineFrameData | undefined)?.clockPercent,
-    );
-  }, [machineMenu, nodes]);
+  const machineMenuClock = machineMenu
+    ? (solve.machineClockPercent[machineMenu.machineId] ?? CLOCK_DEFAULT)
+    : CLOCK_DEFAULT;
+
+  const [portMenu, setPortMenu] = useState<{
+    x: number;
+    y: number;
+    portId: string;
+    picker: RecipePickerState;
+  } | null>(null);
 
   const [recipePicker, setRecipePicker] = useState<RecipePickerState | null>(
     null,
@@ -421,7 +494,9 @@ function FlowCanvasInner() {
       if (machineIds.size > 0) {
         for (const id of machineIds) {
           if (tutorialActive && !tutorialGates.allowDeleteMachine(id)) continue;
-          const node = useDocumentStore.getState().nodes.find((n) => n.id === id);
+          const node = useDocumentStore
+            .getState()
+            .nodes.find((n) => n.id === id);
           if (node?.type === "containerFrame") removeContainer(id);
           else {
             removeMachine(id);
@@ -489,7 +564,12 @@ function FlowCanvasInner() {
   const topology = useMemo(() => topologyEdgesFromFlow(edges), [edges]);
 
   const onRouteDrag = useCallback(
-    (segmentId: string, snapshot: RouteGraph, pointer: Point, snap?: DragSnapOpts) => {
+    (
+      segmentId: string,
+      snapshot: RouteGraph,
+      pointer: Point,
+      snap?: DragSnapOpts,
+    ) => {
       setRouteGraph(dragSegment(snapshot, segmentId, pointer, snap));
     },
     [setRouteGraph],
@@ -505,7 +585,13 @@ function FlowCanvasInner() {
   );
 
   const onRouteKink = useCallback(
-    (segmentId: string, snapshot: RouteGraph, click: Point, pointer: Point, snap?: DragSnapOpts) => {
+    (
+      segmentId: string,
+      snapshot: RouteGraph,
+      click: Point,
+      pointer: Point,
+      snap?: DragSnapOpts,
+    ) => {
       setRouteGraph(kinkSegment(snapshot, segmentId, click, pointer, snap));
     },
     [setRouteGraph],
@@ -580,10 +666,7 @@ function FlowCanvasInner() {
             node.type === "factoryFrame" ||
             node.type === "containerFrame"
           ) {
-            applyMachineSelection(
-              node.id,
-              event.shiftKey ? "toggle" : "replace",
-            );
+            // React Flow already applied frame selection before this callback.
             setMachineMenu(null);
             setFactoryMenu(null);
             setContainerMenu(null);
@@ -628,9 +711,8 @@ function FlowCanvasInner() {
             node.type === "containerFrame"
           ) {
             machineDrag.current = {
-              snapshot: cloneRouteGraph(
-                useDocumentStore.getState().routeGraph,
-              ),
+              snapshot: cloneRouteGraph(useDocumentStore.getState().routeGraph),
+              ports: portHandlesFromNodes(useDocumentStore.getState().nodes),
             };
           }
           if (
@@ -641,10 +723,7 @@ function FlowCanvasInner() {
           ) {
             return;
           }
-          applyMachineSelection(
-            node.id,
-            event.shiftKey ? "add" : "replace",
-          );
+          applyMachineSelection(node.id, event.shiftKey ? "add" : "replace");
         }}
         onNodeDrag={(_event, node) => {
           const st = machineDrag.current;
@@ -656,16 +735,17 @@ function FlowCanvasInner() {
           ) {
             return;
           }
-          const ports = portHandlesFromNodes(
-            useDocumentStore.getState().nodes,
-          );
-          setRouteGraph(followPortVertices(st.snapshot, ports));
+          const ports = portHandlesFromNodes(useDocumentStore.getState().nodes);
+          setRouteGraph(followGroupMovement(st.snapshot, st.ports, ports));
         }}
         onNodeDragStop={(_event, node) => {
+          const drag = machineDrag.current;
           machineDrag.current = null;
           const st = useDocumentStore.getState();
           const ports = portHandlesFromNodes(st.nodes);
-          const live = followPortVertices(st.routeGraph, ports);
+          const live = drag
+            ? followGroupMovement(drag.snapshot, drag.ports, ports)
+            : followPortVertices(st.routeGraph, ports);
           const machineIds = new Set<string>();
           if (
             node.type === "machineFrame" ||
@@ -692,6 +772,7 @@ function FlowCanvasInner() {
           );
         }}
         onNodeContextMenu={(event, node) => {
+          setPortMenu(null);
           if (node.type === "itemPort") {
             if (tutorialActive && !tutorialGates.allowPortRecipePicker) return;
             if (
@@ -705,43 +786,46 @@ function FlowCanvasInner() {
             setEdgeMenu(null);
             setMachineMenu(null);
             const d = node.data as ItemPortData;
-            const flow =
-              rfRef.current?.screenToFlowPosition({
+            const flow = rfRef.current?.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            }) ?? { x: 0, y: 0 };
+            const picker: RecipePickerState = {
+              anchor: { x: event.clientX, y: event.clientY },
+              flowPosition: flow,
+              filter: {
+                mode: d.kind === "out" ? "consumes" : "produces",
+                itemId: d.itemId,
+              },
+              subtitle: t(
+                d.kind === "out" ? "fromOutputConsumes" : "fromInputProduces",
+                { item: itemPortDisplayName(d.itemId, d.displayName) },
+              ),
+              linkOriginPortId: node.id,
+            };
+            if (tutorialActive) setRecipePicker(picker);
+            else {
+              setRecipePicker(null);
+              setFactoryMenu(null);
+              setContainerMenu(null);
+              setPortMenu({
                 x: event.clientX,
                 y: event.clientY,
-              }) ?? { x: 0, y: 0 };
-            if (d.kind === "out") {
-              setRecipePicker({
-                anchor: { x: event.clientX, y: event.clientY },
-                flowPosition: flow,
-                filter: { mode: "consumes", itemId: d.itemId },
-                subtitle: t("fromOutputConsumes", {
-                  item: itemPortDisplayName(d.itemId, d.displayName),
-                }),
-                linkOriginPortId: node.id,
-              });
-            } else {
-              setRecipePicker({
-                anchor: { x: event.clientX, y: event.clientY },
-                flowPosition: flow,
-                filter: { mode: "produces", itemId: d.itemId },
-                subtitle: t("fromInputProduces", {
-                  item: itemPortDisplayName(d.itemId, d.displayName),
-                }),
-                linkOriginPortId: node.id,
+                portId: node.id,
+                picker,
               });
             }
             return;
           }
           if (node.type === "machineFrame") {
-            if (tutorialActive && !tutorialGates.allowMachineContextMenu) return;
+            if (tutorialActive && !tutorialGates.allowMachineContextMenu)
+              return;
             event.preventDefault();
             setEdgeMenu(null);
             setRecipePicker(null);
             setFactoryMenu(null);
             setContainerMenu(null);
-            const label =
-              (node.data as { label?: string }).label ?? node.id;
+            const label = (node.data as { label?: string }).label ?? node.id;
             setMachineMenu({
               x: event.clientX,
               y: event.clientY,
@@ -763,8 +847,7 @@ function FlowCanvasInner() {
             setRecipePicker(null);
             setMachineMenu(null);
             setContainerMenu(null);
-            const label =
-              (node.data as FactoryFrameData).label ?? node.id;
+            const label = (node.data as FactoryFrameData).label ?? node.id;
             setFactoryMenu({
               x: event.clientX,
               y: event.clientY,
@@ -780,8 +863,7 @@ function FlowCanvasInner() {
             setRecipePicker(null);
             setMachineMenu(null);
             setFactoryMenu(null);
-            const label =
-              (node.data as ContainerFrameData).label ?? node.id;
+            const label = (node.data as ContainerFrameData).label ?? node.id;
             setContainerMenu({
               x: event.clientX,
               y: event.clientY,
@@ -791,6 +873,7 @@ function FlowCanvasInner() {
           }
         }}
         onPaneClick={() => {
+          setPortMenu(null);
           clearMachineSelection();
           setSelectedSegmentIds([]);
           setConnectionPreview(null);
@@ -805,11 +888,10 @@ function FlowCanvasInner() {
           e.preventDefault();
           setEdgeMenu(null);
           setMachineMenu(null);
-          const flow =
-            rfRef.current?.screenToFlowPosition({
-              x: e.clientX,
-              y: e.clientY,
-            }) ?? { x: 0, y: 0 };
+          const flow = rfRef.current?.screenToFlowPosition({
+            x: e.clientX,
+            y: e.clientY,
+          }) ?? { x: 0, y: 0 };
           setRecipePicker({
             anchor: { x: e.clientX, y: e.clientY },
             flowPosition: flow,
@@ -833,11 +915,10 @@ function FlowCanvasInner() {
           if (!n || n.type !== "itemPort") return;
           const d = n.data as ItemPortData;
           const { x: cx, y: cy } = clientXY(event);
-          const flow =
-            rfRef.current?.screenToFlowPosition({
-              x: cx,
-              y: cy,
-            }) ?? { x: 0, y: 0 };
+          const flow = rfRef.current?.screenToFlowPosition({
+            x: cx,
+            y: cy,
+          }) ?? { x: 0, y: 0 };
           if (d.kind === "out") {
             scheduleRecipePickerOpen(setRecipePicker, {
               anchor: { x: cx, y: cy },
@@ -941,11 +1022,10 @@ function FlowCanvasInner() {
               onClearForced={() => clearForcedOnMachine(machineMenu.machineId)}
               onChangeRecipe={() => {
                 setMachineMenu(null);
-                const flow =
-                  rfRef.current?.screenToFlowPosition({
-                    x: machineMenu.x,
-                    y: machineMenu.y,
-                  }) ?? { x: 0, y: 0 };
+                const flow = rfRef.current?.screenToFlowPosition({
+                  x: machineMenu.x,
+                  y: machineMenu.y,
+                }) ?? { x: 0, y: 0 };
                 setRecipePicker({
                   anchor: { x: machineMenu.x, y: machineMenu.y },
                   flowPosition: flow,
@@ -967,6 +1047,20 @@ function FlowCanvasInner() {
             document.body,
           )
         : null}
+      {portMenu ? (
+        <PortContextMenu
+          x={portMenu.x}
+          y={portMenu.y}
+          connected={edges.some(
+            (e) => e.source === portMenu.portId || e.target === portMenu.portId,
+          )}
+          onClose={() => setPortMenu(null)}
+          onConnect={() => setRecipePicker(portMenu.picker)}
+          onDisconnect={() =>
+            useDocumentStore.getState().disconnectPort(portMenu.portId)
+          }
+        />
+      ) : null}
       {recipePicker ? (
         <MachineRecipePicker
           anchorScreen={recipePicker.anchor}
@@ -1008,8 +1102,7 @@ function FlowCanvasInner() {
               const added = useDocumentStore
                 .getState()
                 .nodes.find(
-                  (n) =>
-                    n.type === "machineFrame" && !beforeIds.has(n.id),
+                  (n) => n.type === "machineFrame" && !beforeIds.has(n.id),
                 );
               if (added) {
                 useTutorialStore
@@ -1034,7 +1127,10 @@ function FlowCanvasInner() {
                 setFactoryMenu(null);
               }}
               onRename={() => {
-                const next = window.prompt(t("factoryRenameMenu"), factoryMenu.label);
+                const next = window.prompt(
+                  t("factoryRenameMenu"),
+                  factoryMenu.label,
+                );
                 if (next) {
                   renameFactory(factoryMenu.factoryId, next);
                   useTutorialStore

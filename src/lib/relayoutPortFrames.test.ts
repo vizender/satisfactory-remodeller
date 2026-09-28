@@ -27,6 +27,7 @@ function port(
   return {
     id,
     type: "itemPort",
+    selectable: false,
     parentId,
     position: { x, y },
     data: {
@@ -79,7 +80,7 @@ describe("relayoutPortFrames", () => {
     expect(outp.position.y).toBe(centeredSingleSlotY(FRAME_MIN_H));
   });
 
-  it("keeps a 2-port column top-aligned and centers a lone port", () => {
+  it("centers both two-port columns and lone ports", () => {
     const nodes: Node[] = [
       {
         id: "m1",

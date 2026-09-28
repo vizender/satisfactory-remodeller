@@ -261,3 +261,17 @@ body {
   fill: var(--muted);
   pointer-events: none;
 }
+
+/* Only the visible core receives hits; the transparent wings belong to the canvas. */
+.react-flow__node-machineFrame,
+.react-flow__node-containerFrame {
+  pointer-events: none !important;
+}
+.rf-machine-body,
+.rf-container-body {
+  pointer-events: auto;
+}
+/* Drag a selection by any selected core without covering gaps between machines. */
+.react-flow__nodesselection-rect {
+  pointer-events: none !important;
+}

@@ -9,6 +9,11 @@ export interface MachineFrameData extends Record<string, unknown> {
    * Les débits nominaux des ports sont à 100 % ; le solveur applique ce facteur.
    */
   clockPercent?: number;
+  /** The last edited control: count derives clock, clock derives count. */
+  operatingMode?: "count" | "clock";
+  machineCount?: number;
+  /** Nominal-machine throughput retained when an unforced chain is adjusted. */
+  referenceThroughput?: number;
   /**
    * Permutation optionnelle : index de recette (ordre recette) → index de créneau vertical (0 = haut).
    * Présent seulement quand il y a plusieurs entrées / sorties et qu’on a réordonné.

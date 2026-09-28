@@ -30,6 +30,8 @@ export function computeFlowSolveSnapshot(
     const msg = e instanceof Error ? e.message : String(e);
     result = {
       machineMultiplier: {},
+      machineClockPercent: {},
+      portAdvice: {},
       effectiveRate: {},
       edgeFlow: {},
       portDelta: {},

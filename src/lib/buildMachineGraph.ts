@@ -1,6 +1,9 @@
 import type { Node } from "@xyflow/react";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
-import { alignFrameHeight, computeVerticalSlotYs } from "@/lib/machinePortLayout";
+import {
+  alignFrameHeight,
+  computeVerticalSlotYs,
+} from "@/lib/machinePortLayout";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
@@ -32,28 +35,12 @@ export function machineBlueprintFromFrame(frame: Node): MachineBlueprint {
     label: d.label,
     recipeKey: d.recipeKey,
     clockPercent: d.clockPercent,
+    machineCount: d.machineCount,
+    operatingMode: d.operatingMode,
+    referenceThroughput: d.referenceThroughput,
     inputSlotByRecipeIndex: d.inputSlotByRecipeIndex,
     outputSlotByRecipeIndex: d.outputSlotByRecipeIndex,
   };
-}
-
-/** Hauteur min du panneau central (titre + récap entrées/sorties + pied stats). */
-function bodyPanelMinHeight(inputCount: number, outputCount: number): number {
-  const headerBlock = 48;
-  const sectionHeader = 14;
-  const rowH = 24;
-  /** Pied : nombre machines, horloge, sloop, puissance, crafts… */
-  const footer = 76;
-  const gapBetweenSections = 8;
-  return (
-    headerBlock +
-    sectionHeader +
-    inputCount * rowH +
-    gapBetweenSections +
-    sectionHeader +
-    outputCount * rowH +
-    footer
-  );
 }
 
 export interface MachineBlueprint {
@@ -62,6 +49,9 @@ export interface MachineBlueprint {
   label: string;
   recipeKey: string;
   clockPercent?: number;
+  machineCount?: number;
+  operatingMode?: "count" | "clock";
+  referenceThroughput?: number;
   inputSlotByRecipeIndex?: number[];
   outputSlotByRecipeIndex?: number[];
 }
@@ -88,8 +78,7 @@ export function getMachineFrameDimensions(
   const outN = rates.outputs.length;
   const frameW = PORT_W + GUTTER + BODY_W + GUTTER + PORT_W;
   const maxCol = Math.max(inN, outN, 1);
-  const bodyMin = bodyPanelMinHeight(inN, outN);
-  const frameH = alignFrameHeight(bodyMin + 24, maxCol);
+  const frameH = alignFrameHeight(FRAME_MIN_H, maxCol);
   return { frameW, frameH, inCount: inN, outCount: outN };
 }
 
@@ -182,6 +171,9 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
           label: bp.label,
           recipeKey: bp.recipeKey,
           clockPercent: clampClockPercent(bp.clockPercent),
+          machineCount: bp.machineCount,
+          operatingMode: bp.operatingMode,
+          referenceThroughput: bp.referenceThroughput,
           missingRecipe: true,
         } satisfies MachineFrameData & { missingRecipe?: boolean },
       },
@@ -196,12 +188,18 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
   const frameH = dims.frameH;
 
   const inPerm = normalizePortSlotPermutation(inN, bp.inputSlotByRecipeIndex);
-  const outPerm = normalizePortSlotPermutation(outN, bp.outputSlotByRecipeIndex);
+  const outPerm = normalizePortSlotPermutation(
+    outN,
+    bp.outputSlotByRecipeIndex,
+  );
 
   const frameData: MachineFrameData = {
     label: bp.label,
     recipeKey: bp.recipeKey,
     clockPercent: clampClockPercent(bp.clockPercent),
+    machineCount: bp.machineCount,
+    operatingMode: bp.operatingMode,
+    referenceThroughput: bp.referenceThroughput,
   };
   if (inN > 1) frameData.inputSlotByRecipeIndex = inPerm;
   if (outN > 1) frameData.outputSlotByRecipeIndex = outPerm;
@@ -242,7 +240,7 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
       position: { x: GUTTER, y },
       data: d,
       draggable: false,
-      selectable: true,
+      selectable: false,
       deletable: true,
       zIndex: 1,
     });
@@ -268,7 +266,7 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
       position: { x: frameW - PORT_W - GUTTER, y },
       data: d,
       draggable: false,
-      selectable: true,
+      selectable: false,
       deletable: true,
       zIndex: 1,
     });

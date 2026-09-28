@@ -61,8 +61,7 @@ function slotOf(port: ItemPortData, frame: Node): number {
 }
 
 /**
- * Sit port cards flush on the machine body. Multi-port columns stay
- * top-aligned; a lone input or output is centered in the frame.
+ * Sit port cards flush on the machine body and center each column.
  */
 export function relayoutPortFrames(nodes: Node[]): Node[] {
   const frames = new Map<string, Node>();
@@ -96,9 +95,9 @@ export function relayoutPortFrames(nodes: Node[]): Node[] {
     const frameH = sizeById.get(n.parentId)?.h ?? FRAME_MIN_H;
     const ys = computeVerticalSlotYs(Math.max(d.slotsOnSide, 1), frameH);
     const y = ys[slotOf(d, frame)] ?? ys[0] ?? n.position.y;
-    if (n.position.x === x && n.position.y === y) return n;
+    if (n.position.x === x && n.position.y === y && n.selectable === false) return n;
     changed = true;
-    return { ...n, position: { x, y } };
+    return { ...n, selectable: false, position: { x, y } };
   });
   return changed ? next : nodes;
 }

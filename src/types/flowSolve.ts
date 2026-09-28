@@ -1,6 +1,8 @@
 /** Résultat du solveur de débits : cascades, répartitions et recyclage. */
 export interface FlowSolveResult {
   machineMultiplier: Record<string, number>;
+  machineClockPercent: Record<string, number>;
+  portAdvice: Record<string, "derived" | "coupled">;
   effectiveRate: Record<string, number>;
   edgeFlow: Record<string, number>;
   /** + surplus (vert), − déficit (rouge) vs besoin local après répartition. */

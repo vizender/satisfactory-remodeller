@@ -1,5 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
-import { clockMultiplier } from "@/lib/clockSpeed";
+import {
+  solverClockMultiplier,
+  resolveOperatingPoint,
+} from "@/lib/machineOperatingPoint";
 import { pairedContainerInputPortId } from "@/lib/containerFlow";
 import {
   combine,
@@ -34,6 +37,8 @@ interface Port {
 function emptyResult(): FlowSolveResult {
   return {
     machineMultiplier: {},
+    machineClockPercent: {},
+    portAdvice: {},
     effectiveRate: {},
     edgeFlow: {},
     portDelta: {},
@@ -110,9 +115,7 @@ function solveComponent(
     const container = frame.type === "containerFrame";
     const base = Number.isFinite(d.perMinute)
       ? Math.max(0, d.perMinute) *
-        (container
-          ? 1
-          : clockMultiplier((frame.data as MachineFrameData).clockPercent))
+        (container ? 1 : solverClockMultiplier(frame.data as MachineFrameData))
       : 0;
     const rate = container
       ? model.variable()
@@ -249,7 +252,17 @@ function solveComponent(
         (n) =>
           multipliers.has(n.id) && !incomingGroups.has(components.get(n.id)),
       ) ?? frames.find((n) => multipliers.has(n.id));
-    if (anchor) model.target(multipliers.get(anchor.id)!, 1);
+    if (anchor) {
+      const data = anchor.data as MachineFrameData;
+      const cm = solverClockMultiplier(data);
+      const reference = data.referenceThroughput;
+      model.target(
+        multipliers.get(anchor.id)!,
+        cm > 0 && reference !== undefined && Number.isFinite(reference)
+          ? reference / cm
+          : 1,
+      );
+    }
   }
 
   // Only unavoidable shortages survive. Upstream pins may create surplus, never new shortages.
@@ -314,8 +327,15 @@ function solveComponent(
   model.minimize(combine(...multipliers.values(), ...flow.values()), false);
 
   const conflictPorts = new Set<string>();
-  for (const [id, m] of multipliers)
-    result.machineMultiplier[id] = Math.max(0, model.value(m));
+  for (const [id, m] of multipliers) {
+    const data = frameById.get(id)!.data as MachineFrameData;
+    const operating = resolveOperatingPoint(
+      data,
+      Math.max(0, model.value(m)) * solverClockMultiplier(data),
+    );
+    result.machineMultiplier[id] = operating.count;
+    result.machineClockPercent[id] = operating.clock;
+  }
   for (const n of frames)
     if (n.type === "containerFrame") result.machineMultiplier[n.id] = 1;
   for (const e of edges)
@@ -323,6 +343,14 @@ function solveComponent(
   for (const p of ports.values()) {
     const rate = Math.max(0, model.value(p.rate));
     result.effectiveRate[p.id] = rate;
+    if (!forcedPorts.some(([id]) => id === p.id)) {
+      if (
+        cyclic.has(components.get(p.machine)!) ||
+        forcedPorts.some(([id]) => ports.get(id)!.machine === p.machine)
+      )
+        result.portAdvice[p.id] = "coupled";
+      else if (forcedPorts.length) result.portAdvice[p.id] = "derived";
+    }
     const received = model.value(edgeSum(p.incoming));
     const sent = model.value(edgeSum(p.outgoing));
     let delta = p.container
@@ -440,6 +468,8 @@ export function solveFlow(
     const part = solveComponent(groupNodes, groupEdges, forcedPortRates);
     for (const key of [
       "machineMultiplier",
+      "machineClockPercent",
+      "portAdvice",
       "effectiveRate",
       "edgeFlow",
       "portDelta",

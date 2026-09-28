@@ -1,8 +1,11 @@
-import type { Connection, Edge, EdgeChange, Node, NodeChange } from "@xyflow/react";
-import {
-  applyEdgeChanges,
-  applyNodeChanges,
+import type {
+  Connection,
+  Edge,
+  EdgeChange,
+  Node,
+  NodeChange,
 } from "@xyflow/react";
+import { applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import { create } from "zustand";
 import {
   buildContainerNodes,
@@ -10,14 +13,9 @@ import {
   containerBlueprintFromFrame,
   type ContainerBlueprint,
 } from "@/lib/buildContainerGraph";
-import {
-  applyContainerItemAssignment,
-} from "@/lib/containerPortAssign";
+import { applyContainerItemAssignment } from "@/lib/containerPortAssign";
 import { CONTAINER_DEFAULT_LABEL } from "@/constants/container";
-import {
-  machinePlacementGridSize,
-  snapToGrid,
-} from "@/constants/flowGrid";
+import { machinePlacementGridSize, snapToGrid } from "@/constants/flowGrid";
 import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import type { ContainerVariant } from "@/types/graph";
 import {
@@ -29,6 +27,7 @@ import {
   type MachinePlacementAnchor,
 } from "@/lib/buildMachineGraph";
 import type { ReorderDragSession } from "@/lib/nodeDisplayDecorators";
+import { computeFlowSolveSnapshot } from "@/lib/flowSolveSnapshot";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
 import { loadFactoryDocument } from "@/lib/factoryDocument";
@@ -36,10 +35,7 @@ import { relayoutPortFrames } from "@/lib/relayoutPortFrames";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import type { FactoryDocumentV2 } from "@/types/factoryDocument";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
-import {
-  isPortItemAssigned,
-  portItemsCompatible,
-} from "@/types/graph";
+import { isPortItemAssigned, portItemsCompatible } from "@/types/graph";
 import { isItemEdgeData } from "@/types/edgeData";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 import {
@@ -113,6 +109,8 @@ export interface DocumentState {
   removeEdgeById: (edgeId: string) => void;
   /** Delete a visual segment; cascade dangling geometry and drop broken topology edges. */
   deleteRouteSegment: (segmentId: string) => void;
+  setMachineCount: (machineFrameId: string, count: number) => void;
+  disconnectPort: (portId: string) => void;
   setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
   /** Retire tous les overrides sur les ports d’une machine (cadre). */
   clearForcedOnMachine: (machineFrameId: string) => void;
@@ -147,12 +145,12 @@ export interface DocumentState {
   /** Remplace la recette et retire les liaisons / forçages devenus invalides. */
   setMachineRecipe: (machineFrameId: string, recipeKey: string) => void;
   /** Surclock 0–250 % (défaut 100). */
-  setMachineClockPercent: (machineFrameId: string, clockPercent: number) => void;
-  /** Repositionne un nœud (ex. aperçu vertical lors du réordonnancement des ports). */
-  setNodePosition: (
-    nodeId: string,
-    position: { x: number; y: number },
+  setMachineClockPercent: (
+    machineFrameId: string,
+    clockPercent: number,
   ) => void;
+  /** Repositionne un nœud (ex. aperçu vertical lors du réordonnancement des ports). */
+  setNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   /** Plusieurs positions en une mise à jour (aperçu swap / reset des ports). */
   setNodePositions: (
     updates: { id: string; position: { x: number; y: number } }[],
@@ -187,10 +185,7 @@ function portIdsForFrame(nodes: Node[], frameId: string): string[] {
     .map((n) => n.id);
 }
 
-function portIdsForMachine(
-  nodes: Node[],
-  machineId: string,
-): string[] {
+function portIdsForMachine(nodes: Node[], machineId: string): string[] {
   return portIdsForFrame(nodes, machineId);
 }
 
@@ -204,10 +199,7 @@ function nextContainerFrameId(nodes: Node[]): string {
   return `c${max + 1}`;
 }
 
-function containerOutputDisabled(
-  nodes: Node[],
-  portId: string,
-): boolean {
+function containerOutputDisabled(nodes: Node[], portId: string): boolean {
   const port = nodes.find((n) => n.id === portId && n.type === "itemPort");
   if (!port?.parentId) return false;
   const frame = nodes.find(
@@ -328,12 +320,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const nodes = get().nodes;
     const src = nodes.find((n) => n.id === connection.source);
     const tgt = nodes.find((n) => n.id === connection.target);
-    if (
-      !src ||
-      !tgt ||
-      src.type !== "itemPort" ||
-      tgt.type !== "itemPort"
-    ) {
+    if (!src || !tgt || src.type !== "itemPort" || tgt.type !== "itemPort") {
       return;
     }
     const sd = src.data as ItemPortData;
@@ -475,10 +462,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const itemId = od.itemId;
         if (od.kind === "out") {
           const targetIn = findItemPortIdOnMachine(built, id, "in", itemId);
-          if (
-            targetIn &&
-            !hasEdgeBetweenPorts(get().edges, linkId, targetIn)
-          ) {
+          if (targetIn && !hasEdgeBetweenPorts(get().edges, linkId, targetIn)) {
             extraEdges.push(makeItemEdge(linkId, targetIn, itemId));
           }
         } else {
@@ -676,42 +660,148 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       typeof prevLabel === "string" && prevLabel.length > 0
         ? prevLabel
         : defaultMachineInstanceLabel(recipe ?? undefined, machineFrameId);
-    const prevClock = (frame.data as MachineFrameData).clockPercent;
     const bp: MachineBlueprint = {
-      id: machineFrameId,
-      position: { ...frame.position },
+      ...machineBlueprintFromFrame(frame),
       label,
       recipeKey,
-      clockPercent: typeof prevClock === "number" ? prevClock : undefined,
+      inputSlotByRecipeIndex: undefined,
+      outputSlotByRecipeIndex: undefined,
     };
     const built = buildMachineNodes(bp);
-    const others = s.nodes.filter(
-      (n) => n.id !== machineFrameId && n.parentId !== machineFrameId,
+    const available = built.filter((n) => n.type === "itemPort");
+    const remap = new Map<string, string>();
+    for (const old of s.nodes.filter((n) => portIds.has(n.id))) {
+      const d = old.data as ItemPortData;
+      const index = available.findIndex(
+        (n) => n.data.kind === d.kind && n.data.itemId === d.itemId,
+      );
+      if (index >= 0) remap.set(old.id, available.splice(index, 1)[0].id);
+    }
+    const nodes = [
+      ...s.nodes.filter(
+        (n) => n.id !== machineFrameId && n.parentId !== machineFrameId,
+      ),
+      ...built,
+    ];
+    const edges = s.edges
+      .filter(
+        (e) =>
+          (!portIds.has(e.source) || remap.has(e.source)) &&
+          (!portIds.has(e.target) || remap.has(e.target)),
+      )
+      .map((e) => ({
+        ...e,
+        source: remap.get(e.source) ?? e.source,
+        target: remap.get(e.target) ?? e.target,
+      }));
+    const forcedPortRates = Object.fromEntries(
+      Object.entries(s.forcedPortRates)
+        .filter(([id]) => !portIds.has(id) || remap.has(id))
+        .map(([id, rate]) => [remap.get(id) ?? id, rate]),
     );
-    const edges = s.edges.filter(
-      (e) => !portIds.has(e.source) && !portIds.has(e.target),
+    // Prune before remapping: a removed slot can reuse the id of a different item.
+    const graph = pruneRouteGraph(
+      s.routeGraph,
+      new Set(
+        s.nodes
+          .filter(
+            (n) =>
+              n.type === "itemPort" && (!portIds.has(n.id) || remap.has(n.id)),
+          )
+          .map((n) => n.id),
+      ),
+      new Set(edges.map((e) => e.id)),
     );
-    const forcedPortRates = { ...s.forcedPortRates };
-    for (const pid of portIds) delete forcedPortRates[pid];
+    graph.vertices = graph.vertices.map((v) => ({
+      ...v,
+      portId: v.portId ? (remap.get(v.portId) ?? v.portId) : undefined,
+    }));
     set({
-      nodes: [...others, ...built],
+      nodes,
       edges,
       forcedPortRates,
-      routeGraph: rebuildRouteGraph([...others, ...built], edges),
+      routeGraph: followPortVertices(graph, portHandlesFromNodes(nodes)),
+    });
+  },
+  setMachineCount: (machineFrameId, count) => {
+    if (!Number.isFinite(count) || count < 0) return;
+    const state = get();
+    const result = computeFlowSolveSnapshot(
+      state.nodes,
+      state.edges,
+      state.forcedPortRates,
+    );
+    const throughput =
+      ((result.machineMultiplier[machineFrameId] ?? 1) *
+        (result.machineClockPercent[machineFrameId] ?? 100)) /
+      100;
+    const feasibleCount = Math.max(count, throughput / 2.5);
+    set({
+      nodes: state.nodes.map((n) =>
+        n.id === machineFrameId && n.type === "machineFrame"
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                operatingMode: "count",
+                machineCount: feasibleCount,
+                referenceThroughput: throughput,
+              },
+            }
+          : n,
+      ),
+    });
+  },
+  disconnectPort: (portId) => {
+    const state = get();
+    const edges = state.edges.filter(
+      (e) => e.source !== portId && e.target !== portId,
+    );
+    set({
+      edges,
+      routeGraph: pruneRouteGraph(
+        state.routeGraph,
+        new Set(
+          state.nodes
+            .filter((n) => n.type === "itemPort" && n.id !== portId)
+            .map((n) => n.id),
+        ),
+        new Set(edges.map((e) => e.id)),
+      ),
     });
   },
   setMachineClockPercent: (machineFrameId, clockPercent) => {
+    if (!Number.isFinite(clockPercent)) return;
+    const state = get();
+    const result = computeFlowSolveSnapshot(
+      state.nodes,
+      state.edges,
+      state.forcedPortRates,
+    );
+    const throughput =
+      ((result.machineMultiplier[machineFrameId] ?? 1) *
+        (result.machineClockPercent[machineFrameId] ?? 100)) /
+      100;
     const v = clampClockPercent(clockPercent);
-    set((s) => ({
-      nodes: s.nodes.map((n) => {
-        if (n.id !== machineFrameId || n.type !== "machineFrame") return n;
-        const d = n.data as MachineFrameData;
-        return {
-          ...n,
-          data: { ...d, clockPercent: v } satisfies MachineFrameData,
-        };
-      }),
-    }));
+    set({
+      nodes: state.nodes.map((n) =>
+        n.id === machineFrameId && n.type === "machineFrame"
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                operatingMode: "clock",
+                machineCount: undefined,
+                clockPercent: v,
+                referenceThroughput:
+                  throughput ||
+                  (n.data.referenceThroughput as number | undefined) ||
+                  1,
+              },
+            }
+          : n,
+      ),
+    });
   },
   setNodePosition: (nodeId, position) =>
     set((s) => ({
@@ -722,9 +812,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setNodePositions: (updates) => {
     if (updates.length === 0) return;
     set((s) => {
-      const m = new Map(
-        updates.map((u) => [u.id, u.position] as const),
-      );
+      const m = new Map(updates.map((u) => [u.id, u.position] as const));
       return {
         nodes: s.nodes.map((n) => {
           const p = m.get(n.id);
@@ -733,7 +821,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       };
     });
   },
-  swapMachinePortSlots: (machineFrameId, kind, recipeIndex, targetSlotIndex) => {
+  swapMachinePortSlots: (
+    machineFrameId,
+    kind,
+    recipeIndex,
+    targetSlotIndex,
+  ) => {
     const s = get();
     const frame = s.nodes.find(
       (n) => n.id === machineFrameId && n.type === "machineFrame",
@@ -756,10 +849,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const j = perm.findIndex((slot) => slot === targetSlotIndex);
     if (j < 0) return;
     const nextPerm = [...perm];
-    [nextPerm[recipeIndex], nextPerm[j]] = [
-      nextPerm[j],
-      nextPerm[recipeIndex],
-    ];
+    [nextPerm[recipeIndex], nextPerm[j]] = [nextPerm[j], nextPerm[recipeIndex]];
 
     const built = buildMachineNodes({
       ...bp,
@@ -771,10 +861,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const nodes = [...others, ...built];
     set({
       nodes,
-      routeGraph: followPortVertices(
-        s.routeGraph,
-        portHandlesFromNodes(nodes),
-      ),
+      routeGraph: followPortVertices(s.routeGraph, portHandlesFromNodes(nodes)),
     });
   },
   replaceDocument: (doc) => {

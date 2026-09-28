@@ -31,7 +31,7 @@ export function computeEnergyLedger(
   edges: Edge[],
   forcedPortRates: Record<string, number | undefined>,
 ): EnergyLedger {
-  const { machineMultiplier: multByMachine } = solveFlow(
+  const { machineMultiplier: multByMachine, machineClockPercent } = solveFlow(
     nodes,
     edges,
     forcedPortRates,
@@ -54,8 +54,8 @@ export function computeEnergyLedger(
     const nom = nominalConsumerMw(mid);
     if (nom !== undefined) {
       const m = multByMachine[n.id] ?? 1;
-      const P = consumerPowerMwAtClock(nom, d.clockPercent);
-      const c = clampClockPercent(d.clockPercent) / 100;
+      const P = consumerPowerMwAtClock(nom, machineClockPercent[n.id] ?? d.clockPercent);
+      const c = clampClockPercent(machineClockPercent[n.id] ?? d.clockPercent) / 100;
       consumerTotalMw += m * P;
       consumerBaseline100Mw += m * c * nom;
       if (P > nom) overclockExtraMw += m * (P - nom);

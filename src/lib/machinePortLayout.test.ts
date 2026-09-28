@@ -16,6 +16,9 @@ function onGrid(n: number): boolean {
 }
 
 describe("machine port layout", () => {
+  it("uses one height for one through four ports", () => {
+    expect([1,2,3,4].map(count => alignFrameHeight(0,count))).toEqual([320,320,320,320]);
+  });
   it("keeps core sizes on the machine grid; gutter may be 0", () => {
     expect(onGrid(PORT_W)).toBe(true);
     expect(onGrid(PORT_ROW)).toBe(true);
@@ -41,14 +44,14 @@ describe("machine port layout", () => {
     }
   });
 
-  it("centers 1-port columns and top-aligns 2+ columns", () => {
+  it("centers columns of one or more ports", () => {
     const h1 = alignFrameHeight(0, 1);
     const h2 = alignFrameHeight(0, 2);
     const one = computeVerticalSlotYs(1, h1);
     const two = computeVerticalSlotYs(2, h2);
     expect(one[0]).toBe(centeredSingleSlotY(h1));
     expect(one[0]).not.toBe(PORT_COL_TOP);
-    expect(two[0]).toBe(PORT_COL_TOP);
+    expect(two[0]).toBe((h2 - 2 * PORT_ROW) / 2);
     expect(two[1]! - two[0]!).toBe(PORT_STACK_STEP);
   });
 
@@ -56,7 +59,7 @@ describe("machine port layout", () => {
     const h = alignFrameHeight(0, 2);
     const out = computeVerticalSlotYs(1, h);
     const ins = computeVerticalSlotYs(2, h);
-    expect(ins[0]).toBe(PORT_COL_TOP);
+    expect(ins[0]).toBe((h - 2 * PORT_ROW) / 2);
     expect(out[0]).toBe(centeredSingleSlotY(h));
     expect(out[0]).toBeGreaterThan(ins[0]!);
     expect(out[0]).toBeLessThan(ins[1]!);
@@ -68,16 +71,16 @@ describe("machine port layout", () => {
       expect(onGrid(frameH)).toBe(true);
       const ys = computeVerticalSlotYs(count, frameH);
       expect(ys).toHaveLength(count);
-      expect(ys[0]).toBe(PORT_COL_TOP);
+      expect(Math.abs(ys[0]! - (frameH - count * PORT_ROW) / 2)).toBeLessThanOrEqual(MACHINE_SNAP_GRID);
       for (let i = 1; i < ys.length; i++) {
         expect(ys[i]! - ys[i - 1]!).toBe(PORT_STACK_STEP);
       }
     }
   });
 
-  it("does not shift the first multi-slot when the body is taller", () => {
+  it("centers the stack when the body is taller", () => {
     const ys = computeVerticalSlotYs(3, alignFrameHeight(400, 3));
-    expect(ys[0]).toBe(PORT_COL_TOP);
+    expect(ys[0]).toBeGreaterThan(PORT_COL_TOP);
     expect(ys[1]! - ys[0]!).toBe(PORT_STACK_STEP);
     expect(ys[2]! - ys[1]!).toBe(PORT_STACK_STEP);
   });

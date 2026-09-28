@@ -64,24 +64,6 @@ type DragRef = {
 
 const REORDER_ACTIVATE_PX = 4;
 
-function ForcedPinIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 16 16"
-      className="h-2.5 w-2.5 shrink-0"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path d="M9.5 1.5a3.5 3.5 0 0 0-3.16 5.01L2.7 10.05a.75.75 0 0 0-.08.96l.07.08a.75.75 0 0 0 .96.08l3.64-3.64A3.5 3.5 0 1 0 9.5 1.5Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" />
-    </svg>
-  );
-}
-
-/**
- * Port : thème par état de flux (bleu équilibré, vert surplus, rouge déficit).
- * Entrée en déficit : tout en rouge (pas de mélange vert/rouge).
- */
 export function ItemPortNode(props: NodeProps) {
   const { t } = useI18n();
   const { id, data, parentId } = props;
@@ -107,6 +89,7 @@ export function ItemPortNode(props: NodeProps) {
     conflictMachineIds,
     conflictPortIds,
     overriddenPortIds,
+    portAdvice,
   } = useFlowSolve();
 
   const dragRef = useRef<DragRef | null>(null);
@@ -120,6 +103,25 @@ export function ItemPortNode(props: NodeProps) {
   const isForced =
     forced !== undefined && Number.isFinite(forced) && forced >= 0;
   const isOverridden = overriddenPortIds.includes(id);
+  const advice = portAdvice[id];
+  const statusKey = isOverridden
+    ? "portOverriddenHelp"
+    : isForced
+      ? "portForcedBadge"
+      : advice === "coupled"
+        ? "portCoupledHelp"
+        : advice === "derived"
+          ? "portDerivedHelp"
+          : "portFreeHelp";
+  const statusSymbol = isOverridden
+    ? "!"
+    : isForced
+      ? "●"
+      : advice === "coupled"
+        ? "△"
+        : advice === "derived"
+          ? "≈"
+          : "○";
 
   const balanced = Math.abs(delta) <= EPS;
   const surplus = delta > EPS;
@@ -241,7 +243,7 @@ export function ItemPortNode(props: NodeProps) {
 
   const onReorderPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!reorderable) return;
+      if (e.button !== 0 || !reorderable) return;
       if (parentId && !tutorialGates.allowPortReorder(parentId)) return;
       if ((e.target as HTMLElement).closest(".react-flow__handle")) return;
       if ((e.target as HTMLElement).closest("[data-port-force-field]")) return;
@@ -473,12 +475,11 @@ export function ItemPortNode(props: NodeProps) {
           className={handleOut}
         />
       )}
-      <div className="flex flex-col gap-0.5">
+      <div className="flex h-full flex-col justify-between gap-0.5">
         <div
           className={cn(
-            "flex items-start gap-1 pl-0.5",
-            reorderable &&
-              "nodrag nopan cursor-ns-resize touch-none select-none",
+            "flex items-center gap-1",
+            reorderable && "nodrag nopan cursor-ns-resize touch-none",
           )}
           onPointerDown={reorderable ? onReorderPointerDown : undefined}
           onPointerMove={reorderable ? onReorderPointerMove : undefined}
@@ -486,57 +487,70 @@ export function ItemPortNode(props: NodeProps) {
           onPointerCancel={reorderable ? onReorderPointerCancel : undefined}
         >
           <ItemIconSlot itemId={d.itemId} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[10px] font-medium leading-tight text-[var(--text)]">
-              {portLabel}
-            </div>
-            <div
-              className={cn(
-                "tabular-nums text-[10px]",
-                rateClass,
-                isForced && "font-bold",
-              )}
-            >
-              {eff.toFixed(1)}/min
-            </div>
-            <div className={deltaClass}>
+          <span
+            className="min-w-0 flex-1 truncate text-[10px] font-medium"
+            title={portLabel}
+          >
+            {portLabel}
+          </span>
+          <span
+            role="img"
+            aria-label={t(statusKey)}
+            title={t(statusKey)}
+            className={cn(
+              "shrink-0 text-[11px]",
+              isOverridden || (!isForced && advice === "coupled")
+                ? "text-amber-500"
+                : isForced
+                  ? "text-[var(--accent)]"
+                  : "text-[var(--muted)]",
+            )}
+          >
+            {statusSymbol}
+          </span>
+        </div>
+        <div className="flex items-baseline justify-between gap-1 tabular-nums">
+          <span
+            className={cn("text-[11px]", rateClass, isForced && "font-bold")}
+          >
+            {eff.toFixed(1)}/min
+          </span>
+          {!balanced && (
+            <span className={deltaClass}>
               {surplus ? "+" : ""}
-              {delta.toFixed(1)}/min
-            </div>
-            <div className="text-[9px] text-[var(--muted)]">
-              ×{d.amountPerCraft} / craft
-            </div>
-          </div>
+              {delta.toFixed(1)}
+            </span>
+          )}
         </div>
         <label
-          className="block cursor-text text-[8px] text-[var(--muted)]"
+          className="nodrag nopan flex items-center gap-1 text-[9px] text-[var(--muted)]"
           data-port-force-field
-          onPointerDown={(ev) => ev.stopPropagation()}
-          onClick={(ev) => ev.stopPropagation()}
-          onDoubleClick={(ev) => ev.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
         >
-          {t("portForceLabel")}
+          <span>{t("portForceShort")}</span>
           <input
             type="text"
             inputMode="decimal"
             autoComplete="off"
             spellCheck={false}
             className={cn(
-              "port-force-input nodrag mt-px w-full rounded border bg-[var(--surface)] px-0.5 py-px text-[9px] text-[var(--text)] outline-none focus:border-[var(--accent)]",
+              "port-force-input nodrag min-w-0 flex-1 rounded border bg-[var(--surface)] px-1 text-[10px] tabular-nums outline-none focus:border-[var(--accent)]",
               isOverridden
-                ? "border-amber-400 font-bold tabular-nums"
+                ? "border-amber-500"
                 : isForced
-                  ? "border-[var(--accent)]/55 font-bold tabular-nums"
-                  : "border-[var(--border)]",
+                  ? "border-[var(--accent)] font-bold"
+                  : "border-dashed border-[var(--border)]",
             )}
-            title={t(isOverridden ? "portOverriddenHelp" : "portForceHelp")}
+            title={t(statusKey)}
             aria-label={t("portForceLabel")}
-            placeholder={eff.toFixed(1)}
+            placeholder="—"
             value={forceDisplay}
             onChange={(e) => setForceDraft(e.target.value)}
-            onFocus={() => {
-              setForceDraft(forced !== undefined ? String(forced) : "");
-            }}
+            onFocus={() =>
+              setForceDraft(forced === undefined ? "" : String(forced))
+            }
             onBlur={(e) => {
               const raw = e.target.value.trim();
               setForceDraft(null);
@@ -547,25 +561,11 @@ export function ItemPortNode(props: NodeProps) {
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              e.stopPropagation();
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
-            onPointerDown={(ev) => ev.stopPropagation()}
           />
         </label>
-        {isForced ? (
-          <div
-            className={cn(
-              "mt-0.5 flex items-center gap-0.5 text-[7px] font-medium leading-none",
-              isOverridden ? "text-amber-400" : "text-[var(--accent)]",
-            )}
-            title={t(isOverridden ? "portOverriddenHelp" : "portForceHelp")}
-          >
-            <ForcedPinIcon />
-            <span>
-              {t(isOverridden ? "portOverriddenBadge" : "portForcedBadge")}
-            </span>
-          </div>
-        ) : null}
       </div>
     </div>
   );

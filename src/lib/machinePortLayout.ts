@@ -5,18 +5,14 @@ const { PORT_ROW, PORT_STACK_STEP, PORT_COL_TOP, FRAME_V_MARGIN, FRAME_MIN_H } =
   MACHINE_LAYOUT;
 
 /**
- * Smallest frame height ≥ `minH` on the machine grid. Extra height goes
- * below a multi-port column so the first slot stays at `PORT_COL_TOP`.
+ * Smallest frame height ≥ `minH` with room for centered columns on the grid.
  */
 export function alignFrameHeight(minH: number, portCount: number): number {
   const maxCol = Math.max(portCount, 1);
-  const portBottom =
-    PORT_COL_TOP + (maxCol - 1) * PORT_STACK_STEP + PORT_ROW;
+  const portBottom = PORT_COL_TOP + (maxCol - 1) * PORT_STACK_STEP + PORT_ROW;
   const g = MACHINE_SNAP_GRID;
   return (
-    Math.ceil(
-      Math.max(minH, FRAME_MIN_H, portBottom + FRAME_V_MARGIN) / g,
-    ) * g
+    Math.ceil(Math.max(minH, FRAME_MIN_H, portBottom + FRAME_V_MARGIN) / g) * g
   );
 }
 
@@ -45,18 +41,19 @@ export function portHandleLocalY(slotIndex: number): number {
 
 /**
  * Top edge of each port card.
- * One slot: centered in `frameH`. Two or more: stacked from `PORT_COL_TOP`.
+ * All columns are centered in `frameH`, including stacks of two to four cards.
  */
 export function computeVerticalSlotYs(
   count: number,
   frameH: number = FRAME_MIN_H,
 ): number[] {
   if (count <= 0) return [];
-  if (count === 1) return [centeredSingleSlotY(frameH)];
-  return Array.from(
-    { length: count },
-    (_, i) => PORT_COL_TOP + i * PORT_STACK_STEP,
+  const occupied = PORT_ROW + (count - 1) * PORT_STACK_STEP;
+  const first = Math.max(
+    PORT_COL_TOP,
+    Math.round((frameH - occupied) / 2 / MACHINE_SNAP_GRID) * MACHINE_SNAP_GRID,
   );
+  return Array.from({ length: count }, (_, i) => first + i * PORT_STACK_STEP);
 }
 
 export function nearestSlotIndex(
