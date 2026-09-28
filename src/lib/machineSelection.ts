@@ -12,12 +12,15 @@ const SELECTABLE_FRAME_TYPES = new Set([
 export function applyMachineSelection(
   frameId: string,
   mode: MachineSelectMode,
+  selectionBeforeClick?: ReadonlySet<string>,
 ): void {
   const { nodes, onNodesChange } = useDocumentStore.getState();
   const target = nodes.find(
     (n) => n.id === frameId && SELECTABLE_FRAME_TYPES.has(n.type ?? ""),
   );
-  const wasSelected = target?.selected ?? false;
+  const wasSelected = selectionBeforeClick
+    ? selectionBeforeClick.has(frameId)
+    : (target?.selected ?? false);
 
   const changes: NodeChange[] = nodes.map((n) => {
     if (!SELECTABLE_FRAME_TYPES.has(n.type ?? "")) {
@@ -32,7 +35,13 @@ export function applyMachineSelection(
     if (mode === "replace") {
       return { type: "select", id: n.id, selected: false };
     }
-    return { type: "select", id: n.id, selected: n.selected ?? false };
+    return {
+      type: "select",
+      id: n.id,
+      selected: selectionBeforeClick
+        ? selectionBeforeClick.has(n.id)
+        : (n.selected ?? false),
+    };
   });
   onNodesChange(changes);
 }
@@ -46,12 +55,20 @@ export function clearMachineSelection(): void {
 
   if (hadNodeSelection) {
     onNodesChange(
-      nodes.map((n) => ({ type: "select" as const, id: n.id, selected: false })),
+      nodes.map((n) => ({
+        type: "select" as const,
+        id: n.id,
+        selected: false,
+      })),
     );
   }
   if (hadEdgeSelection) {
     onEdgesChange(
-      edges.map((e) => ({ type: "select" as const, id: e.id, selected: false })),
+      edges.map((e) => ({
+        type: "select" as const,
+        id: e.id,
+        selected: false,
+      })),
     );
   }
 }

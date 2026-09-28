@@ -29,11 +29,8 @@ export function ContainerFrameNode(props: NodeProps) {
     (s) => s.setContainerOutputEnabled,
   );
 
-  const {
-    effectiveRate,
-    portStoredPerMin,
-    conflictMachineIds,
-  } = useFlowSolve();
+  const { effectiveRate, portStoredPerMin, conflictMachineIds } =
+    useFlowSolve();
 
   const inConflict = conflictMachineIds.includes(id);
   const variant = d.variant ?? "standard";
@@ -94,14 +91,17 @@ export function ContainerFrameNode(props: NodeProps) {
         </div>
 
         <div className="mt-1 flex shrink-0 flex-wrap gap-2 border-b border-[var(--border)] pb-1 text-[9px]">
-          <label className="flex cursor-pointer items-center gap-1 text-[var(--muted)]">
+          <label
+            className="nodrag nopan flex cursor-pointer items-center gap-1 text-[var(--muted)]"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
             <input
               type="checkbox"
               className="nodrag h-3 w-3 accent-[var(--accent)]"
               checked={outputEnabled}
-              onChange={(e) =>
-                setContainerOutputEnabled(id, e.target.checked)
-              }
+              onChange={(e) => setContainerOutputEnabled(id, e.target.checked)}
               onPointerDown={(e) => e.stopPropagation()}
             />
             {t("containerOutputEnabled")}

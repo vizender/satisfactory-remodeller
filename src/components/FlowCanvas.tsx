@@ -192,6 +192,7 @@ function FlowCanvasInner() {
   const { effective: inputModality } = useInputModality();
   const flowInteraction = reactFlowInteractionProps(inputModality);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const selectionBeforeClick = useRef<Set<string>>(new Set());
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
   const machineGridSnap = useCanvasUiStore((s) => s.machineGridSnap);
@@ -623,6 +624,16 @@ function FlowCanvasInner() {
   return (
     <div
       ref={canvasRef}
+      onClickCapture={() => {
+        // Capture before React Flow applies its own selection. The click's Shift
+        // modifier is authoritative, even if global key tracking missed it.
+        selectionBeforeClick.current = new Set(
+          useDocumentStore
+            .getState()
+            .nodes.filter((n) => n.selected)
+            .map((n) => n.id),
+        );
+      }}
       className="relative h-full w-full overflow-hidden"
       onContextMenu={(e) =>
         handleSuppressNativeContextMenu(e, canvasRef.current)
@@ -664,7 +675,11 @@ function FlowCanvasInner() {
             node.type === "factoryFrame" ||
             node.type === "containerFrame"
           ) {
-            // React Flow already applied frame selection before this callback.
+            applyMachineSelection(
+              node.id,
+              event.shiftKey ? "toggle" : "replace",
+              selectionBeforeClick.current,
+            );
             setMachineMenu(null);
             setFactoryMenu(null);
             setContainerMenu(null);
@@ -675,6 +690,7 @@ function FlowCanvasInner() {
             applyMachineSelection(
               node.parentId,
               event.shiftKey ? "toggle" : "replace",
+              selectionBeforeClick.current,
             );
             setMachineMenu(null);
             setFactoryMenu(null);
