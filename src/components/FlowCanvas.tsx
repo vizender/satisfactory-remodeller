@@ -8,8 +8,6 @@ import {
 } from "@/lib/canvasClipboard";
 import {
   Background,
-  Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   useReactFlow,
@@ -956,11 +954,6 @@ function FlowCanvasInner() {
         }}
       >
         <Background gap={BACKGROUND_GRID_GAP} color="var(--flow-grid)" />
-        <Controls className="!bg-[var(--surface)] !border-[var(--border)] !shadow-lg" />
-        <MiniMap
-          className="!bg-[var(--surface)] !border-[var(--border)]"
-          maskColor="var(--minimap-mask)"
-        />
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-1 text-right">
             {solve.hardConflict ? (
