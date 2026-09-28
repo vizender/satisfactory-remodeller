@@ -65,9 +65,9 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
                   ["out", rates.outputs],
                 ] as const
               ).map(([kind, rows]) => (
-                <section key={kind}>
+                <section key={kind} className="min-w-0">
                   <h3
-                    className={`mb-1 text-[9px] font-semibold uppercase tracking-wide ${kind === "in" ? "text-emerald-500" : "text-sky-500"}`}
+                    className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${kind === "in" ? "text-emerald-500" : "text-sky-500"}`}
                   >
                     {t(
                       kind === "in"
@@ -79,7 +79,7 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
                     {rows.map((row, i) => (
                       <li
                         key={i}
-                        className="flex items-center gap-1 text-[9px]"
+                        className="flex items-center gap-1 text-xs"
                         title={`${row.displayName} ×${row.amountPerCraft} / craft`}
                       >
                         <ItemIconSlot itemId={row.itemId} />

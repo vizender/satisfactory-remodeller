@@ -103,32 +103,37 @@ export function ItemPortNode(props: NodeProps) {
   const isForced =
     forced !== undefined && Number.isFinite(forced) && forced >= 0;
   const isOverridden = overriddenPortIds.includes(id);
+  const hasDeficit = delta < -EPS || (isForced && eff + EPS < forced);
   const advice = portAdvice[id];
-  const statusKey = isOverridden
-    ? "portOverriddenHelp"
-    : isForced
-      ? "portForcedBadge"
-      : advice === "coupled"
-        ? "portCoupledHelp"
-        : advice === "derived"
-          ? "portDerivedHelp"
-          : "portFreeHelp";
-  const statusSymbol = isOverridden
-    ? "!"
-    : isForced
-      ? "●"
-      : advice === "coupled"
-        ? "△"
-        : advice === "derived"
+  const statusKey = hasDeficit
+    ? "portDeficitHelp"
+    : isOverridden
+      ? "portOverriddenHelp"
+      : isForced
+        ? "portForcedBadge"
+        : advice === "coupled"
+          ? "portCoupledHelp"
+          : advice === "derived"
+            ? "portDerivedHelp"
+            : "portFreeHelp";
+  const statusSymbol =
+    hasDeficit || isOverridden
+      ? "!"
+      : isForced
+        ? "●"
+        : advice === "coupled"
           ? "≈"
-          : "○";
+          : advice === "derived"
+            ? "≈"
+            : "○";
 
   const balanced = Math.abs(delta) <= EPS;
   const surplus = delta > EPS;
   const deficit = delta < -EPS;
 
   let rateClass: string;
-  if (isIn) {
+  if (hasDeficit) rateClass = "text-red-400";
+  else if (isIn) {
     if (balanced) rateClass = "text-blue-400";
     else if (deficit) rateClass = "text-red-400";
     else rateClass = "text-emerald-400";
@@ -167,21 +172,9 @@ export function ItemPortNode(props: NodeProps) {
           : "border-red-500/50",
   );
 
-  const handleIn = cn(
-    "rf-port-handle-in !h-3 !w-3 !border !border-[var(--border)]",
-    balanced
-      ? "!bg-blue-500/90"
-      : deficit
-        ? "!bg-red-500/90"
-        : "!bg-emerald-500/90",
-  );
-  const handleOut = cn(
-    "rf-port-handle-out !h-3 !w-3 !border !border-[var(--border)]",
-    balanced
-      ? "!bg-sky-500/90"
-      : surplus
-        ? "!bg-emerald-500/90"
-        : "!bg-red-500/90",
+  const handleStyle = cn(
+    "rf-port-connector !h-5 !w-3 !rounded-none !border-0 !bg-transparent",
+    hasDeficit ? "text-red-400" : "text-[var(--muted)]",
   );
 
   const reorderable = d.slotsOnSide > 1;
@@ -447,12 +440,14 @@ export function ItemPortNode(props: NodeProps) {
     <div
       className={cn(
         "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
+        isIn ? "pl-3 pr-1" : "pl-1 pr-3",
         reorderable && "nodrag nopan",
         (parentInConflict || portOnConflictEdge) && "rf-machine-port-conflict",
         parentSelected && "rf-machine-port-selected",
         parentContainerOutputOff && "opacity-45",
         portOnConflictEdge && "border-red-500/70",
         cardBorder,
+        hasDeficit && "rf-machine-port-deficit",
       )}
       style={{
         width: PORT_W,
@@ -465,14 +460,14 @@ export function ItemPortNode(props: NodeProps) {
           id="item"
           type="target"
           position={Position.Left}
-          className={handleIn}
+          className={cn(handleStyle, "rf-port-handle-in")}
         />
       ) : parentContainerOutputOff ? null : (
         <Handle
           id="item"
           type="source"
           position={Position.Right}
-          className={handleOut}
+          className={cn(handleStyle, "rf-port-handle-out")}
         />
       )}
       <div className="flex h-full flex-col justify-between gap-0.5">
@@ -499,11 +494,13 @@ export function ItemPortNode(props: NodeProps) {
             title={t(statusKey)}
             className={cn(
               "shrink-0 text-[11px]",
-              isOverridden || (!isForced && advice === "coupled")
-                ? "text-amber-500"
-                : isForced
-                  ? "text-[var(--accent)]"
-                  : "text-[var(--muted)]",
+              hasDeficit
+                ? "text-red-400"
+                : isOverridden
+                  ? "text-amber-500"
+                  : isForced
+                    ? "text-[var(--accent)]"
+                    : "text-[var(--muted)]",
             )}
           >
             {statusSymbol}
@@ -511,12 +508,20 @@ export function ItemPortNode(props: NodeProps) {
         </div>
         <div className="flex items-baseline justify-between gap-1 tabular-nums">
           <span
-            className={cn("text-[11px]", rateClass, isForced && "font-bold")}
+            className={cn(
+              "min-w-0 truncate text-[11px]",
+              rateClass,
+              isForced && "font-bold",
+            )}
+            title={`${eff.toFixed(1)}/min`}
           >
             {eff.toFixed(1)}/min
           </span>
           {!balanced && (
-            <span className={deltaClass}>
+            <span
+              className={cn(deltaClass, "min-w-0 truncate")}
+              title={`${surplus ? "+" : ""}${delta.toFixed(1)}/min`}
+            >
               {surplus ? "+" : ""}
               {delta.toFixed(1)}
             </span>
@@ -537,11 +542,13 @@ export function ItemPortNode(props: NodeProps) {
             spellCheck={false}
             className={cn(
               "port-force-input nodrag min-w-0 flex-1 rounded border bg-[var(--surface)] px-1 text-[10px] tabular-nums outline-none focus:border-[var(--accent)]",
-              isOverridden
-                ? "border-amber-500"
-                : isForced
-                  ? "border-[var(--accent)] font-bold"
-                  : "border-dashed border-[var(--border)]",
+              hasDeficit
+                ? "border-red-500 text-red-400"
+                : isOverridden
+                  ? "border-amber-500"
+                  : isForced
+                    ? "border-[var(--accent)] font-bold"
+                    : "border-dashed border-[var(--border)]",
             )}
             title={t(statusKey)}
             aria-label={t("portForceLabel")}

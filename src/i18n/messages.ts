@@ -81,6 +81,7 @@ export const messages = {
     portConnectMachine: "Ajouter une machine connectée…",
     portForceLabel: "Forcer /min",
     portForcedBadge: "Débit forcé",
+    portDeficitHelp: "Déficit : l’apport ou le débit calculé ne satisfait pas le besoin demandé.",
     portOverriddenBadge: "Débit ajusté",
     portOverriddenHelp:
       "Ce débit demandé est conservé, mais le débit calculé est ajusté pour satisfaire les besoins en aval. Une machine arrêtée ou une boucle incompatible peut rendre une cible impossible.",
@@ -287,6 +288,7 @@ export const messages = {
     portConnectMachine: "Add connected machine…",
     portForceLabel: "Force /min",
     portForcedBadge: "Forced rate",
+    portDeficitHelp: "Deficit: incoming supply or the calculated rate falls short of the requested need.",
     portOverriddenBadge: "Adjusted rate",
     portOverriddenHelp:
       "This requested rate is saved, but the calculated rate is adjusted to meet downstream demand. A stopped machine or incompatible loop can make a target impossible.",

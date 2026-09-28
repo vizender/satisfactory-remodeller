@@ -28,8 +28,8 @@ Dans une même recette ou boucle, les sorties forcées sont prioritaires sur les
 
 - **Maj + clic** : ajouter ou retirer une machine, un conteneur ou une usine de la sélection. Déplacer une sélection déplace aussi ses liaisons internes.
 - **Ctrl/Cmd + C, X, V** : copier, couper et coller la sélection, avec les réglages et les usines imbriquées. Copier une liaison seule inclut ses machines aux extrémités ; couper une liaison seule ne supprime pas les machines. Le presse-papiers du canvas reste disponible entre les usines pendant la session.
-- **Machines / Overclock** : saisir une valeur ou utiliser les boutons ±1 machine / ±10 %. Le dernier réglage modifié détermine l’autre en conservant le débit calculé. Un nombre de machines insuffisant est ajusté au nombre nécessaire à 250 %.
-- **Ports** : ○ libre, ● forcé, ≈ calculé depuis une autre cible, △ lié à une contrainte ou une boucle, ! cible ajustée. Les infobulles expliquent chaque état ; tous les ports peuvent recevoir une cible.
+- **Machines / Overclock** : saisir une valeur ou utiliser les boutons ±1 machine / ±10 %. Les boutons rejoignent d’abord le prochain entier (machines) ou multiple de 10 % (overclock) dans le sens choisi. Le dernier réglage modifié détermine l’autre en conservant le débit calculé. Un nombre de machines insuffisant est ajusté au nombre nécessaire à 250 %.
+- **Ports** : ○ libre, ● forcé, ≈ calculé depuis une autre cible ou lié à une contrainte ou une boucle, ! cible ajustée. Les infobulles expliquent chaque état ; tous les ports peuvent recevoir une cible.
 - **Clic droit sur un port** : ajouter une machine connectée ou déconnecter toutes ses liaisons. Changer la recette conserve les liaisons et cibles des items communs, du même côté.
 
 ## Développement

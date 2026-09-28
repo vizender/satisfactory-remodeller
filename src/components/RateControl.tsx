@@ -29,9 +29,11 @@ export function RateControl({
   };
   const bump = (direction: number) => {
     const parsed = draft === null ? value : Number(draft.replace(",", "."));
-    commit(
-      String((Number.isFinite(parsed) ? parsed : value) + direction * step),
-    );
+    const current = Number.isFinite(parsed) ? parsed : value;
+    // First reach the next step boundary, then advance by whole steps.
+    const units = Number((current / step).toFixed(9));
+    const next = direction > 0 ? Math.floor(units) + 1 : Math.ceil(units) - 1;
+    commit(String(next * step));
   };
   const buttonClass = "h-full w-6 bg-[var(--bg)] hover:text-[var(--accent)]";
   return (

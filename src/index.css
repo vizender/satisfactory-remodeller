@@ -275,3 +275,27 @@ body {
 .react-flow__nodesselection-rect {
   pointer-events: none !important;
 }
+
+/* A narrow socket on the card edge, with a larger transparent drag target.
+   Port content reserves 12px on this side, clear of the entire hit target. */
+.rf-port-connector::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: currentColor;
+  pointer-events: none;
+}
+.rf-port-connector:hover::after,
+.rf-port-connector.connecting::after {
+  background: var(--accent);
+}
+
+.rf-machine-port-deficit {
+  border-color: #ef4444 !important;
+  background-color: var(--machine-conflict-bg);
+}
