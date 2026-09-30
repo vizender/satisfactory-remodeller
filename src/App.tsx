@@ -1,3 +1,5 @@
+import { useCanvasHistory } from "@/hooks/useCanvasHistory";
+import { useTutorialStore } from "@/store/useTutorialStore";
 import { useRef } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -26,6 +28,8 @@ function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
   useSuppressNativeContextMenu(mainRef);
   const draftReady = useLocalDraft();
+  const tutorialActive = useTutorialStore((s) => s.active);
+  useCanvasHistory(draftReady && !tutorialActive);
 
   return (
     <MobileUnsupportedGate>

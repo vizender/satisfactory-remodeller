@@ -148,7 +148,7 @@ export const messages = {
     factoryDelete: "Supprimer l’usine…",
     factoryDeleteTitle: "Supprimer « {name} » ?",
     factoryDeleteBody:
-      "Cette action supprime définitivement cette usine et toutes les usines imbriquées. Irréversible.",
+      "Cette action supprime cette usine et toutes les usines imbriquées. Ctrl/Cmd + Z permet de les restaurer pendant cette session.",
     factoryDepthLimit: "Profondeur maximale de 10 usines imbriquées atteinte.",
     factoryNavTitle: "Navigation",
     snapToggle: "Snap",
@@ -161,7 +161,7 @@ export const messages = {
     factoryClear: "Vider l’usine…",
     factoryClearTitle: "Vider cette usine ?",
     factoryClearBody:
-      "Toutes les machines et liaisons seront supprimées. Les usines présentes ici (et tout leur contenu) seront aussi supprimées. Irréversible.",
+      "Toutes les machines et liaisons seront supprimées. Les usines présentes ici (et tout leur contenu) seront aussi supprimées. Ctrl/Cmd + Z permet de les restaurer pendant cette session.",
     factoryClearConfirm: "Vider",
     factoryLoading: "Chargement de l’usine…",
     factoryLoadingNamed: "Chargement de « {name} »…",
@@ -352,7 +352,7 @@ export const messages = {
     factoryDelete: "Delete factory…",
     factoryDeleteTitle: "Delete « {name} »?",
     factoryDeleteBody:
-      "This permanently deletes this factory and all nested factories inside it. This cannot be undone.",
+      "This deletes this factory and all nested factories inside it. Ctrl/Cmd + Z restores them during this session.",
     factoryDepthLimit: "Maximum nested factory depth of 10 reached.",
     factoryNavTitle: "Navigation",
     snapToggle: "Snap",
@@ -365,7 +365,7 @@ export const messages = {
     factoryClear: "Clear factory…",
     factoryClearTitle: "Clear this factory?",
     factoryClearBody:
-      "All machines and links will be removed. Factories here (and everything inside them) will also be deleted. This cannot be undone.",
+      "All machines and links will be removed. Factories here (and everything inside them) will also be deleted. Ctrl/Cmd + Z restores them during this session.",
     factoryClearConfirm: "Clear",
     factoryLoading: "Loading factory…",
     factoryLoadingNamed: "Loading « {name} »…",

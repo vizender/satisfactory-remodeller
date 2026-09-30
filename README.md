@@ -26,6 +26,8 @@ Dans une même recette ou boucle, les sorties forcées sont prioritaires sur les
 
 ## Canvas et réglages
 
+- **Ctrl/Cmd + Z / Ctrl/Cmd + Y** : annuler / rétablir les modifications (également Ctrl/Cmd + Maj + Z pour rétablir). L’historique conserve jusqu’à 100 étapes pendant la session, y compris les liaisons, réglages et usines imbriquées. Un déplacement complet compte pour une étape. Les champs de texte gardent leur annulation native ; le zoom et la sélection ne créent pas d’étape.
+
 - **Maj + clic** : ajouter ou retirer une machine, un conteneur ou une usine de la sélection. Déplacer une sélection déplace aussi ses liaisons internes.
 - **Ctrl/Cmd + C, X, V** : copier, couper et coller la sélection, avec les réglages et les usines imbriquées. Copier une liaison seule inclut ses machines aux extrémités ; couper une liaison seule ne supprime pas les machines. Le presse-papiers du canvas reste disponible entre les usines pendant la session.
 - **Machines / Overclock** : saisir une valeur ou utiliser les boutons ±1 machine / ±10 %. Les boutons rejoignent d’abord le prochain entier (machines) ou multiple de 10 % (overclock) dans le sens choisi. Le dernier réglage modifié détermine l’autre en conservant le débit calculé. Un nombre de machines insuffisant est ajusté au nombre nécessaire à 250 %.
