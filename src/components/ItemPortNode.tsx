@@ -177,7 +177,12 @@ export function ItemPortNode(props: NodeProps) {
     hasDeficit ? "text-red-400" : "text-[var(--muted)]",
   );
 
-  const reorderable = d.slotsOnSide > 1;
+  const parentFrame = useDocumentStore((s) =>
+    s.nodes.find((n) => n.id === parentId),
+  );
+  const internalRate =
+    parentFrame?.type === "factoryFrame" && !parentFrame.data.blueprintId;
+  const reorderable = d.slotsOnSide > 1 && parentFrame?.type === "machineFrame";
 
   const parentSelected = useDocumentStore((s) => {
     if (!parentId) return false;
@@ -527,52 +532,61 @@ export function ItemPortNode(props: NodeProps) {
             </span>
           )}
         </div>
-        <label
-          className="nodrag nopan flex items-center gap-1 text-[9px] text-[var(--muted)]"
-          data-port-force-field
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <span>{t("portForceShort")}</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            spellCheck={false}
-            className={cn(
-              "port-force-input nodrag min-w-0 flex-1 rounded border bg-[var(--surface)] px-1 text-[10px] tabular-nums outline-none focus:border-[var(--accent)]",
-              hasDeficit
-                ? "border-red-500 text-red-400"
-                : isOverridden
-                  ? "border-amber-500"
-                  : isForced
-                    ? "border-[var(--accent)] font-bold"
-                    : "border-dashed border-[var(--border)]",
-            )}
-            title={t(statusKey)}
-            aria-label={t("portForceLabel")}
-            placeholder="—"
-            value={forceDisplay}
-            onChange={(e) => setForceDraft(e.target.value)}
-            onFocus={() =>
-              setForceDraft(forced === undefined ? "" : String(forced))
-            }
-            onBlur={(e) => {
-              const raw = e.target.value.trim();
-              setForceDraft(null);
-              if (!raw) setForcedPortRate(id, undefined);
-              else {
-                const v = Number(raw.replace(",", "."));
-                if (Number.isFinite(v) && v >= 0) setForcedPortRate(id, v);
+        {internalRate ? (
+          <span
+            className="text-[9px] text-[var(--muted)]"
+            title={t("factoryInternalRates")}
+          >
+            {t("factoryPortInternalRate")}
+          </span>
+        ) : (
+          <label
+            className="nodrag nopan flex items-center gap-1 text-[9px] text-[var(--muted)]"
+            data-port-force-field
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <span>{t("portForceShort")}</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              spellCheck={false}
+              className={cn(
+                "port-force-input nodrag min-w-0 flex-1 rounded border bg-[var(--surface)] px-1 text-[10px] tabular-nums outline-none focus:border-[var(--accent)]",
+                hasDeficit
+                  ? "border-red-500 text-red-400"
+                  : isOverridden
+                    ? "border-amber-500"
+                    : isForced
+                      ? "border-[var(--accent)] font-bold"
+                      : "border-dashed border-[var(--border)]",
+              )}
+              title={t(statusKey)}
+              aria-label={t("portForceLabel")}
+              placeholder="—"
+              value={forceDisplay}
+              onChange={(e) => setForceDraft(e.target.value)}
+              onFocus={() =>
+                setForceDraft(forced === undefined ? "" : String(forced))
               }
-            }}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") e.currentTarget.blur();
-            }}
-          />
-        </label>
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                setForceDraft(null);
+                if (!raw) setForcedPortRate(id, undefined);
+                else {
+                  const v = Number(raw.replace(",", "."));
+                  if (Number.isFinite(v) && v >= 0) setForcedPortRate(id, v);
+                }
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+          </label>
+        )}
       </div>
     </div>
   );

@@ -1,10 +1,21 @@
+import {
+  captureCanvasSelection,
+  pasteCanvasSelection,
+} from "@/lib/canvasClipboard";
+import type { BlueprintLibrary, BlueprintDefinition } from "@/types/blueprint";
+import {
+  publishBlueprint,
+  blueprintFingerprint,
+  recoverBlueprintLibrary,
+} from "@/lib/blueprints";
+import { ensureBoundaryNodes } from "@/lib/factoryBoundaries";
+import { reconcileFactoryHierarchy } from "@/lib/factoryHierarchy";
 import type { Edge, Node } from "@xyflow/react";
 import { create } from "zustand";
 import { buildFactoryNode } from "@/lib/buildFactoryGraph";
 import {
   buildCanvasSubtreeExport,
   buildWorldDocument,
-  cloneFactorySubtree,
   mergeImportedSubtree,
   renameFactoryAcrossTree,
 } from "@/lib/canvasExport";
@@ -25,10 +36,7 @@ import {
   snapPointToGrid,
 } from "@/constants/flowGrid";
 import type { CanvasId, CanvasRecord, CanvasViewport } from "@/types/canvas";
-import {
-  WORLD_CANVAS_ID,
-  WORLD_CANVAS_NAME,
-} from "@/types/canvas";
+import { WORLD_CANVAS_ID, WORLD_CANVAS_NAME } from "@/types/canvas";
 import type {
   CanvasSubtreeExportV1,
   FactoryDocumentV2,
@@ -37,6 +45,17 @@ import type {
 const NAV_ANIM_MS = 220;
 
 export interface WorldState {
+  blueprintLibrary: BlueprintLibrary;
+  createBlueprint: (
+    position: { x: number; y: number },
+    name: string,
+  ) => string | null;
+  addBlueprint: (
+    definitionId: string,
+    position: { x: number; y: number },
+  ) => string | null;
+  importBlueprint: (definition: BlueprintDefinition) => void;
+  setBlueprintCount: (id: string, count: number | undefined) => void;
   canvasMap: Record<CanvasId, CanvasRecord>;
   activeCanvasId: CanvasId;
   factoryNameCounter: number;
@@ -76,24 +95,17 @@ function persistActiveSlice(
   activeCanvasId: CanvasId,
   clone = false,
 ): Record<CanvasId, CanvasRecord> {
-  const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
+  const { nodes, edges, forcedPortRates, routeGraph } =
+    useDocumentStore.getState();
   const prev = canvasMap[activeCanvasId] ?? createEmptyWorldCanvas();
   return {
     ...canvasMap,
     [activeCanvasId]: {
       ...prev,
-      nodes: clone
-        ? (structuredClone(nodes) as Node[])
-        : nodes,
-      edges: clone
-        ? (structuredClone(edges) as Edge[])
-        : edges,
-      forcedPortRates: clone
-        ? { ...forcedPortRates }
-        : forcedPortRates,
-      routeGraph: clone
-        ? structuredClone(routeGraph)
-        : routeGraph,
+      nodes: clone ? (structuredClone(nodes) as Node[]) : nodes,
+      edges: clone ? (structuredClone(edges) as Edge[]) : edges,
+      forcedPortRates: clone ? { ...forcedPortRates } : forcedPortRates,
+      routeGraph: clone ? structuredClone(routeGraph) : routeGraph,
     },
   };
 }
@@ -107,6 +119,7 @@ function viewportEqual(
 }
 
 export const useWorldStore = create<WorldState>((set, get) => ({
+  blueprintLibrary: {},
   canvasMap: { [WORLD_CANVAS_ID]: createEmptyWorldCanvas() },
   activeCanvasId: WORLD_CANVAS_ID,
   factoryNameCounter: 0,
@@ -114,81 +127,76 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   navigationTargetId: null,
 
   flushActiveCanvas: () => {
-    set((s) => {
-      const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
-      const prev = s.canvasMap[s.activeCanvasId];
-      if (
-        prev?.nodes === nodes &&
-        prev?.edges === edges &&
-        prev?.forcedPortRates === forcedPortRates &&
-        prev?.routeGraph === routeGraph
-      ) {
-        return s;
-      }
-      return {
-        canvasMap: persistActiveSlice(s.canvasMap, s.activeCanvasId, true),
-      };
+    const state = get();
+    const map = persistActiveSlice(state.canvasMap, state.activeCanvasId, true);
+    const active = ensureBoundaryNodes(map[state.activeCanvasId]);
+    const published = publishBlueprint(active, state.blueprintLibrary);
+    map[state.activeCanvasId] = published.canvas;
+    set({
+      blueprintLibrary: published.library,
+      canvasMap: reconcileFactoryHierarchy(map, published.library),
     });
   },
 
   loadCanvasIntoDocument: (canvasId) => {
-    const record = get().canvasMap[canvasId];
-    if (!record) return;
-    const slice = sliceActiveCanvas(record);
-    useDocumentStore.getState().replaceActiveCanvas(slice);
-    set((s) => ({
-      canvasMap: {
-        ...s.canvasMap,
-        [canvasId]: {
-          ...s.canvasMap[canvasId],
-          nodes: slice.nodes,
-          edges: slice.edges,
-          forcedPortRates: slice.forcedPortRates,
-          routeGraph: slice.routeGraph,
-        },
-      },
-    }));
+    const state = get();
+    if (!state.canvasMap[canvasId]) return;
+    const map = {
+      ...state.canvasMap,
+      [canvasId]: ensureBoundaryNodes(state.canvasMap[canvasId]),
+    };
+    const canvasMap = reconcileFactoryHierarchy(map, state.blueprintLibrary);
+    set({ canvasMap });
+    useDocumentStore
+      .getState()
+      .replaceActiveCanvas(sliceActiveCanvas(canvasMap[canvasId]));
   },
 
   replaceWorldDocument: (doc) => {
-    const world = doc.canvases[WORLD_CANVAS_ID] ?? createEmptyWorldCanvas();
-    const slice = sliceActiveCanvas(world);
+    const blueprintLibrary = recoverBlueprintLibrary(
+      doc.canvases,
+      structuredClone(doc.blueprintLibrary ?? {}),
+    );
+    const canvasMap = reconcileFactoryHierarchy(
+      {
+        ...structuredClone(doc.canvases),
+        [WORLD_CANVAS_ID]: structuredClone(
+          doc.canvases[WORLD_CANVAS_ID] ?? createEmptyWorldCanvas(),
+        ),
+      },
+      blueprintLibrary,
+    );
     set({
-      canvasMap: structuredClone(doc.canvases),
+      canvasMap,
+      blueprintLibrary,
       activeCanvasId: WORLD_CANVAS_ID,
       factoryNameCounter: doc.factoryNameCounter ?? 0,
       isNavigating: false,
       navigationTargetId: null,
     });
-    useDocumentStore.getState().replaceActiveCanvas(slice);
-    set((s) => ({
-      canvasMap: {
-        ...s.canvasMap,
-        [WORLD_CANVAS_ID]: {
-          ...s.canvasMap[WORLD_CANVAS_ID],
-          nodes: slice.nodes,
-          edges: slice.edges,
-          forcedPortRates: slice.forcedPortRates,
-          routeGraph: slice.routeGraph,
-        },
-      },
-    }));
+    useDocumentStore
+      .getState()
+      .replaceActiveCanvas(sliceActiveCanvas(canvasMap[WORLD_CANVAS_ID]));
   },
 
   toWorldDocument: () => {
     get().flushActiveCanvas();
     const { canvasMap } = get();
-    return buildWorldDocument(canvasMap, {
-      updatedAt: new Date().toISOString(),
-      exportTitle: "world",
-    });
+    return {
+      ...buildWorldDocument(canvasMap, {
+        updatedAt: new Date().toISOString(),
+        exportTitle: "world",
+      }),
+      blueprintLibrary: structuredClone(get().blueprintLibrary),
+    };
   },
 
   navigateToCanvas: async (canvasId) => {
+    get().flushActiveCanvas();
     const { canvasMap, activeCanvasId } = get();
     if (canvasId === activeCanvasId || !canvasMap[canvasId]) return;
 
-    const nextMap = persistActiveSlice(canvasMap, activeCanvasId, true);
+    const nextMap = canvasMap;
     set({
       isNavigating: true,
       navigationTargetId: canvasId,
@@ -243,7 +251,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       activeCanvasId,
     );
 
-    const { nodes, edges, forcedPortRates, routeGraph } = useDocumentStore.getState();
+    const { nodes, edges, forcedPortRates, routeGraph } =
+      useDocumentStore.getState();
     useDocumentStore.getState().replaceActiveCanvas({
       nodes: [...nodes, factoryNode],
       edges,
@@ -280,7 +289,17 @@ export const useWorldStore = create<WorldState>((set, get) => ({
           ...canvasMap,
           [parentCanvasId]: {
             ...parent,
-            nodes: parent.nodes.filter((n) => n.id !== factoryId),
+            nodes: parent.nodes.filter(
+              (n) => n.id !== factoryId && n.parentId !== factoryId,
+            ),
+            edges: parent.edges.filter(
+              (e) =>
+                !parent.nodes.some(
+                  (n) =>
+                    n.parentId === factoryId &&
+                    (n.id === e.source || n.id === e.target),
+                ),
+            ),
           },
         };
       }
@@ -297,9 +316,12 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     const trimmed = name.trim();
     if (!trimmed) return;
     get().flushActiveCanvas();
-    set((s) => ({
-      canvasMap: renameFactoryAcrossTree(s.canvasMap, factoryId, trimmed),
-    }));
+    const map = renameFactoryAcrossTree(get().canvasMap, factoryId, trimmed);
+    const published = publishBlueprint(map[factoryId], get().blueprintLibrary);
+    set({
+      canvasMap: { ...map, [factoryId]: published.canvas },
+      blueprintLibrary: published.library,
+    });
     get().loadCanvasIntoDocument(get().activeCanvasId);
   },
 
@@ -321,30 +343,37 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       y: (srcNode?.position.y ?? 0) + 32,
     };
 
-    const cloned = cloneFactorySubtree(canvasMap, factoryId, pos);
-
     const parentCanvasId = source.parent?.canvasId;
-    if (!parentCanvasId) return null;
-
-    set((s) => {
-      const map = persistActiveSlice(s.canvasMap, s.activeCanvasId);
-      const p = map[parentCanvasId];
-      return {
-        canvasMap: {
-          ...cloned.canvases,
-          [parentCanvasId]: {
-            ...p,
-            nodes: [...p.nodes, cloned.node],
-          },
-        },
-      };
+    if (!parentCanvasId || !canAddNestedFactory(canvasMap, parentCanvasId))
+      return null;
+    const selection = {
+      ...canvasMap,
+      [parentCanvasId]: {
+        ...canvasMap[parentCanvasId],
+        nodes: canvasMap[parentCanvasId].nodes.map((n) => ({
+          ...n,
+          selected: n.id === factoryId,
+        })),
+        edges: canvasMap[parentCanvasId].edges.map((e) => ({
+          ...e,
+          selected: false,
+        })),
+      },
+    };
+    const clipboard = captureCanvasSelection(selection, parentCanvasId);
+    if (!clipboard) return null;
+    const next = pasteCanvasSelection(canvasMap, parentCanvasId, clipboard, {
+      x: pos.x - (srcNode?.position.x ?? 0),
+      y: pos.y - (srcNode?.position.y ?? 0),
     });
-
-    if (get().activeCanvasId === parentCanvasId) {
+    const newId =
+      next[parentCanvasId].nodes.find(
+        (n) => n.type === "factoryFrame" && n.selected,
+      )?.id ?? null;
+    set({ canvasMap: next });
+    if (get().activeCanvasId === parentCanvasId)
       get().loadCanvasIntoDocument(parentCanvasId);
-    }
-
-    return cloned.newRootId;
+    return newId;
   },
 
   clearActiveCanvas: () => {
@@ -367,6 +396,74 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     set((s) => ({
       canvasMap: persistActiveSlice(s.canvasMap, activeCanvasId),
     }));
+  },
+
+  createBlueprint: (position, name) => {
+    if (!canAddNestedFactory(get().canvasMap, get().activeCanvasId))
+      return null;
+    const id = get().addFactory(position);
+    if (!id) return null;
+    const blueprintId = `bp-${crypto.randomUUID()}`;
+    const canvas = ensureBoundaryNodes({
+      ...get().canvasMap[id],
+      kind: "blueprint",
+      blueprintId,
+      name: name.trim() || "Blueprint",
+    });
+    const published = publishBlueprint(canvas, get().blueprintLibrary);
+    set({
+      blueprintLibrary: published.library,
+      canvasMap: { ...get().canvasMap, [id]: published.canvas },
+    });
+    get().renameFactory(id, canvas.name);
+    return id;
+  },
+  addBlueprint: (definitionId, position) => {
+    const state = get();
+    if (!canAddNestedFactory(state.canvasMap, state.activeCanvasId))
+      return null;
+    const definition = state.blueprintLibrary[definitionId];
+    if (!definition) return null;
+    const id = state.addFactory(position);
+    if (!id) return null;
+    const canvas: CanvasRecord = {
+      ...structuredClone(definition.canvas),
+      id,
+      name: definition.name,
+      parent: { canvasId: state.activeCanvasId, factoryNodeId: id },
+      kind: "blueprint",
+      blueprintId: definition.id,
+      blueprintRevision: definition.revision,
+    };
+    canvas.blueprintFingerprint = blueprintFingerprint(canvas);
+    set({ canvasMap: { ...get().canvasMap, [id]: canvas } });
+    get().renameFactory(id, definition.name);
+    return id;
+  },
+  importBlueprint: (definition) => {
+    set({
+      blueprintLibrary: {
+        ...get().blueprintLibrary,
+        [definition.id]: definition,
+      },
+    });
+  },
+  setBlueprintCount: (id, count) => {
+    if (count !== undefined && (!Number.isFinite(count) || count < 0)) return;
+    const state = useDocumentStore.getState();
+    const ports = new Set(
+      state.nodes.filter((n) => n.parentId === id).map((n) => n.id),
+    );
+    useDocumentStore.setState({
+      nodes: state.nodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, blueprintCount: count } } : n,
+      ),
+      forcedPortRates: Object.fromEntries(
+        Object.entries(state.forcedPortRates).filter(
+          ([pid]) => !ports.has(pid),
+        ),
+      ),
+    });
   },
 
   exportWorld: () => get().toWorldDocument(),
@@ -392,6 +489,10 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
     set({
       canvasMap: merged.canvases,
+      blueprintLibrary: recoverBlueprintLibrary(
+        merged.canvases,
+        get().blueprintLibrary,
+      ),
     });
 
     get().loadCanvasIntoDocument(activeCanvasId);

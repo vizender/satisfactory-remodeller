@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  readLocalDraft,
-  writeLocalDraft,
-} from "@/lib/factoryDocument";
+import { readLocalDraft, writeLocalDraft } from "@/lib/factoryDocument";
 import { scrubTutorialFactoriesFromDocument } from "@/lib/tutorialWorld";
 import { isTutorialCompleted } from "@/tutorial/tutorialStorage";
 import { useDocumentStore } from "@/store/useDocumentStore";
@@ -50,15 +47,24 @@ export function useLocalDraft(): boolean {
   }, []);
 
   useEffect(() => {
+    let saving = false;
     const save = debounce(() => {
-      useWorldStore.getState().flushActiveCanvas();
-      writeLocalDraft(useWorldStore.getState().toWorldDocument());
+      saving = true;
+      try {
+        writeLocalDraft(useWorldStore.getState().toWorldDocument());
+      } finally {
+        saving = false;
+      }
     }, SAVE_DEBOUNCE_MS);
-
-    const unsubDoc = useDocumentStore.subscribe(save);
+    const schedule = () => {
+      if (!saving) save();
+    };
+    const unsubDoc = useDocumentStore.subscribe(schedule);
+    const unsubWorld = useWorldStore.subscribe(schedule);
     return () => {
       save.cancel();
       unsubDoc();
+      unsubWorld();
     };
   }, []);
 

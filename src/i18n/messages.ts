@@ -2,6 +2,26 @@ export const LOCALE_STORAGE_KEY = "remodeller:locale";
 
 export const messages = {
   fr: {
+    factoryInput: "Entrée de l’usine",
+    factoryOutput: "Sortie de l’usine",
+    factoryPower: "Consommation totale",
+    factoryShards: "Éclats de puissance",
+    factoryPortInternalRate: "Débit interne",
+    factoryInternalRates: "Débits définis par les machines à l’intérieur.",
+    blueprints: "Blueprints",
+    blueprintNew: "Nouveau blueprint",
+    blueprintName: "Nom du blueprint",
+    blueprintQuantity: "Blueprints",
+    blueprintAutoQuantity: "Calculer la quantité depuis les connexions",
+    blueprintOutdated: "Obsolète",
+    blueprintNoNesting:
+      "Un blueprint ne peut contenir ni usine ni autre blueprint.",
+    blueprintImport: "Importer JSON",
+    blueprintExport: "Exporter",
+    blueprintInvalid:
+      "Fichier blueprint invalide ou contenant des usines imbriquées.",
+    blueprintEmpty: "Créez ou importez un blueprint pour le réutiliser ici.",
+
     settings: "Paramètres",
     settingsLanguage: "Langue",
     settingsNavigation: "Navigation",
@@ -75,13 +95,16 @@ export const messages = {
     machineClockControl: "Overclock %",
     portForceShort: "Forcer",
     portFreeHelp: "Débit libre — vous pouvez définir une cible.",
-    portDerivedHelp: "Débit déjà calculé depuis une autre cible. Le forçage reste possible.",
-    portCoupledHelp: "Débit couplé à une recette ou à une boucle : une cible supplémentaire peut créer un conflit. Le forçage reste possible.",
+    portDerivedHelp:
+      "Débit déjà calculé depuis une autre cible. Le forçage reste possible.",
+    portCoupledHelp:
+      "Débit couplé à une recette ou à une boucle : une cible supplémentaire peut créer un conflit. Le forçage reste possible.",
     portDisconnect: "Déconnecter ce port",
     portConnectMachine: "Ajouter une machine connectée…",
     portForceLabel: "Forcer /min",
     portForcedBadge: "Débit forcé",
-    portDeficitHelp: "Déficit : l’apport ou le débit calculé ne satisfait pas le besoin demandé.",
+    portDeficitHelp:
+      "Déficit : l’apport ou le débit calculé ne satisfait pas le besoin demandé.",
     portOverriddenBadge: "Débit ajusté",
     portOverriddenHelp:
       "Ce débit demandé est conservé, mais le débit calculé est ajusté pour satisfaire les besoins en aval. Une machine arrêtée ou une boucle incompatible peut rendre une cible impossible.",
@@ -212,6 +235,25 @@ export const messages = {
     tutorialFinish: "Terminer",
   },
   en: {
+    factoryInput: "Factory input",
+    factoryOutput: "Factory output",
+    factoryPower: "Total consumption",
+    factoryShards: "Power shards",
+    factoryPortInternalRate: "Internal rate",
+    factoryInternalRates: "Rates are defined by the machines inside.",
+    blueprints: "Blueprints",
+    blueprintNew: "New blueprint",
+    blueprintName: "Blueprint name",
+    blueprintQuantity: "Blueprints",
+    blueprintAutoQuantity: "Calculate quantity from connections",
+    blueprintOutdated: "Out of date",
+    blueprintNoNesting:
+      "Blueprints cannot contain factories or other blueprints.",
+    blueprintImport: "Import JSON",
+    blueprintExport: "Export",
+    blueprintInvalid: "Invalid blueprint file or nested factories present.",
+    blueprintEmpty: "Create or import a blueprint to reuse it here.",
+
     settings: "Settings",
     settingsLanguage: "Language",
     settingsNavigation: "Navigation",
@@ -282,13 +324,16 @@ export const messages = {
     machineClockControl: "Overclock %",
     portForceShort: "Force",
     portFreeHelp: "Unconstrained rate — you can set a target.",
-    portDerivedHelp: "Already calculated from another target. You can still force a rate.",
-    portCoupledHelp: "Coupled recipe or recycling loop: another target may create a conflict. You can still force a rate.",
+    portDerivedHelp:
+      "Already calculated from another target. You can still force a rate.",
+    portCoupledHelp:
+      "Coupled recipe or recycling loop: another target may create a conflict. You can still force a rate.",
     portDisconnect: "Disconnect this port",
     portConnectMachine: "Add connected machine…",
     portForceLabel: "Force /min",
     portForcedBadge: "Forced rate",
-    portDeficitHelp: "Deficit: incoming supply or the calculated rate falls short of the requested need.",
+    portDeficitHelp:
+      "Deficit: incoming supply or the calculated rate falls short of the requested need.",
     portOverriddenBadge: "Adjusted rate",
     portOverriddenHelp:
       "This requested rate is saved, but the calculated rate is adjusted to meet downstream demand. A stopped machine or incompatible loop can make a target impossible.",

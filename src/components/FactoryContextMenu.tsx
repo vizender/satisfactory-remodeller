@@ -11,6 +11,7 @@ type Props = {
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onExport?: () => void;
 };
 
 export function FactoryContextMenu({
@@ -22,6 +23,7 @@ export function FactoryContextMenu({
   onRename,
   onDuplicate,
   onDelete,
+  onExport,
 }: Props) {
   const { t } = useI18n();
   const { ref, left, top } = useClampedFixedPosition({ x, y }, true);
@@ -55,6 +57,11 @@ export function FactoryContextMenu({
         <button type="button" className={item} onClick={onDuplicate}>
           {t("factoryDuplicate")}
         </button>
+        {onExport && (
+          <button type="button" className={item} onClick={onExport}>
+            {t("blueprintExport")}
+          </button>
+        )}
         <button
           type="button"
           className={`${item} text-red-300 hover:bg-red-500/10`}

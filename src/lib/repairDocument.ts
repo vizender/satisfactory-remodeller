@@ -1,3 +1,5 @@
+import { blueprintFingerprint } from "./blueprintFingerprint";
+import type { BlueprintLibrary } from "@/types/blueprint";
 import type { Edge, Node } from "@xyflow/react";
 import { createEmptyWorldCanvas } from "@/lib/canvasTree";
 import {
@@ -22,6 +24,7 @@ const KNOWN_NODE_TYPES = new Set([
   "itemPort",
   "factoryFrame",
   "containerFrame",
+  "boundaryFrame",
 ]);
 
 /** Réaligne les libellés ports sur `formatItemClassId` (ex. Steel Plate → Steel Beam). */
@@ -55,6 +58,7 @@ function sanitizeNodes(nodes: unknown): Node[] {
     ) {
       continue;
     }
+    if (!n.data || typeof n.data !== "object") continue;
     seen.add(n.id);
     out.push(structuredClone(n));
   }
@@ -98,7 +102,8 @@ function sanitizeForcedPortRates(
   if (!forced || typeof forced !== "object") return out;
   for (const [pid, rate] of Object.entries(forced as Record<string, unknown>)) {
     if (!portIds.has(pid)) continue;
-    if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) continue;
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0)
+      continue;
     out[pid] = rate;
   }
   return out;
@@ -123,6 +128,14 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
     nodes,
     edges,
     forcedPortRates,
+    kind: r.kind === "blueprint" ? "blueprint" : "factory",
+    blueprintId: typeof r.blueprintId === "string" ? r.blueprintId : undefined,
+    blueprintRevision:
+      typeof r.blueprintRevision === "number" ? r.blueprintRevision : undefined,
+    blueprintFingerprint:
+      typeof r.blueprintFingerprint === "string"
+        ? r.blueprintFingerprint
+        : undefined,
   };
 
   if (r.parent && typeof r.parent === "object") {
@@ -170,7 +183,9 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
 }
 
 /** Normalise un document v2 chargé depuis une version antérieure ou partiellement invalide. */
-export function repairFactoryDocumentV2(doc: FactoryDocumentV2): FactoryDocumentV2 {
+export function repairFactoryDocumentV2(
+  doc: FactoryDocumentV2,
+): FactoryDocumentV2 {
   const rawCanvases =
     doc.canvases && typeof doc.canvases === "object" ? doc.canvases : {};
   const canvases: Record<CanvasId, CanvasRecord> = {};
@@ -181,6 +196,39 @@ export function repairFactoryDocumentV2(doc: FactoryDocumentV2): FactoryDocument
 
   if (!canvases[WORLD_CANVAS_ID]) {
     canvases[WORLD_CANVAS_ID] = createEmptyWorldCanvas();
+  }
+
+  const blueprintLibrary: BlueprintLibrary = {};
+  for (const [id, definition] of Object.entries(doc.blueprintLibrary ?? {})) {
+    if (
+      !definition ||
+      typeof definition.name !== "string" ||
+      !definition.canvas ||
+      !Number.isFinite(definition.revision)
+    )
+      continue;
+    const canvas = repairCanvasRecord(
+      definition.canvas,
+      definition.canvas.id ?? id,
+    );
+    if (canvas.nodes.some((n) => n.type === "factoryFrame")) continue;
+    canvas.kind = "blueprint";
+    canvas.blueprintId = id;
+    canvas.blueprintRevision = definition.revision;
+    canvas.blueprintFingerprint = blueprintFingerprint(canvas);
+    blueprintLibrary[id] = {
+      id,
+      name: definition.name,
+      revision: definition.revision,
+      canvas,
+      fingerprint: canvas.blueprintFingerprint,
+    };
+  }
+  for (const canvas of Object.values(canvases)) {
+    if (canvas.kind !== "blueprint") continue;
+    if (canvas.nodes.some((n) => n.type === "factoryFrame"))
+      throw new Error("Blueprints cannot contain factories or blueprints");
+    canvas.blueprintFingerprint = blueprintFingerprint(canvas);
   }
 
   const meta =
@@ -201,6 +249,7 @@ export function repairFactoryDocumentV2(doc: FactoryDocumentV2): FactoryDocument
     schemaVersion: FACTORY_DOCUMENT_SCHEMA_VERSION_V2,
     rootCanvasId: WORLD_CANVAS_ID,
     canvases,
+    blueprintLibrary,
     meta,
     factoryNameCounter:
       typeof doc.factoryNameCounter === "number" && doc.factoryNameCounter >= 0

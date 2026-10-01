@@ -1,30 +1,16 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "@/i18n/I18nProvider";
-import { mergeCanvasGraphsForSummary } from "@/lib/canvasTree";
-import { computeEnergyLedger } from "@/lib/energyLedger";
+import { useFactoryHierarchy } from "@/hooks/useFactoryHierarchy";
 import { PRODUCTION_BUILDING_POWER_EXPONENT } from "@/lib/powerCalculations";
 import { useWorldStore } from "@/store/useWorldStore";
 
 export function SummaryPanel() {
   const { t } = useI18n();
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
-  const canvasMap = useWorldStore((s) => s.canvasMap);
   const [active, setActive] = useState<"energy">("energy");
 
-  const merged = useMemo(
-    () => mergeCanvasGraphsForSummary(canvasMap, activeCanvasId),
-    [canvasMap, activeCanvasId],
-  );
-
-  const ledger = useMemo(
-    () =>
-      computeEnergyLedger(
-        merged.nodes,
-        merged.edges,
-        merged.forcedPortRates,
-      ),
-    [merged],
-  );
+  const ledger = useFactoryHierarchy().totals[activeCanvasId];
+  const merged = { nestedFactoryCount: ledger.nestedFactoryCount };
 
   const deficitMw = ledger.generatorCapacityMw - ledger.consumerTotalMw;
 
@@ -53,6 +39,10 @@ export function SummaryPanel() {
               })}
             </p>
           ) : null}
+          <p className="mb-3 text-xs">
+            {t("factoryShards")}: {Math.ceil(ledger.shards)} ·{" "}
+            {t("machineCountControl")}: {ledger.machines.toFixed(2)}
+          </p>
           <section>
             <h2 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
               {t("consumption")}
@@ -84,7 +74,9 @@ export function SummaryPanel() {
               </div>
             </dl>
             <p className="mt-2 text-[10px] leading-snug text-[var(--muted)]">
-              {t("consumptionHelp", { exp: PRODUCTION_BUILDING_POWER_EXPONENT })}
+              {t("consumptionHelp", {
+                exp: PRODUCTION_BUILDING_POWER_EXPONENT,
+              })}
             </p>
           </section>
 
@@ -100,7 +92,9 @@ export function SummaryPanel() {
                 </dd>
               </div>
               <div className="flex justify-between gap-2 border-b border-[var(--border)]/60 pb-2">
-                <dt className="text-[var(--muted)]">{t("generatorCapacity")}</dt>
+                <dt className="text-[var(--muted)]">
+                  {t("generatorCapacity")}
+                </dt>
                 <dd className="tabular-nums font-medium text-emerald-300/90">
                   {ledger.generatorCapacityMw.toFixed(0)} MW
                 </dd>

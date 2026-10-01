@@ -24,6 +24,7 @@ export interface FactoryDocumentV1 {
 }
 
 export interface FactoryDocumentV2 {
+  blueprintLibrary?: import("./blueprint").BlueprintLibrary;
   schemaVersion: typeof FACTORY_DOCUMENT_SCHEMA_VERSION_V2;
   rootCanvasId: typeof WORLD_CANVAS_ID;
   canvases: Record<CanvasId, CanvasRecord>;

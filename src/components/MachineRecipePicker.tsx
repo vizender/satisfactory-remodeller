@@ -1,3 +1,6 @@
+import { useWorldStore } from "@/store/useWorldStore";
+import { parseBlueprint, exportBlueprint } from "@/lib/blueprints";
+import { saveJsonFile } from "@/lib/saveJsonFile";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ItemIconSlot } from "@/components/ItemIconSlot";
@@ -17,7 +20,7 @@ import { CONTAINER_BUILDING_CLASS } from "@/constants/container";
 import { formatItemClassId, type ContainerVariant } from "@/types/graph";
 import type { RecipeIndexEntry } from "@/types/satisfactory";
 
-type TabId = "machines" | "misc";
+type TabId = "machines" | "blueprints" | "misc";
 
 type AltFilterMode = "all" | "noAlt" | "altOnly";
 
@@ -35,6 +38,9 @@ type Props = {
   onClose: () => void;
   onPick: (recipeKey: string) => void;
   onPickFactory?: () => void;
+  onCreateBlueprint?: () => void;
+  onPickBlueprint?: (id: string) => void;
+  disableBlueprints?: boolean;
   onPickContainer?: (variant: ContainerVariant) => void;
   recipeFilter: RecipeFilter;
   /** Sous-titre optionnel (ex. filtre port). */
@@ -65,6 +71,9 @@ export function MachineRecipePicker({
   onClose,
   onPick,
   onPickFactory,
+  onCreateBlueprint,
+  onPickBlueprint,
+  disableBlueprints = false,
   onPickContainer,
   recipeFilter,
   subtitle,
@@ -73,6 +82,8 @@ export function MachineRecipePicker({
   lockDismiss = false,
 }: Props) {
   const { t } = useI18n();
+  const library = useWorldStore((s) => s.blueprintLibrary);
+  const [importError, setImportError] = useState("");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabId>(
     tutorialConstraint?.onlyMiscTab || tutorialConstraint?.lockTab === "misc"
@@ -91,12 +102,13 @@ export function MachineRecipePicker({
 
   const [altMode, setAltMode] = useState<AltFilterMode>("all");
 
-  const { ref: panelRef, left, top } = useClampedFixedPosition(anchorScreen, true);
+  const {
+    ref: panelRef,
+    left,
+    top,
+  } = useClampedFixedPosition(anchorScreen, true);
 
-  const baseList = useMemo(
-    () => filterRecipes(recipeFilter),
-    [recipeFilter],
-  );
+  const baseList = useMemo(() => filterRecipes(recipeFilter), [recipeFilter]);
 
   const afterMachineFilter = useMemo(() => {
     if (allowedMachines.size === allMachineKeys.length) return baseList;
@@ -142,8 +154,7 @@ export function MachineRecipePicker({
   );
 
   const recipePickable = useCallback(
-    (recipeKey: string) =>
-      !allowedRecipeSet || allowedRecipeSet.has(recipeKey),
+    (recipeKey: string) => !allowedRecipeSet || allowedRecipeSet.has(recipeKey),
     [allowedRecipeSet],
   );
 
@@ -238,6 +249,17 @@ export function MachineRecipePicker({
               {t("machines")}
             </button>
           ) : null}
+          {!tutorialConstraint && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "blueprints"}
+              className={`${tabBtn} ${activeTab === "blueprints" ? "bg-[var(--surface)] text-[var(--text)]" : "text-[var(--muted)]"}`}
+              onClick={() => setActiveTab("blueprints")}
+            >
+              {t("blueprints")}
+            </button>
+          )}
           {!tutorialConstraint?.allowedRecipeKeys?.length ? (
             <button
               type="button"
@@ -252,7 +274,86 @@ export function MachineRecipePicker({
           ) : null}
         </div>
 
-        {activeTab === "misc" ? (
+        {activeTab === "blueprints" ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+            {disableBlueprints && (
+              <p className="text-xs text-[var(--muted)]">
+                {t("blueprintNoNesting")}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={disableBlueprints}
+                className="rounded border border-[var(--border)] px-3 py-2 text-xs disabled:opacity-40"
+                onClick={onCreateBlueprint}
+              >
+                {t("blueprintNew")}
+              </button>
+              <label className="cursor-pointer rounded border border-[var(--border)] px-3 py-2 text-xs">
+                {t("blueprintImport")}
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      useWorldStore
+                        .getState()
+                        .importBlueprint(parseBlueprint(await file.text()));
+                      setImportError("");
+                    } catch {
+                      setImportError(t("blueprintInvalid"));
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            {importError && (
+              <p role="alert" className="text-xs text-red-400">
+                {importError}
+              </p>
+            )}
+            {Object.values(library).map((definition) => (
+              <div
+                key={definition.id}
+                className="flex items-center gap-2 rounded border border-[var(--border)] p-2"
+              >
+                <button
+                  type="button"
+                  disabled={disableBlueprints}
+                  className="min-w-0 flex-1 truncate text-left text-sm disabled:opacity-40"
+                  onClick={() => onPickBlueprint?.(definition.id)}
+                >
+                  ▦ {definition.name}{" "}
+                  <span className="text-[var(--muted)]">
+                    v{definition.revision}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-[var(--accent)]"
+                  onClick={() =>
+                    void saveJsonFile(
+                      exportBlueprint(definition),
+                      `${definition.name}.json`,
+                    )
+                  }
+                >
+                  {t("blueprintExport")}
+                </button>
+              </div>
+            ))}
+            {!Object.keys(library).length && (
+              <p className="text-xs text-[var(--muted)]">
+                {t("blueprintEmpty")}
+              </p>
+            )}
+          </div>
+        ) : activeTab === "misc" ? (
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
             <p className="text-[11px] text-[var(--muted)]">
               {disableMiscFactory
@@ -326,81 +427,83 @@ export function MachineRecipePicker({
               ) : null}
 
               {!tutorialConstraint?.hideSearchAndFilters ? (
-              <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg)]/60">
-                <summary className="cursor-pointer list-none px-2.5 py-2 text-[11px] font-medium text-[var(--text)] [&::-webkit-details-marker]:hidden">
-                  <span className="flex items-center justify-between gap-2">
-                    <span>{t("filters")}</span>
-                    <span className="text-[10px] font-normal text-[var(--muted)]">
-                      {t("filtersSubtitle")}
+                <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg)]/60">
+                  <summary className="cursor-pointer list-none px-2.5 py-2 text-[11px] font-medium text-[var(--text)] [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center justify-between gap-2">
+                      <span>{t("filters")}</span>
+                      <span className="text-[10px] font-normal text-[var(--muted)]">
+                        {t("filtersSubtitle")}
+                      </span>
                     </span>
-                  </span>
-                </summary>
-                <div className="space-y-3 border-t border-[var(--border)] px-2.5 pb-3 pt-2">
-                  <div>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                        {t("machines")}
-                      </span>
-                      <span className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          className="rounded px-1.5 py-0.5 text-[10px] text-[var(--accent)] hover:bg-[var(--surface)]"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            selectAllMachines();
-                          }}
-                        >
-                          {t("selectAll")}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded px-1.5 py-0.5 text-[10px] text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            selectNoMachines();
-                          }}
-                        >
-                          {t("selectNone")}
-                        </button>
-                      </span>
+                  </summary>
+                  <div className="space-y-3 border-t border-[var(--border)] px-2.5 pb-3 pt-2">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                          {t("machines")}
+                        </span>
+                        <span className="flex shrink-0 gap-2">
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-0.5 text-[10px] text-[var(--accent)] hover:bg-[var(--surface)]"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              selectAllMachines();
+                            }}
+                          >
+                            {t("selectAll")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-0.5 text-[10px] text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              selectNoMachines();
+                            }}
+                          >
+                            {t("selectNone")}
+                          </button>
+                        </span>
+                      </div>
+                      <div className="max-h-[min(200px,35vh)] overflow-y-auto overflow-x-hidden rounded-md border border-[var(--border)]/80 bg-[var(--surface)] p-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {allMachineKeys.map((key) => {
+                            const label = formatMachineGroupLabel(key);
+                            const on = allowedMachines.has(key);
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                title={label}
+                                onClick={() => toggleMachine(key)}
+                                className={`flex max-w-full items-center gap-1.5 truncate rounded-md border px-2 py-1 text-left text-[11px] leading-tight transition-colors ${
+                                  on
+                                    ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)] shadow-[inset_0_0_0_1px_var(--panel-inset-highlight)]"
+                                    : "border-[var(--border)] bg-[var(--bg)] text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]"
+                                }`}
+                              >
+                                <MachineIconSlot classId={key} size="sm" />
+                                <span className="min-w-0 truncate">
+                                  {label}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    <div className="max-h-[min(200px,35vh)] overflow-y-auto overflow-x-hidden rounded-md border border-[var(--border)]/80 bg-[var(--surface)] p-2">
+                    <div>
+                      <span className="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                        {t("variants")}
+                      </span>
                       <div className="flex flex-wrap gap-1.5">
-                        {allMachineKeys.map((key) => {
-                          const label = formatMachineGroupLabel(key);
-                          const on = allowedMachines.has(key);
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              title={label}
-                              onClick={() => toggleMachine(key)}
-                              className={`flex max-w-full items-center gap-1.5 truncate rounded-md border px-2 py-1 text-left text-[11px] leading-tight transition-colors ${
-                                on
-                                  ? "border-[var(--accent)] bg-[var(--accent)]/12 text-[var(--text)] shadow-[inset_0_0_0_1px_var(--panel-inset-highlight)]"
-                                  : "border-[var(--border)] bg-[var(--bg)] text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]"
-                              }`}
-                            >
-                              <MachineIconSlot classId={key} size="sm" />
-                              <span className="min-w-0 truncate">{label}</span>
-                            </button>
-                          );
-                        })}
+                        {altBtn("all", t("allRecipes"))}
+                        {altBtn("noAlt", t("noAlt"))}
+                        {altBtn("altOnly", t("altOnly"))}
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <span className="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                      {t("variants")}
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {altBtn("all", t("allRecipes"))}
-                      {altBtn("noAlt", t("noAlt"))}
-                      {altBtn("altOnly", t("altOnly"))}
-                    </div>
-                  </div>
-                </div>
-              </details>
+                </details>
               ) : null}
 
               <p className="mt-2 text-[10px] text-[var(--muted)]">

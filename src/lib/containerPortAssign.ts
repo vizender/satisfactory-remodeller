@@ -42,7 +42,8 @@ export function applyContainerItemAssignment(
     const port = next.find((n) => n.id === portId && n.type === "itemPort");
     if (!port?.parentId) continue;
     const parent = next.find((n) => n.id === port.parentId);
-    if (parent?.type !== "containerFrame") continue;
+    if (parent?.type !== "containerFrame" && parent?.type !== "boundaryFrame")
+      continue;
     const slot = (port.data as ItemPortData).portIndex;
     next = assignSlotOnContainer(next, port.parentId, slot, itemId);
   }

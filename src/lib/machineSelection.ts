@@ -7,6 +7,7 @@ const SELECTABLE_FRAME_TYPES = new Set([
   "machineFrame",
   "factoryFrame",
   "containerFrame",
+  "boundaryFrame",
 ]);
 
 export function applyMachineSelection(

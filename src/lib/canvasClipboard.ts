@@ -1,3 +1,4 @@
+import { blueprintFingerprint } from "./blueprints";
 import type { CanvasRecord } from "@/types/canvas";
 import { collectDescendantCanvasIds } from "@/lib/canvasTree";
 import {
@@ -61,6 +62,11 @@ export function pasteCanvasSelection(
   clipboard: CanvasClipboard,
   offset = { x: 64, y: 64 },
 ): CanvasMap {
+  if (
+    canvases[canvasId]?.kind === "blueprint" &&
+    clipboard.root.nodes.some((n) => n.type === "factoryFrame")
+  )
+    return canvases;
   const result = { ...canvases };
   const used = new Set(
     Object.values(canvases).flatMap((c) => [c.id, ...c.nodes.map((n) => n.id)]),
@@ -86,7 +92,13 @@ export function pasteCanvasSelection(
         n.id,
         n.type === "factoryFrame"
           ? (canvasIds.get(n.id) ?? allocate("f"))
-          : allocate(n.type === "containerFrame" ? "c" : "m"),
+          : allocate(
+              n.type === "containerFrame"
+                ? "c"
+                : n.type === "boundaryFrame"
+                  ? "boundary-copy-"
+                  : "m",
+            ),
       );
     for (const n of src.nodes.filter((n) => n.parentId))
       ids.set(n.id, `${ids.get(n.parentId!)}${n.id.slice(n.parentId!.length)}`);
@@ -103,6 +115,24 @@ export function pasteCanvasSelection(
         y: n.position.y + (root && !n.parentId ? offset.y : 0),
       },
     }));
+    if (root) {
+      for (const kind of ["in", "out"]) {
+        let index =
+          Math.max(
+            -1,
+            ...canvases[canvasId].nodes
+              .filter(
+                (n) =>
+                  n.type === "boundaryFrame" && n.data.boundaryKind === kind,
+              )
+              .map((n) => Number(n.data.boundaryIndex)),
+          ) + 1;
+        for (const node of nodes.filter(
+          (n) => n.type === "boundaryFrame" && n.data.boundaryKind === kind,
+        ))
+          node.data.boundaryIndex = index++;
+      }
+    }
     const edges = src.edges.map((e) => ({
       ...structuredClone(e),
       id: edgeIds.get(e.id)!,
@@ -156,6 +186,10 @@ export function pasteCanvasSelection(
         },
       };
     }
+  }
+  for (const id of canvasIds.values()) {
+    if (result[id]?.kind === "blueprint")
+      result[id].blueprintFingerprint = blueprintFingerprint(result[id]);
   }
   return result;
 }

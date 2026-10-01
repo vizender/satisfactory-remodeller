@@ -1,3 +1,4 @@
+import { useFactorySynchronization } from "@/hooks/useFactorySynchronization";
 import { useCanvasHistory } from "@/hooks/useCanvasHistory";
 import { useTutorialStore } from "@/store/useTutorialStore";
 import { useRef } from "react";
@@ -29,37 +30,38 @@ function AppShell() {
   useSuppressNativeContextMenu(mainRef);
   const draftReady = useLocalDraft();
   const tutorialActive = useTutorialStore((s) => s.active);
+  useFactorySynchronization(draftReady && !tutorialActive);
   useCanvasHistory(draftReady && !tutorialActive);
 
   return (
     <MobileUnsupportedGate>
-    <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <h1 className="truncate text-sm font-semibold tracking-tight">
-            Satisfactory : Remodeller
-          </h1>
-          <CanvasNavDropdown />
-          <RigidPortSnapToggle />
+      <div className="flex h-full flex-col">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="truncate text-sm font-semibold tracking-tight">
+              Satisfactory : Remodeller
+            </h1>
+            <CanvasNavDropdown />
+            <RigidPortSnapToggle />
+          </div>
+          <SettingsMenu />
+        </header>
+        <div className="flex min-h-0 flex-1">
+          <ReactFlowProvider>
+            <main
+              ref={mainRef}
+              className="min-h-0 min-w-0 flex-1"
+              onContextMenu={(e) =>
+                handleSuppressNativeContextMenu(e, mainRef.current)
+              }
+            >
+              <FlowCanvas />
+            </main>
+          </ReactFlowProvider>
+          <SummaryPanel />
         </div>
-        <SettingsMenu />
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <ReactFlowProvider>
-          <main
-            ref={mainRef}
-            className="min-h-0 min-w-0 flex-1"
-            onContextMenu={(e) =>
-              handleSuppressNativeContextMenu(e, mainRef.current)
-            }
-          >
-            <FlowCanvas />
-          </main>
-        </ReactFlowProvider>
-        <SummaryPanel />
+        {draftReady ? <TutorialController draftReady /> : null}
       </div>
-      {draftReady ? <TutorialController draftReady /> : null}
-    </div>
     </MobileUnsupportedGate>
   );
 }

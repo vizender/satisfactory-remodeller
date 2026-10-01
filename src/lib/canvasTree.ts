@@ -45,9 +45,7 @@ export function getBreadcrumbPath(
       name: current.name,
       depth: 0,
     });
-    current = current.parent
-      ? canvases[current.parent.canvasId]
-      : undefined;
+    current = current.parent ? canvases[current.parent.canvasId] : undefined;
   }
   return chain.map((item, i) => ({ ...item, depth: i }));
 }
@@ -77,10 +75,15 @@ export function canAddNestedFactory(
   canvases: Record<CanvasId, CanvasRecord>,
   parentCanvasId: CanvasId,
 ): boolean {
-  return getCanvasDepth(canvases, parentCanvasId) < MAX_CANVAS_DEPTH;
+  return (
+    canvases[parentCanvasId]?.kind !== "blueprint" &&
+    getCanvasDepth(canvases, parentCanvasId) < MAX_CANVAS_DEPTH
+  );
 }
 
-export function nextFactoryId(canvases: Record<CanvasId, CanvasRecord>): string {
+export function nextFactoryId(
+  canvases: Record<CanvasId, CanvasRecord>,
+): string {
   let max = 0;
   for (const c of Object.values(canvases)) {
     for (const n of c.nodes) {
@@ -219,7 +222,11 @@ export function syncFactoryNodeLabel(
   });
 }
 
-export function remapId(prefix: string, oldId: string, idMap: Map<string, string>): string {
+export function remapId(
+  prefix: string,
+  oldId: string,
+  idMap: Map<string, string>,
+): string {
   const existing = idMap.get(oldId);
   if (existing) return existing;
   const fresh = `${prefix}${idMap.size + 1}`;

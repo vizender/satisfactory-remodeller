@@ -31,8 +31,20 @@ Dans une même recette ou boucle, les sorties forcées sont prioritaires sur les
 - **Maj + clic** : ajouter ou retirer une machine, un conteneur ou une usine de la sélection. Déplacer une sélection déplace aussi ses liaisons internes.
 - **Ctrl/Cmd + C, X, V** : copier, couper et coller la sélection, avec les réglages et les usines imbriquées. Copier une liaison seule inclut ses machines aux extrémités ; couper une liaison seule ne supprime pas les machines. Le presse-papiers du canvas reste disponible entre les usines pendant la session.
 - **Machines / Overclock** : saisir une valeur ou utiliser les boutons ±1 machine / ±10 %. Les boutons rejoignent d’abord le prochain entier (machines) ou multiple de 10 % (overclock) dans le sens choisi. Le dernier réglage modifié détermine l’autre en conservant le débit calculé. Un nombre de machines insuffisant est ajusté au nombre nécessaire à 250 %.
-- **Ports** : ○ libre, ● forcé, ≈ calculé depuis une autre cible ou lié à une contrainte ou une boucle, ! cible ajustée. Les infobulles expliquent chaque état ; tous les ports peuvent recevoir une cible.
+- **Ports** : ○ libre, ● forcé, ≈ calculé depuis une autre cible ou lié à une contrainte ou une boucle, ! cible ajustée. Les infobulles expliquent chaque état ; les ports de machines et de blueprints peuvent recevoir une cible.
 - **Clic droit sur un port** : ajouter une machine connectée ou déconnecter toutes ses liaisons. Changer la recette conserve les liaisons et cibles des items communs, du même côté.
+
+## Usines et blueprints
+
+À l’intérieur d’une usine, relier les machines aux connecteurs **Entrée de l’usine** (en haut à gauche) et **Sortie de l’usine** (en haut à droite) expose les items sur le canvas parent. Un connecteur libre supplémentaire apparaît après chaque connexion. Les débits d’une usine suivent les réglages internes ; ses ports permettent de raccorder les machines et les autres usines du parent.
+
+Les usines avec des ports affichent leur consommation, leur nombre de machines et leurs éclats de puissance, en incluant les usines et blueprints imbriqués. Chaque machine physique utilise un éclat par tranche de 50 % au-dessus de 100 % : 130 % et 150 % nécessitent un éclat, 180 % deux, 250 % trois.
+
+Le menu d’ajout par clic droit contient un onglet **Blueprints** pour créer un modèle, placer une copie ou importer/exporter un fichier JSON. Un blueprint contient des machines et des conteneurs, mais aucune usine ni aucun autre blueprint. Ses connecteurs fonctionnent comme ceux d’une usine.
+
+Forcer un débit sur les ports extérieurs d’un blueprint calcule le nombre de copies nécessaires, **y compris les fractions** (par exemple 2,5). Le nombre et l’horloge des machines à l’intérieur restent inchangés. La quantité peut aussi être saisie directement ; le bouton de calcul automatique rend la main aux connexions. Le blueprint lui-même n’a pas d’overclock ni d’amplificateur.
+
+Modifier une instance actualise le modèle proposé dans le menu. Les autres instances conservent leur contenu et affichent **Obsolète**. L’export depuis le clic droit d’une instance conserve sa propre version ; l’export depuis le menu Blueprints utilise le dernier modèle. La bibliothèque est sauvegardée avec le plan et ses modifications peuvent être annulées/rétablies.
 
 ## Développement
 
@@ -45,15 +57,15 @@ npm run dev
 
 L’application est accessible sur `http://localhost:1420/` (ou le port suivant s’il est occupé).
 
-| Commande | Description |
-| --- | --- |
-| `npm run dev` | Serveur de développement et génération des recettes |
-| `npm run dev:browser` | Serveur de développement avec ouverture du navigateur |
-| `npm test` | Tests automatisés |
-| `npm run build` | Vérification TypeScript et compilation du site dans `dist/` |
-| `npm run preview` | Aperçu local du site compilé |
-| `npm run dev:routing-lab` | Environnement de développement du routage |
-| `npm run gen:recipes` | Régénération de l’index des recettes |
+| Commande                  | Description                                                 |
+| ------------------------- | ----------------------------------------------------------- |
+| `npm run dev`             | Serveur de développement et génération des recettes         |
+| `npm run dev:browser`     | Serveur de développement avec ouverture du navigateur       |
+| `npm test`                | Tests automatisés                                           |
+| `npm run build`           | Vérification TypeScript et compilation du site dans `dist/` |
+| `npm run preview`         | Aperçu local du site compilé                                |
+| `npm run dev:routing-lab` | Environnement de développement du routage                   |
+| `npm run gen:recipes`     | Régénération de l’index des recettes                        |
 
 ## Structure
 

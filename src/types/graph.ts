@@ -34,8 +34,9 @@ export interface ItemPortData extends Record<string, unknown> {
   slotsOnSide: number;
 }
 
-/** Reserved: boundary port on a factory (future cross-canvas flow). */
+/** Exposed factory port linked to a connector in its child canvas. */
 export interface BoundaryPortDef {
+  perMinute?: number;
   id: string;
   itemId: string;
   displayName: string;
@@ -57,6 +58,12 @@ export interface FactoryAppearanceV1 {
 }
 
 export interface FactoryFrameData extends Record<string, unknown> {
+  blueprintId?: string;
+  blueprintRevision?: number;
+  blueprintOutdated?: boolean;
+  blueprintCount?: number;
+  totalPowerMw?: number;
+  totalShards?: number;
   label: string;
   boundary?: FactoryBoundarySpecV1;
   appearance?: FactoryAppearanceV1;
@@ -81,10 +88,7 @@ export function isPortItemAssigned(itemId: string): boolean {
   return itemId.length > 0;
 }
 
-export function portItemsCompatible(
-  a: string,
-  b: string,
-): boolean {
+export function portItemsCompatible(a: string, b: string): boolean {
   if (a === b) return true;
   if (!isPortItemAssigned(a) || !isPortItemAssigned(b)) return true;
   return false;

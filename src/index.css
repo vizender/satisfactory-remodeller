@@ -7,8 +7,16 @@
   --machine-select-ring: color-mix(in srgb, var(--accent) 22%, transparent);
   --machine-conflict-bg: color-mix(in srgb, #ef4444 10%, var(--surface));
   --machine-conflict-ring: color-mix(in srgb, #ef4444 28%, transparent);
-  --machine-conflict-selected-bg: color-mix(in srgb, #ef4444 22%, var(--surface));
-  --machine-conflict-selected-ring: color-mix(in srgb, #ef4444 48%, transparent);
+  --machine-conflict-selected-bg: color-mix(
+    in srgb,
+    #ef4444 22%,
+    var(--surface)
+  );
+  --machine-conflict-selected-ring: color-mix(
+    in srgb,
+    #ef4444 48%,
+    transparent
+  );
   --conflict-edge-stroke: #dc2626;
   --bg: #f4f6f9;
   --surface: #ffffff;
@@ -43,8 +51,16 @@
     --conflict-text: #fecaca;
     --machine-conflict-bg: color-mix(in srgb, #ef4444 14%, var(--surface));
     --machine-conflict-ring: color-mix(in srgb, #ef4444 32%, transparent);
-    --machine-conflict-selected-bg: color-mix(in srgb, #ef4444 28%, var(--surface));
-    --machine-conflict-selected-ring: color-mix(in srgb, #ef4444 55%, transparent);
+    --machine-conflict-selected-bg: color-mix(
+      in srgb,
+      #ef4444 28%,
+      var(--surface)
+    );
+    --machine-conflict-selected-ring: color-mix(
+      in srgb,
+      #ef4444 55%,
+      transparent
+    );
     --conflict-edge-stroke: #f87171;
   }
 }
@@ -232,13 +248,15 @@ body {
   100% {
     stroke-opacity: 1;
     filter: drop-shadow(
-      0 0 2px color-mix(in srgb, var(--route-color, currentColor) 50%, transparent)
+      0 0 2px
+        color-mix(in srgb, var(--route-color, currentColor) 50%, transparent)
     );
   }
   50% {
     stroke-opacity: 0.42;
     filter: drop-shadow(
-      0 0 7px color-mix(in srgb, var(--route-color, currentColor) 80%, transparent)
+      0 0 7px
+        color-mix(in srgb, var(--route-color, currentColor) 80%, transparent)
     );
   }
 }
@@ -298,4 +316,11 @@ body {
 .rf-machine-port-deficit {
   border-color: #ef4444 !important;
   background-color: var(--machine-conflict-bg);
+}
+
+.react-flow__node-factoryFrame {
+  pointer-events: none !important;
+}
+.rf-factory-body {
+  pointer-events: auto;
 }

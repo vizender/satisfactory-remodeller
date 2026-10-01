@@ -1,3 +1,6 @@
+import { WORLD_CANVAS_ID } from "@/types/canvas";
+import { saveJsonFile } from "@/lib/saveJsonFile";
+import { BoundaryFrameNode } from "@/components/BoundaryFrameNode";
 import { PortContextMenu } from "@/components/PortContextMenu";
 import { followGroupMovement } from "@/lib/routing/groupDrag";
 import {
@@ -103,6 +106,7 @@ let clipboardPasteCount = 0;
 
 const nodeTypes: NodeTypes = {
   machineFrame: MachineFrameNode,
+  boundaryFrame: BoundaryFrameNode,
   itemPort: ItemPortNode,
   factoryFrame: FactoryFrameNode,
   containerFrame: ContainerFrameNode,
@@ -429,9 +433,10 @@ function FlowCanvasInner() {
 
   const onViewportMoveEnd = useCallback(
     (_ev: unknown, viewport: { x: number; y: number; zoom: number }) => {
-      setActiveCanvasViewport(viewport);
+      if (useWorldStore.getState().activeCanvasId === activeCanvasId)
+        setActiveCanvasViewport(viewport);
     },
-    [setActiveCanvasViewport],
+    [setActiveCanvasViewport, activeCanvasId],
   );
 
   const onEdgesChange = useCallback(
@@ -644,6 +649,9 @@ function FlowCanvasInner() {
         {...flowInteraction}
         onInit={(inst) => {
           rfRef.current = inst;
+          const world = useWorldStore.getState();
+          const viewport = world.canvasMap[world.activeCanvasId]?.viewport;
+          if (viewport) inst.setViewport(viewport);
         }}
         onMoveEnd={onViewportMoveEnd}
         nodes={displayNodes}
@@ -673,7 +681,8 @@ function FlowCanvasInner() {
           if (
             node.type === "machineFrame" ||
             node.type === "factoryFrame" ||
-            node.type === "containerFrame"
+            node.type === "containerFrame" ||
+            node.type === "boundaryFrame"
           ) {
             applyMachineSelection(
               node.id,
@@ -722,7 +731,8 @@ function FlowCanvasInner() {
           if (
             node.type === "machineFrame" ||
             node.type === "factoryFrame" ||
-            node.type === "containerFrame"
+            node.type === "containerFrame" ||
+            node.type === "boundaryFrame"
           ) {
             machineDrag.current = {
               snapshot: cloneRouteGraph(useDocumentStore.getState().routeGraph),
@@ -732,7 +742,8 @@ function FlowCanvasInner() {
           if (
             (node.type !== "machineFrame" &&
               node.type !== "factoryFrame" &&
-              node.type !== "containerFrame") ||
+              node.type !== "containerFrame" &&
+              node.type !== "boundaryFrame") ||
             node.selected
           ) {
             return;
@@ -764,7 +775,8 @@ function FlowCanvasInner() {
           if (
             node.type === "machineFrame" ||
             node.type === "factoryFrame" ||
-            node.type === "containerFrame"
+            node.type === "containerFrame" ||
+            node.type === "boundaryFrame"
           ) {
             machineIds.add(node.id);
           }
@@ -773,7 +785,8 @@ function FlowCanvasInner() {
               n.selected &&
               (n.type === "machineFrame" ||
                 n.type === "factoryFrame" ||
-                n.type === "containerFrame")
+                n.type === "containerFrame" ||
+                n.type === "boundaryFrame")
             ) {
               machineIds.add(n.id);
             }
@@ -957,7 +970,11 @@ function FlowCanvasInner() {
         }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        fitView
+        fitView={
+          activeCanvasId === WORLD_CANVAS_ID &&
+          !canvasMap[activeCanvasId]?.viewport &&
+          nodes.length > 0
+        }
         fitViewOptions={{ padding: 0.2 }}
         snapToGrid={machineGridSnap}
         snapGrid={[MACHINE_SNAP_GRID, MACHINE_SNAP_GRID]}
@@ -1075,7 +1092,47 @@ function FlowCanvasInner() {
           anchorScreen={recipePicker.anchor}
           recipeFilter={recipePicker.filter}
           subtitle={recipePicker.subtitle}
-          disableMiscFactory={Boolean(recipePicker.linkOriginPortId)}
+          disableMiscFactory={
+            Boolean(recipePicker.linkOriginPortId) ||
+            canvasMap[activeCanvasId]?.kind === "blueprint"
+          }
+          disableBlueprints={
+            canvasMap[activeCanvasId]?.kind === "blueprint" ||
+            Boolean(recipePicker.replaceMachineId)
+          }
+          onCreateBlueprint={() => {
+            const name = window.prompt(t("blueprintName"), t("blueprintNew"));
+            if (name === null) return;
+            const id = useWorldStore
+              .getState()
+              .createBlueprint(recipePicker.flowPosition, name);
+            setRecipePicker(null);
+            if (id) void navigateWithTutorial(id);
+          }}
+          onPickBlueprint={(definitionId) => {
+            const id = useWorldStore
+              .getState()
+              .addBlueprint(definitionId, recipePicker.flowPosition);
+            const origin = recipePicker.linkOriginPortId;
+            if (id && origin) {
+              const state = useDocumentStore.getState();
+              const source = state.nodes.find((n) => n.id === origin);
+              const other = state.nodes.find(
+                (n) =>
+                  n.parentId === id &&
+                  n.data.itemId === source?.data.itemId &&
+                  n.data.kind !== source?.data.kind,
+              );
+              if (source && other)
+                state.onConnect({
+                  source: source.data.kind === "out" ? source.id : other.id,
+                  target: source.data.kind === "out" ? other.id : source.id,
+                  sourceHandle: "item",
+                  targetHandle: "item",
+                });
+            }
+            setRecipePicker(null);
+          }}
           tutorialConstraint={tutorialGates.pickerConstraint}
           lockDismiss={tutorialActive}
           onClose={() => setRecipePicker(null)}
@@ -1148,6 +1205,28 @@ function FlowCanvasInner() {
                 }
                 setFactoryMenu(null);
               }}
+              onExport={
+                useWorldStore.getState().canvasMap[factoryMenu.factoryId]
+                  ?.kind === "blueprint"
+                  ? () => {
+                      useWorldStore.getState().flushActiveCanvas();
+                      const canvas =
+                        useWorldStore.getState().canvasMap[
+                          factoryMenu.factoryId
+                        ];
+                      void saveJsonFile(
+                        {
+                          exportKind: "blueprint",
+                          schemaVersion: 1,
+                          name: canvas.name,
+                          canvas,
+                        },
+                        `${canvas.name}.json`,
+                      );
+                      setFactoryMenu(null);
+                    }
+                  : undefined
+              }
               onDuplicate={() => {
                 duplicateFactory(factoryMenu.factoryId);
                 setFactoryMenu(null);

@@ -1,3 +1,4 @@
+import { ensureBoundaryNodes } from "@/lib/factoryBoundaries";
 import type {
   Connection,
   Edge,
@@ -344,12 +345,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       targetHandle: connection.targetHandle ?? "item",
       data: { itemId },
     };
-    const nextNodes = applyContainerItemAssignment(
+    let nextNodes = applyContainerItemAssignment(
       nodes,
       connection.source!,
       connection.target!,
       itemId,
     );
+    if (nextNodes.some((n) => n.type === "boundaryFrame")) {
+      nextNodes = ensureBoundaryNodes({
+        id: "active",
+        name: "",
+        nodes: nextNodes,
+        edges: [...get().edges, edge],
+        forcedPortRates: {},
+        parent: { canvasId: "parent", factoryNodeId: "active" },
+      }).nodes;
+    }
     set({
       nodes: nextNodes,
       edges: [...get().edges, edge],
@@ -391,7 +402,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       } else if (Number.isFinite(ratePerMin) && ratePerMin >= 0) {
         next[portId] = ratePerMin;
       }
-      return { forcedPortRates: next };
+      const port = s.nodes.find((n) => n.id === portId);
+      return {
+        forcedPortRates: next,
+        nodes: s.nodes.map((n) =>
+          n.id === port?.parentId &&
+          n.type === "factoryFrame" &&
+          n.data.blueprintId
+            ? { ...n, data: { ...n.data, blueprintCount: undefined } }
+            : n,
+        ),
+      };
     }),
   clearForcedOnMachine: (machineFrameId) =>
     set((s) => {
@@ -758,6 +779,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       (e) => e.source !== portId && e.target !== portId,
     );
     set({
+      nodes: state.nodes.map((n) =>
+        n.id === portId &&
+        state.nodes.some(
+          (f) => f.id === n.parentId && f.type === "boundaryFrame",
+        )
+          ? {
+              ...n,
+              data: { ...n.data, itemId: "", displayName: "—", perMinute: 0 },
+            }
+          : n,
+      ),
       edges,
       routeGraph: pruneRouteGraph(
         state.routeGraph,

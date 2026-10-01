@@ -1,3 +1,5 @@
+import { reconcileFactoryHierarchy } from "./factoryHierarchy";
+import { ensureBoundaryNodes } from "./factoryBoundaries";
 import type { Edge, Node } from "@xyflow/react";
 import { useDocumentStore } from "@/store/useDocumentStore";
 import { useWorldStore } from "@/store/useWorldStore";
@@ -5,6 +7,7 @@ import { emptyRouteGraph } from "@/lib/routing";
 import type { CanvasRecord } from "@/types/canvas";
 
 type Snapshot = {
+  blueprintLibrary: import("@/types/blueprint").BlueprintLibrary;
   canvases: Record<string, CanvasRecord>;
   activeCanvasId: string;
   factoryNameCounter: number;
@@ -35,10 +38,21 @@ function capture(): Snapshot {
       routeGraph: doc.routeGraph,
     };
   return structuredClone({
+    blueprintLibrary: world.blueprintLibrary,
     activeCanvasId: world.activeCanvasId,
     factoryNameCounter: world.factoryNameCounter,
     canvases: Object.fromEntries(
-      Object.entries(canvases).map(([id, canvas]) => {
+      Object.entries(
+        reconcileFactoryHierarchy(
+          Object.fromEntries(
+            Object.entries(canvases).map(([id, c]) => [
+              id,
+              ensureBoundaryNodes(c),
+            ]),
+          ),
+          world.blueprintLibrary,
+        ),
+      ).map(([id, canvas]) => {
         const { viewport, ...saved } = canvas;
         return [
           id,
@@ -54,7 +68,11 @@ function capture(): Snapshot {
   });
 }
 const contentKey = (snapshot: Snapshot) =>
-  JSON.stringify([snapshot.canvases, snapshot.factoryNameCounter]);
+  JSON.stringify([
+    snapshot.canvases,
+    snapshot.factoryNameCounter,
+    snapshot.blueprintLibrary,
+  ]);
 
 /** Session-only document history. One pointer gesture or synchronous edit = one entry. */
 export function createCanvasHistory(limit = 100) {
@@ -104,6 +122,7 @@ export function createCanvasHistory(limit = 100) {
         : "world";
       useWorldStore.setState({
         canvasMap: canvases,
+        blueprintLibrary: structuredClone(snapshot.blueprintLibrary),
         activeCanvasId,
         factoryNameCounter: snapshot.factoryNameCounter,
         isNavigating: false,

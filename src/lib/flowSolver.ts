@@ -100,19 +100,33 @@ function solveComponent(
   const result = emptyResult();
   const model = new FlowLinearModel();
   const frames = nodes.filter(
-    (n) => n.type === "machineFrame" || n.type === "containerFrame",
+    (n) =>
+      n.type === "machineFrame" ||
+      n.type === "containerFrame" ||
+      n.type === "factoryFrame" ||
+      n.type === "boundaryFrame",
   );
   const frameById = new Map(frames.map((n) => [n.id, n]));
   const multipliers = new Map<string, Expression>();
-  for (const n of frames)
-    if (n.type === "machineFrame") multipliers.set(n.id, model.variable());
+  for (const n of frames) {
+    if (n.type === "machineFrame" || n.type === "factoryFrame") {
+      const multiplier = model.variable();
+      multipliers.set(n.id, multiplier);
+      if (n.type === "factoryFrame") {
+        const fixed = n.data.blueprintId ? n.data.blueprintCount : 1;
+        if (typeof fixed === "number" && Number.isFinite(fixed))
+          model.constrain(multiplier, { equal: Math.max(0, fixed) });
+      }
+    }
+  }
   const ports = new Map<string, Port>();
   for (const n of nodes) {
     if (n.type !== "itemPort" || !n.parentId) continue;
     const frame = frameById.get(n.parentId);
     if (!frame) continue;
     const d = n.data as ItemPortData;
-    const container = frame.type === "containerFrame";
+    const container =
+      frame.type === "containerFrame" || frame.type === "boundaryFrame";
     const base = Number.isFinite(d.perMinute)
       ? Math.max(0, d.perMinute) *
         (container ? 1 : solverClockMultiplier(frame.data as MachineFrameData))
@@ -150,9 +164,11 @@ function solveComponent(
         const enabled =
           (frameById.get(p.machine)!.data as ContainerFrameData)
             .outputEnabled !== false;
-        model.constrain(combine(p.rate, negative(input?.rate ?? new Map())), {
-          max: 0,
-        });
+        if (frameById.get(p.machine)!.type !== "boundaryFrame") {
+          model.constrain(combine(p.rate, negative(input?.rate ?? new Map())), {
+            max: 0,
+          });
+        }
         if (!enabled) model.constrain(p.rate, { equal: 0 });
       } else {
         const output = ports.get(p.id.replace(/-in-(\d+)$/, "-out-$1"));
@@ -193,6 +209,23 @@ function solveComponent(
         value >= 0,
     )
     .sort(([a], [b]) => a.localeCompare(b)) as [string, number][];
+  // Internal factory demand (or an explicit blueprint quantity) is a target in
+  // the parent chain, so upstream goals yield before creating a shortage.
+  for (const [id, port] of ports) {
+    const frame = frameById.get(port.machine)!;
+    if (
+      frame.type !== "factoryFrame" ||
+      forcedPorts.some(([pid]) => pid === id)
+    )
+      continue;
+    const count = frame.data.blueprintId ? frame.data.blueprintCount : 1;
+    if (typeof count !== "number" || !Number.isFinite(count)) continue;
+    const node = nodes.find((n) => n.id === id)!;
+    forcedPorts.push([
+      id,
+      Math.max(0, count) * Number(node.data.perMinute ?? 0),
+    ]);
+  }
   const predecessors = new Map<number, Set<number>>();
   for (const group of components.values()) predecessors.set(group, new Set());
   for (const [a, b] of links) {
@@ -413,7 +446,13 @@ export function solveFlow(
   const result = emptyResult();
   const frames = new Map(
     nodes
-      .filter((n) => n.type === "machineFrame" || n.type === "containerFrame")
+      .filter(
+        (n) =>
+          n.type === "machineFrame" ||
+          n.type === "containerFrame" ||
+          n.type === "factoryFrame" ||
+          n.type === "boundaryFrame",
+      )
       .map((n) => [n.id, n]),
   );
   const ports = new Map(

@@ -134,7 +134,8 @@ it("restores a removed factory subtree and undoes edits across canvas navigation
     doc().nodes.find((n) => n.id === "m1")?.data.machineCount,
   ).toBeUndefined();
   history.undo();
-  expect(doc().nodes).toEqual([]);
+  expect(doc().nodes.filter((n) => n.type === "machineFrame")).toEqual([]);
+  expect(doc().nodes.filter((n) => n.type === "boundaryFrame")).toHaveLength(2);
   await navigation;
 });
 
@@ -189,7 +190,7 @@ it("supports repeated undo/redo of independent edits and stops at history bounda
     expect(doc().nodes).toEqual([]);
     expect(history.undo()).toBe(false);
     expect(history.redo()).toBe(true);
-    expect(doc().nodes.some(n => n.id === "m1")).toBe(true);
+    expect(doc().nodes.some((n) => n.id === "m1")).toBe(true);
     expect(history.redo()).toBe(true);
     expect(doc().forcedPortRates["m1-out-0"]).toBe(90);
     expect(history.redo()).toBe(true);

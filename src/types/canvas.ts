@@ -26,6 +26,10 @@ export interface CanvasParentLink {
 }
 
 export interface CanvasRecord {
+  kind?: "factory" | "blueprint";
+  blueprintId?: string;
+  blueprintRevision?: number;
+  blueprintFingerprint?: string;
   id: CanvasId;
   name: string;
   nodes: Node[];
