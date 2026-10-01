@@ -87,6 +87,20 @@ body {
 /* Canvas : pas de menu long-press iOS sur le pane (complément à preventDefault). */
 .react-flow__pane {
   -webkit-touch-callout: none;
+  cursor: default;
+}
+
+.react-flow__pane.draggable,
+.react-flow__pane.selection,
+.react-flow__pane.dragging {
+  cursor: default;
+}
+
+/* The invisible port wings around a frame should still look like canvas. */
+.react-flow__node-machineFrame.draggable,
+.react-flow__node-containerFrame.draggable,
+.react-flow__node-factoryFrame.draggable {
+  cursor: default;
 }
 
 /* Hitbox des liens overlay : trait quasi invisible. */

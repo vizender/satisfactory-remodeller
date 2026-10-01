@@ -89,6 +89,7 @@ import {
   useDocumentStore,
 } from "@/store/useDocumentStore";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
+import { boxFromPoints, coreIsInBox } from "@/lib/coreBoxSelection";
 import { useWorldStore } from "@/store/useWorldStore";
 import type {
   ContainerFrameData,
@@ -197,9 +198,11 @@ function FlowCanvasInner() {
   const flowInteraction = reactFlowInteractionProps(inputModality);
   const canvasRef = useRef<HTMLDivElement>(null);
   const selectionBeforeClick = useRef<Set<string>>(new Set());
+  const selectionStartPoint = useRef<{ x: number; y: number } | null>(null);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const nodes = useDocumentStore((s) => s.nodes);
   const machineGridSnap = useCanvasUiStore((s) => s.machineGridSnap);
+  const selectionMode = useCanvasUiStore((s) => s.selectionMode);
   const reorderDragSession = useDocumentStore((s) => s.reorderDragSession);
   const edges = useDocumentStore((s) => s.edges);
   const routeGraph = useDocumentStore((s) => s.routeGraph);
@@ -284,6 +287,13 @@ function FlowCanvasInner() {
 
   const displayNodes = useMemo(() => {
     let next = nodes;
+    const disabledContainers = new Set(nodes.filter((n) =>
+      n.type === "containerFrame" && (n.data as ContainerFrameData).outputEnabled === false,
+    ).map((n) => n.id));
+    next = next.map((n) => n.type === "itemPort" && n.parentId &&
+      disabledContainers.has(n.parentId) && (n.data as ItemPortData).kind === "out"
+      ? { ...n, hidden: true }
+      : n);
     next = applyConnectionPreviewToNodes(next, connectionPreview);
     next = applyReorderTransitionToNodes(next, reorderDragSession);
     return next;
@@ -629,6 +639,11 @@ function FlowCanvasInner() {
   return (
     <div
       ref={canvasRef}
+      onPointerDownCapture={(event) => {
+        if (event.button === 0) {
+          selectionStartPoint.current = { x: event.clientX, y: event.clientY };
+        }
+      }}
       onClickCapture={() => {
         // Capture before React Flow applies its own selection. The click's Shift
         // modifier is authoritative, even if global key tracking missed it.
@@ -677,6 +692,29 @@ function FlowCanvasInner() {
         multiSelectionKeyCode="Shift"
         selectionOnDrag={inputModality === "trackpad"}
         selectionKeyCode="Shift"
+        onSelectionEnd={(event) => {
+          const start = selectionStartPoint.current;
+          selectionStartPoint.current = null;
+          if (!start || !("clientX" in event) || !canvasRef.current) return;
+          const selection = boxFromPoints(start, { x: event.clientX, y: event.clientY });
+          const selected = new Set<string>();
+          for (const element of canvasRef.current.querySelectorAll<HTMLElement>(".react-flow__node")) {
+            const id = element.dataset.id;
+            if (!id) continue;
+            const node = useDocumentStore.getState().nodes.find((n) => n.id === id);
+            if (!node || !["machineFrame", "containerFrame", "factoryFrame", "boundaryFrame"].includes(node.type ?? "")) continue;
+            const core = element.querySelector<HTMLElement>(".rf-machine-body, .rf-factory-body") ?? element;
+            const rect = core.getBoundingClientRect();
+            if (coreIsInBox(selection, rect, selectionMode)) selected.add(id);
+          }
+          const state = useDocumentStore.getState();
+          state.onNodesChange(state.nodes.map((n) => ({
+            type: "select" as const,
+            id: n.id,
+            selected: selected.has(n.id),
+          })));
+          setSelectedSegmentIds([]);
+        }}
         panOnDrag={inputModality === "mouse" ? true : [1]}
         panActivationKeyCode="Space"
         minZoom={0.02}

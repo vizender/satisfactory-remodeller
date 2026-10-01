@@ -177,6 +177,10 @@ export const messages = {
     snapToggle: "Snap",
     snapToggleTitle:
       "Accrocher les machines à la grille (horizontal et vertical). Les courroies s’alignent entre elles, pas sur la grille.",
+    selectionFull: "Sélection : Windows",
+    selectionPartial: "Sélection : Mac",
+    selectionFullTitle: "Style Windows : le cadre doit contenir entièrement le cœur de l’élément, sans compter ses ports.",
+    selectionPartialTitle: "Style Mac : le cadre sélectionne l’élément dès qu’il touche son cœur, sans compter ses ports.",
     resetEdgeRoute: "Réinitialiser le tracé",
     addEdgeKink: "Ajouter un coude",
     removeEdgeKink: "Supprimer le coude",
@@ -406,6 +410,10 @@ export const messages = {
     snapToggle: "Snap",
     snapToggleTitle:
       "Snap machines to the grid on both axes. Belts snap to each other, not to the grid.",
+    selectionFull: "Selection: Windows",
+    selectionPartial: "Selection: Mac",
+    selectionFullTitle: "Windows style: the box must contain the whole core, excluding ports.",
+    selectionPartialTitle: "Mac style: touching any part of the core selects it, excluding ports.",
     resetEdgeRoute: "Reset route",
     addEdgeKink: "Add kink",
     removeEdgeKink: "Remove kink",

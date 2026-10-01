@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FlowCanvas } from "@/components/FlowCanvas";
 import { CanvasNavDropdown } from "@/components/CanvasNavDropdown";
 import { RigidPortSnapToggle } from "@/components/RigidPortSnapToggle";
+import { SelectionModeToggle } from "@/components/SelectionModeToggle";
 import { SettingsMenu } from "@/components/SettingsMenu";
 import { MobileUnsupportedGate } from "@/components/MobileUnsupportedGate";
 import { SummaryPanel } from "@/components/SummaryPanel";
@@ -43,6 +44,7 @@ function AppShell() {
             </h1>
             <CanvasNavDropdown />
             <RigidPortSnapToggle />
+            <SelectionModeToggle />
           </div>
           <SettingsMenu />
         </header>

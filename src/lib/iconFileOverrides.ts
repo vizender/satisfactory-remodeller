@@ -3,6 +3,8 @@
  * Clés : `Desc_*_C`, valeurs : nom de fichier dans `Assets/icons/items/`.
  */
 export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
+  /** Packaged turbofuel keeps its red canister artwork after the label correction. */
+  Desc_TurboFuel_C: "Turbofuel.png",
   /** Wiki / recettes : `Screws.png`, pas « Iron_Screw ». */
   Desc_IronScrew_C: "Screws.png",
   /** Fluide wiki `Dark_Matter_Residue.png` (classe `Desc_DarkEnergy_C`). */

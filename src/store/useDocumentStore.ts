@@ -630,8 +630,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     });
   },
   setContainerOutputEnabled: (containerFrameId, outputEnabled) => {
-    set((s) => ({
-      nodes: s.nodes.map((n) => {
+    set((s) => {
+      const nodes = s.nodes.map((n) => {
         if (n.id !== containerFrameId || n.type !== "containerFrame") {
           return n;
         }
@@ -640,8 +640,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           ...n,
           data: { ...d, outputEnabled } satisfies typeof d,
         };
-      }),
-    }));
+      });
+      if (outputEnabled) return { nodes };
+      const outputIds = new Set(nodes.filter((n) =>
+        n.parentId === containerFrameId && n.type === "itemPort" &&
+        (n.data as ItemPortData).kind === "out",
+      ).map((n) => n.id));
+      const edges = s.edges.filter((e) => !outputIds.has(e.source) && !outputIds.has(e.target));
+      const forcedPortRates = { ...s.forcedPortRates };
+      for (const id of outputIds) delete forcedPortRates[id];
+      const validPorts = new Set(nodes.filter((n) => n.type === "itemPort").map((n) => n.id));
+      return {
+        nodes,
+        edges,
+        forcedPortRates,
+        routeGraph: pruneRouteGraph(s.routeGraph, validPorts, new Set(edges.map((e) => e.id))),
+      };
+    });
   },
   setContainerVariant: (containerFrameId, variant) => {
     const s = get();

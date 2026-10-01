@@ -107,6 +107,8 @@ export function splitPascalTokens(s: string): string {
 
 /** Surcharges d’affichage (l’id jeu reste inchangé, ex. export / edges). */
 const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
+  Desc_Fuel_C: "Packaged Fuel",
+  Desc_TurboFuel_C: "Packaged Turbofuel",
   /** Le jeu utilise `Desc_Stone_C` ; on affiche « Limestone » partout en UI. */
   Desc_Stone_C: "Limestone",
   /** Classe `IronScrew` → libellé wiki / recettes « Screws ». */

@@ -185,7 +185,11 @@ export function listAllItemIconCandidateFilenames(
   itemId: string,
   hint?: ItemIconHint,
 ): string[] {
-  const display = formatItemClassId(itemId);
+  // These item labels were clarified for the UI. Keep the pre-existing icon
+  // lookup names so a display-only rename cannot change their artwork.
+  const display = itemId === "Desc_Fuel_C" ? "Fuel"
+    : itemId === "Desc_TurboFuel_C" ? "Turbo Fuel"
+    : formatItemClassId(itemId);
   const out: string[] = [];
 
   const forced = ITEM_ICON_FILE_OVERRIDES[itemId];

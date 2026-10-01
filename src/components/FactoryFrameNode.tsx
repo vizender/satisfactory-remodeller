@@ -35,7 +35,7 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
       }
     >
       <div
-        className={`rf-factory-body absolute flex h-full flex-col justify-center gap-2 rounded-xl border-2 border-dashed bg-[var(--surface)] p-3 ${selected ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
+        className={`rf-factory-body absolute flex h-full cursor-grab flex-col justify-center gap-2 rounded-xl border-2 border-dashed bg-[var(--surface)] p-3 active:cursor-grabbing ${selected ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
         style={{
           left: expanded ? L.PORT_W : 0,
           width: expanded ? L.BODY_W : "100%",
