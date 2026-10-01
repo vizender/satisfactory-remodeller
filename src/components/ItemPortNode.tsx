@@ -180,8 +180,11 @@ export function ItemPortNode(props: NodeProps) {
   const parentFrame = useDocumentStore((s) =>
     s.nodes.find((n) => n.id === parentId),
   );
+  const boundaryKind = parentFrame?.type === "boundaryFrame"
+    ? parentFrame.data.boundaryKind : undefined;
   const internalRate =
     parentFrame?.type === "factoryFrame" && !parentFrame.data.blueprintId;
+  const factoryPortNeedsItem = parentFrame?.type === "factoryFrame" && !d.itemId;
   const reorderable = d.slotsOnSide > 1 && parentFrame?.type === "machineFrame";
 
   const parentSelected = useDocumentStore((s) => {
@@ -443,6 +446,7 @@ export function ItemPortNode(props: NodeProps) {
 
   return (
     <div
+      title={factoryPortNeedsItem ? t("factoryConnectInsideFirst") : undefined}
       className={cn(
         "rf-machine-port relative select-none rounded-md border bg-[var(--bg)] px-1 py-1 shadow-sm",
         isIn ? "pl-3 pr-1" : "pl-1 pr-3",
@@ -453,6 +457,8 @@ export function ItemPortNode(props: NodeProps) {
         portOnConflictEdge && "border-red-500/70",
         cardBorder,
         hasDeficit && "rf-machine-port-deficit",
+        boundaryKind === "in" && "ring-1 ring-cyan-400/50",
+        boundaryKind === "out" && "ring-1 ring-violet-400/50",
       )}
       style={{
         width: PORT_W,

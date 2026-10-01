@@ -1,6 +1,7 @@
 import { useClampedFixedPosition } from "@/hooks/useClampedFixedPosition";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { ContainerVariant } from "@/types/graph";
+import { SelectionWrapActions } from "./SelectionWrapActions";
 
 type Props = {
   x: number;
@@ -13,6 +14,7 @@ type Props = {
   onClose: () => void;
   onClearForced: () => void;
   onDeleteContainer: () => void;
+  wrapSelection?: { count: number; onFactory: () => void; onBlueprint: () => void };
 };
 
 export function ContainerContextMenu({
@@ -26,6 +28,7 @@ export function ContainerContextMenu({
   onClose,
   onClearForced,
   onDeleteContainer,
+  wrapSelection,
 }: Props) {
   const { t } = useI18n();
   const { ref: menuRef, left, top } = useClampedFixedPosition({ x, y }, true);
@@ -99,6 +102,7 @@ export function ContainerContextMenu({
         >
           {t("clearForcedRates")}
         </button>
+        {wrapSelection && <SelectionWrapActions {...wrapSelection} />}
         <button
           type="button"
           className="block w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-[var(--bg)]"

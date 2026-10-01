@@ -46,6 +46,7 @@ import { HiddenTopologyEdge } from "@/components/routing/HiddenTopologyEdge";
 import { RouteOverlay } from "@/components/routing/RouteOverlay";
 import { ItemPortNode } from "@/components/ItemPortNode";
 import { MachineContextMenu } from "@/components/MachineContextMenu";
+import { SelectionWrapMenu } from "@/components/SelectionWrapMenu";
 import { MachineRecipePicker } from "@/components/MachineRecipePicker";
 import { MachineFrameNode } from "@/components/MachineFrameNode";
 import { useFlowSolveResult } from "@/hooks/useFlowSolve";
@@ -90,6 +91,7 @@ import {
 } from "@/store/useDocumentStore";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 import { boxFromPoints, coreIsInBox } from "@/lib/coreBoxSelection";
+import { BOUNDARY_FRAME_WIDTH } from "@/lib/factoryBoundaries";
 import { useWorldStore } from "@/store/useWorldStore";
 import type {
   ContainerFrameData,
@@ -211,10 +213,12 @@ function FlowCanvasInner() {
   const onNodesChange = useDocumentStore((s) => s.onNodesChange);
   const applyEdgesChange = useDocumentStore((s) => s.onEdgesChange);
   const storeOnConnect = useDocumentStore((s) => s.onConnect);
+  const addBoundaryPort = useDocumentStore((s) => s.addBoundaryPort);
 
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [wrapMenu, setWrapMenu] = useState<{ x: number; y: number } | null>(null);
   const machineDrag = useRef<{
     snapshot: RouteGraph;
     ports: ReturnType<typeof portHandlesFromNodes>;
@@ -245,14 +249,31 @@ function FlowCanvasInner() {
         useWorldStore.getState();
       if (key === "v") {
         if (!canvasClipboard) return;
+        if (canvases[canvasId]?.kind === "blueprint" &&
+          canvasClipboard.root.nodes.some((n) => n.type === "factoryFrame")) {
+          event.preventDefault();
+          alert(t("blueprintNoNesting"));
+          return;
+        }
         event.preventDefault();
         clipboardPasteCount++;
-        const offset = 64 * clipboardPasteCount;
+        let offset = { x: 64 * clipboardPasteCount, y: 64 * clipboardPasteCount };
+        if (canvasClipboard.root.id !== canvasId && rfRef.current && canvasRef.current) {
+          const roots = canvasClipboard.root.nodes.filter((n) => !n.parentId);
+          const center = {
+            x: (Math.min(...roots.map((n) => n.position.x)) + Math.max(...roots.map((n) => n.position.x))) / 2,
+            y: (Math.min(...roots.map((n) => n.position.y)) + Math.max(...roots.map((n) => n.position.y))) / 2,
+          };
+          const rect = canvasRef.current.getBoundingClientRect();
+          const target = rfRef.current.screenToFlowPosition({
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          });
+          offset = { x: target.x - center.x + (clipboardPasteCount - 1) * 32,
+            y: target.y - center.y + (clipboardPasteCount - 1) * 32 };
+        }
         useWorldStore.setState({
-          canvasMap: pasteCanvasSelection(canvases, canvasId, canvasClipboard, {
-            x: offset,
-            y: offset,
-          }),
+          canvasMap: pasteCanvasSelection(canvases, canvasId, canvasClipboard, offset),
         });
         world.loadCanvasIntoDocument(canvasId);
         setSelectedSegmentIds([]);
@@ -283,7 +304,7 @@ function FlowCanvasInner() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [tutorialActive, selectedSegmentIds]);
+  }, [tutorialActive, selectedSegmentIds, t]);
 
   const displayNodes = useMemo(() => {
     let next = nodes;
@@ -376,6 +397,44 @@ function FlowCanvasInner() {
   );
   const activeCanvasId = useWorldStore((s) => s.activeCanvasId);
   const canvasMap = useWorldStore((s) => s.canvasMap);
+  const selectedMachineCount = nodes.filter((n) => n.selected &&
+    (n.type === "machineFrame" || n.type === "containerFrame")).length;
+  const canWrapSelection = !tutorialActive &&
+    canvasMap[activeCanvasId]?.kind !== "blueprint" && selectedMachineCount > 0;
+  const wrapSelected = useCallback((kind: "factory" | "blueprint") => {
+    const name = kind === "blueprint"
+      ? window.prompt(t("blueprintName"), t("blueprintNew"))
+      : undefined;
+    if (name === null) return;
+    const id = useWorldStore.getState().wrapSelectedMachines(kind, name);
+    setMachineMenu(null);
+    setContainerMenu(null);
+    setWrapMenu(null);
+    if (!id) alert(t("factoryDepthLimit"));
+  }, [t]);
+  const addBoundaryAtButton = useCallback((
+    kind: "in" | "out",
+    button: HTMLButtonElement,
+  ) => {
+    const flow = rfRef.current;
+    const canvas = canvasRef.current;
+    if (!flow || !canvas) return;
+    const rect = button.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const occupied = new Set(useDocumentStore.getState().nodes.filter((n) =>
+      n.type === "boundaryFrame" && n.data.boundaryKind === kind,
+    ).map((n) => Number(n.data.boundaryIndex)));
+    let slot = 0;
+    while (occupied.has(slot)) slot++;
+    const rows = Math.max(1, Math.floor((canvasRect.bottom - rect.bottom - 24) / 112));
+    const column = Math.floor(slot / rows);
+    const row = slot % rows;
+    const x = kind === "in"
+      ? rect.left + column * 160
+      : rect.right - BOUNDARY_FRAME_WIDTH - column * 160;
+    const y = rect.bottom + 16 + row * 112;
+    addBoundaryPort(kind, flow.screenToFlowPosition({ x, y }));
+  }, [addBoundaryPort]);
   const setMachineRecipe = useDocumentStore((s) => s.setMachineRecipe);
   const setMachineClockPercent = useDocumentStore(
     (s) => s.setMachineClockPercent,
@@ -543,6 +602,10 @@ function FlowCanvasInner() {
     const sd = src.data as ItemPortData;
     const td = tgt.data as ItemPortData;
     if (sd.kind !== "out" || td.kind !== "in") return false;
+    // Factory ports get their item from the corresponding connection inside.
+    // An empty exterior port cannot retain a wire until that item is known.
+    if ((list.some((n) => n.id === src.parentId && n.type === "factoryFrame") && !isPortItemAssigned(sd.itemId)) ||
+      (list.some((n) => n.id === tgt.parentId && n.type === "factoryFrame") && !isPortItemAssigned(td.itemId))) return false;
     if (!portItemsCompatible(sd.itemId, td.itemId)) return false;
     const itemId = isPortItemAssigned(sd.itemId) ? sd.itemId : td.itemId;
     if (!isPortItemAssigned(itemId)) return false;
@@ -799,7 +862,8 @@ function FlowCanvasInner() {
           if (
             node.type !== "machineFrame" &&
             node.type !== "factoryFrame" &&
-            node.type !== "containerFrame"
+            node.type !== "containerFrame" &&
+            node.type !== "boundaryFrame"
           ) {
             return;
           }
@@ -843,6 +907,7 @@ function FlowCanvasInner() {
         }}
         onNodeContextMenu={(event, node) => {
           setPortMenu(null);
+          setWrapMenu(null);
           if (node.type === "itemPort") {
             if (tutorialActive && !tutorialGates.allowPortRecipePicker) return;
             if (
@@ -891,6 +956,7 @@ function FlowCanvasInner() {
             if (tutorialActive && !tutorialGates.allowMachineContextMenu)
               return;
             event.preventDefault();
+            if (!node.selected) applyMachineSelection(node.id, "replace");
             setEdgeMenu(null);
             setRecipePicker(null);
             setFactoryMenu(null);
@@ -929,6 +995,7 @@ function FlowCanvasInner() {
           if (node.type === "containerFrame") {
             if (tutorialActive) return;
             event.preventDefault();
+            if (!node.selected) applyMachineSelection(node.id, "replace");
             setEdgeMenu(null);
             setRecipePicker(null);
             setMachineMenu(null);
@@ -944,6 +1011,7 @@ function FlowCanvasInner() {
         }}
         onPaneClick={() => {
           setPortMenu(null);
+          setWrapMenu(null);
           clearMachineSelection();
           setSelectedSegmentIds([]);
           setConnectionPreview(null);
@@ -958,6 +1026,11 @@ function FlowCanvasInner() {
           e.preventDefault();
           setEdgeMenu(null);
           setMachineMenu(null);
+          if (canWrapSelection) {
+            setRecipePicker(null);
+            setWrapMenu({ x: e.clientX, y: e.clientY });
+            return;
+          }
           const flow = rfRef.current?.screenToFlowPosition({
             x: e.clientX,
             y: e.clientY,
@@ -1030,8 +1103,28 @@ function FlowCanvasInner() {
         }}
       >
         <Background gap={BACKGROUND_GRID_GAP} color="var(--flow-grid)" />
+        {activeCanvasId !== WORLD_CANVAS_ID && !tutorialActive && (
+          <Panel position="top-left">
+            <button
+              type="button"
+              className="rounded-lg border border-cyan-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-cyan-700 shadow-lg hover:bg-cyan-500/15 dark:text-cyan-300"
+              onClick={(event) => addBoundaryAtButton("in", event.currentTarget)}
+            >
+              + {t("addFactoryInput")}
+            </button>
+          </Panel>
+        )}
         <Panel position="top-right">
           <div className="flex flex-col items-end gap-1 text-right">
+            {activeCanvasId !== WORLD_CANVAS_ID && !tutorialActive && (
+              <button
+                type="button"
+                className="rounded-lg border border-violet-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-violet-700 shadow-lg hover:bg-violet-500/15 dark:text-violet-300"
+                onClick={(event) => addBoundaryAtButton("out", event.currentTarget)}
+              >
+                + {t("addFactoryOutput")}
+              </button>
+            )}
             {solve.hardConflict ? (
               <div
                 className="max-w-xs rounded border px-2 py-1.5 text-[11px] leading-snug"
@@ -1088,6 +1181,11 @@ function FlowCanvasInner() {
                 setMachineClockPercent(machineMenu.machineId, v)
               }
               onClose={() => setMachineMenu(null)}
+              wrapSelection={canWrapSelection ? {
+                count: selectedMachineCount,
+                onFactory: () => wrapSelected("factory"),
+                onBlueprint: () => wrapSelected("blueprint"),
+              } : undefined}
               onClearForced={() => clearForcedOnMachine(machineMenu.machineId)}
               onChangeRecipe={() => {
                 setMachineMenu(null);
@@ -1305,6 +1403,11 @@ function FlowCanvasInner() {
                 setContainerVariant(containerMenu.containerId, v)
               }
               onClose={() => setContainerMenu(null)}
+              wrapSelection={canWrapSelection ? {
+                count: selectedMachineCount,
+                onFactory: () => wrapSelected("factory"),
+                onBlueprint: () => wrapSelected("blueprint"),
+              } : undefined}
               onClearForced={() =>
                 clearForcedOnContainer(containerMenu.containerId)
               }
@@ -1316,6 +1419,16 @@ function FlowCanvasInner() {
             document.body,
           )
         : null}
+      {wrapMenu && canWrapSelection && (
+        <SelectionWrapMenu
+          x={wrapMenu.x}
+          y={wrapMenu.y}
+          count={selectedMachineCount}
+          onClose={() => setWrapMenu(null)}
+          onFactory={() => wrapSelected("factory")}
+          onBlueprint={() => wrapSelected("blueprint")}
+        />
+      )}
       <DestructiveConfirmDialog
         open={factoryDeleteTarget !== null}
         title={

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import type { Node } from "@xyflow/react";
 import type { CanvasRecord } from "@/types/canvas";
 import { computeFactoryHierarchy, powerShards } from "./factoryHierarchy";
-import { ensureBoundaryNodes } from "./factoryBoundaries";
+import { buildBoundaryNodes, ensureBoundaryNodes } from "./factoryBoundaries";
 import {
   blueprintFingerprint,
   exportBlueprint,
@@ -32,6 +32,10 @@ function fixture(blueprint = false) {
       ? { kind: "blueprint", blueprintId: "bp", blueprintRevision: 1 }
       : {}),
   });
+  child.nodes.push(
+    ...buildBoundaryNodes("in", 0, { x: 32, y: 64 }),
+    ...buildBoundaryNodes("out", 0, { x: 704, y: 64 }),
+  );
   child.nodes = child.nodes.map((n) =>
     n.type === "itemPort"
       ? { ...n, data: { ...n.data, itemId: "iron", perMinute: 1 } }
@@ -135,7 +139,7 @@ it.each([
   expect(powerShards(clock, 2)).toBe(shards * 2);
 });
 
-it("removes exposed ports and wires after internal disconnection and leaves reusable empty terminals", () => {
+it("keeps explicitly created factory ports but clears their items after disconnection", () => {
   const map = fixture();
   map.f1.edges = [];
   const child = ensureBoundaryNodes(map.f1);
@@ -147,9 +151,8 @@ it("removes exposed ports and wires after internal disconnection and leaves reus
       .every((n) => !n.data.itemId),
   ).toBe(true);
   const result = computeFactoryHierarchy({ ...map, f1: child });
-  expect(
-    result.canvases.world.nodes.filter((n) => n.type === "itemPort"),
-  ).toHaveLength(0);
+  expect(result.canvases.world.nodes.filter((n) => n.type === "itemPort")).toHaveLength(2);
+  expect(result.canvases.world.nodes.filter((n) => n.type === "itemPort").every((n) => !n.data.itemId)).toBe(true);
 });
 
 it("publishes edited variants while untouched older copies remain independent and outdated", () => {

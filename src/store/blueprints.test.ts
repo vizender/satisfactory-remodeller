@@ -37,6 +37,8 @@ function enter(id: string) {
 function makeBlueprint() {
   const id = W.getState().createBlueprint({ x: 0, y: 0 }, "Iron")!;
   enter(id);
+  D.getState().addBoundaryPort("in", { x: 32, y: 64 });
+  D.getState().addBoundaryPort("out", { x: 704, y: 64 });
   D.getState().addMachine("Recipe_IngotIron_C", { x: 256, y: 256 });
   D.getState().onConnect({
     source: "boundary-in-0-out-0",
@@ -106,6 +108,7 @@ it("duplicates and imports factories with connected nested ports and routed wire
   enter(outer);
   const nested = W.getState().addFactory({ x: 256, y: 256 })!;
   enter(nested);
+  D.getState().addBoundaryPort("out", { x: 704, y: 64 });
   D.getState().addMachine("Recipe_IngotIron_C", { x: 256, y: 256 });
   D.getState().onConnect({
     source: "m1-out-0",
@@ -114,6 +117,7 @@ it("duplicates and imports factories with connected nested ports and routed wire
     targetHandle: "item",
   });
   enter(outer);
+  D.getState().addBoundaryPort("out", { x: 704, y: 64 });
   D.getState().onConnect({
     source: `${nested}-out-0`,
     target: "boundary-out-0-in-0",
@@ -171,5 +175,5 @@ it("releases boundary items after deleting connections so another item can use t
   ).toBe("");
   expect(
     D.getState().nodes.filter((n) => n.type === "boundaryFrame"),
-  ).toHaveLength(4);
+  ).toHaveLength(2);
 });

@@ -9,6 +9,7 @@ import {
   recoverBlueprintLibrary,
 } from "@/lib/blueprints";
 import { ensureBoundaryNodes } from "@/lib/factoryBoundaries";
+import { wrapCanvasSelection } from "@/lib/wrapCanvasSelection";
 import { reconcileFactoryHierarchy } from "@/lib/factoryHierarchy";
 import type { Edge, Node } from "@xyflow/react";
 import { create } from "zustand";
@@ -73,6 +74,7 @@ export interface WorldState {
   setActiveCanvasViewport: (viewport: CanvasViewport) => void;
 
   addFactory: (flowPosition: { x: number; y: number }) => CanvasId | null;
+  wrapSelectedMachines: (kind: "factory" | "blueprint", name?: string) => CanvasId | null;
   removeFactory: (factoryId: CanvasId) => void;
   renameFactory: (factoryId: CanvasId, name: string) => void;
   renameActiveCanvas: (name: string) => void;
@@ -268,6 +270,19 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     }));
 
     return factoryId;
+  },
+
+  wrapSelectedMachines: (kind, name) => {
+    const state = get();
+    const map = persistActiveSlice(state.canvasMap, state.activeCanvasId);
+    const selected = new Set(useDocumentStore.getState().nodes.filter((n) =>
+      n.selected && (n.type === "machineFrame" || n.type === "containerFrame"),
+    ).map((n) => n.id));
+    const wrapped = wrapCanvasSelection(map, state.blueprintLibrary, state.activeCanvasId, selected, kind, name);
+    if (!wrapped) return null;
+    set({ canvasMap: wrapped.canvases, blueprintLibrary: wrapped.library });
+    get().loadCanvasIntoDocument(state.activeCanvasId);
+    return wrapped.id;
   },
 
   removeFactory: (factoryId) => {

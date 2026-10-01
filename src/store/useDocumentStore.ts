@@ -1,4 +1,4 @@
-import { ensureBoundaryNodes } from "@/lib/factoryBoundaries";
+import { buildBoundaryNodes, ensureBoundaryNodes } from "@/lib/factoryBoundaries";
 import type {
   Connection,
   Edge,
@@ -105,6 +105,7 @@ export interface DocumentState {
   /** Débit /min forcé par id de port (undefined = nomina recette). */
   forcedPortRates: Record<string, number | undefined>;
   onNodesChange: (changes: NodeChange[]) => void;
+  addBoundaryPort: (kind: "in" | "out", position: { x: number; y: number }) => string;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdgeById: (edgeId: string) => void;
@@ -299,6 +300,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       ),
     });
   },
+  addBoundaryPort: (kind, position) => {
+    const frames = get().nodes.filter((n) => n.type === "boundaryFrame" && n.data.boundaryKind === kind);
+    const index = Math.max(-1, ...frames.map((n) => Number(n.data.boundaryIndex) || 0)) + 1;
+    const built = buildBoundaryNodes(kind, index, position);
+    set((s) => ({ nodes: [...s.nodes, ...built] }));
+    return built[0].id;
+  },
   onEdgesChange: (changes) => {
     const next = applyEdgeChanges(changes, get().edges);
     const removed = changes.some((c) => c.type === "remove");
@@ -327,6 +335,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const sd = src.data as ItemPortData;
     const td = tgt.data as ItemPortData;
     if (sd.kind !== "out" || td.kind !== "in") return;
+    if ((nodes.some((n) => n.id === src.parentId && n.type === "factoryFrame") && !isPortItemAssigned(sd.itemId)) ||
+      (nodes.some((n) => n.id === tgt.parentId && n.type === "factoryFrame") && !isPortItemAssigned(td.itemId))) return;
     if (!portItemsCompatible(sd.itemId, td.itemId)) return;
     const itemId = isPortItemAssigned(sd.itemId) ? sd.itemId : td.itemId;
     if (!isPortItemAssigned(itemId)) return;

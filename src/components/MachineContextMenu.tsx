@@ -7,6 +7,7 @@ import {
 } from "@/lib/clockSpeed";
 import { useClampedFixedPosition } from "@/hooks/useClampedFixedPosition";
 import { useI18n } from "@/i18n/I18nProvider";
+import { SelectionWrapActions } from "./SelectionWrapActions";
 
 type Props = {
   x: number;
@@ -18,6 +19,7 @@ type Props = {
   onClearForced: () => void;
   onChangeRecipe: () => void;
   onDeleteMachine: () => void;
+  wrapSelection?: { count: number; onFactory: () => void; onBlueprint: () => void };
 };
 
 export function MachineContextMenu({
@@ -30,6 +32,7 @@ export function MachineContextMenu({
   onClearForced,
   onChangeRecipe,
   onDeleteMachine,
+  wrapSelection,
 }: Props) {
   const { t } = useI18n();
   const { ref: menuRef, left, top } = useClampedFixedPosition({ x, y }, true);
@@ -132,6 +135,7 @@ export function MachineContextMenu({
           {t("clearForcedRates")}
         </button>
         <hr className="border-[var(--border)]" />
+        {wrapSelection && <SelectionWrapActions {...wrapSelection} />}
         <button
           type="button"
           role="menuitem"

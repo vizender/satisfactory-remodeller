@@ -69,12 +69,7 @@ export function computeFactoryHierarchy(
         const port = child.nodes.find(
           (n) => n.parentId === terminal.id && n.type === "itemPort",
         );
-        if (
-          !port ||
-          !port.data.itemId ||
-          !child.edges.some((e) => e.source === port.id || e.target === port.id)
-        )
-          continue;
+        if (!port) continue;
         const kind = terminal.data.boundaryKind === "in" ? "in" : "out";
         const pd = port.data as ItemPortData;
         boundary[kind === "in" ? "inputs" : "outputs"].push({
@@ -108,14 +103,11 @@ export function computeFactoryHierarchy(
       const updated = {
         ...frame,
         data,
-        style:
-          hasPorts || child.blueprintId
-            ? { ...frame.style, width: L.PORT_W * 2 + L.BODY_W, height }
-            : {
-                ...frame.style,
-                width: FACTORY_LAYOUT.WIDTH,
-                height: FACTORY_LAYOUT.HEIGHT,
-              },
+        style: {
+          ...frame.style,
+          width: hasPorts ? L.PORT_W * 2 + L.BODY_W : FACTORY_LAYOUT.WIDTH,
+          height,
+        },
       };
       const ports: Node[] = [];
       for (const kind of ["in", "out"] as const) {

@@ -135,7 +135,7 @@ it("restores a removed factory subtree and undoes edits across canvas navigation
   ).toBeUndefined();
   history.undo();
   expect(doc().nodes.filter((n) => n.type === "machineFrame")).toEqual([]);
-  expect(doc().nodes.filter((n) => n.type === "boundaryFrame")).toHaveLength(2);
+  expect(doc().nodes.filter((n) => n.type === "boundaryFrame")).toHaveLength(0);
   await navigation;
 });
 

@@ -15,9 +15,8 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
   const totals = useFactoryHierarchy().totals[id];
   const solve = useFlowSolve();
   const blueprint = Boolean(d.blueprintId);
-  const expanded =
-    blueprint ||
-    Boolean(d.boundary?.inputs.length || d.boundary?.outputs.length);
+  const expanded = Boolean(d.boundary?.inputs.length || d.boundary?.outputs.length);
+  const extended = Math.max(d.boundary?.inputs.length ?? 0, d.boundary?.outputs.length ?? 0) > 4;
   const count = blueprint ? (solve.machineMultiplier[id] ?? 1) : 1;
   const setCount = useWorldStore((s) => s.setBlueprintCount);
   const library = useWorldStore((s) => s.blueprintLibrary);
@@ -28,17 +27,24 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
   return (
     <div
       className="relative h-full w-full"
-      style={
-        !expanded
-          ? { width: FACTORY_LAYOUT.WIDTH, height: FACTORY_LAYOUT.HEIGHT }
-          : undefined
-      }
+      style={!expanded ? { width: FACTORY_LAYOUT.WIDTH, height: FACTORY_LAYOUT.HEIGHT } : undefined}
     >
+      {extended && (
+        <>
+          {(d.boundary?.inputs.length ?? 0) > 4 && (
+            <div className="absolute bottom-0 left-0 top-0 w-[128px] rounded-lg border border-dashed border-cyan-400/50 bg-cyan-500/5" />
+          )}
+          {(d.boundary?.outputs.length ?? 0) > 4 && (
+            <div className="absolute bottom-0 right-0 top-0 w-[128px] rounded-lg border border-dashed border-violet-400/50 bg-violet-500/5" />
+          )}
+        </>
+      )}
       <div
-        className={`rf-factory-body absolute flex h-full cursor-grab flex-col justify-center gap-2 rounded-xl border-2 border-dashed bg-[var(--surface)] p-3 active:cursor-grabbing ${selected ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
+        className={`rf-factory-body absolute top-0 flex cursor-grab flex-col justify-center gap-2 rounded-xl border-2 border-dashed bg-[var(--surface)] p-3 active:cursor-grabbing ${selected ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
         style={{
           left: expanded ? L.PORT_W : 0,
-          width: expanded ? L.BODY_W : "100%",
+          width: L.BODY_W,
+          height: L.FRAME_MIN_H,
         }}
         title={d.label}
       >
@@ -54,8 +60,7 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
         {outdated && (
           <p className="text-xs text-amber-500">↻ {t("blueprintOutdated")}</p>
         )}
-        {expanded && (
-          <>
+        <>
             <div className="mt-2 space-y-2 border-t border-[var(--border)] pt-2 text-xs">
               <div>
                 {t("factoryPower")}:{" "}
@@ -94,8 +99,7 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
                 {t("factoryInternalRates")}
               </p>
             )}
-          </>
-        )}
+        </>
       </div>
     </div>
   );

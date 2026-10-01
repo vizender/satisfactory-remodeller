@@ -1,6 +1,10 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasRecord } from "@/types/canvas";
 import { MACHINE_LAYOUT as L } from "@/constants/machineLayout";
+import { pruneRouteGraph } from "@/lib/routing";
+
+export const BOUNDARY_FRAME_WIDTH = L.PORT_W + 16;
+export const BOUNDARY_FRAME_HEIGHT = L.PORT_ROW + 28;
 
 export function buildBoundaryNodes(
   kind: "in" | "out",
@@ -14,10 +18,11 @@ export function buildBoundaryNodes(
       id,
       type: "boundaryFrame",
       position,
-      style: { width: L.PORT_W, height: L.PORT_ROW },
+      style: { width: BOUNDARY_FRAME_WIDTH, height: BOUNDARY_FRAME_HEIGHT },
       data: {
         boundaryKind: kind,
         boundaryIndex: index,
+        explicit: true,
         label: kind === "in" ? "Input" : "Output",
       },
       draggable: true,
@@ -27,7 +32,7 @@ export function buildBoundaryNodes(
       id: `${id}-${portKind}-0`,
       parentId: id,
       type: "itemPort",
-      position: { x: 0, y: 0 },
+      position: { x: 8, y: 28 },
       draggable: false,
       selectable: false,
       data: {
@@ -43,33 +48,30 @@ export function buildBoundaryNodes(
   ];
 }
 
-/** Always leave a free connector at each side for adding another exposed item. */
+/** Preserve explicit ports; remove unused terminals created by older auto-fill behavior. */
 export function ensureBoundaryNodes(canvas: CanvasRecord): CanvasRecord {
   if (!canvas.parent) return canvas;
-  let nodes = resetDisconnectedBoundaries(canvas.nodes, canvas.edges);
-  for (const kind of ["in", "out"] as const) {
-    const frames = nodes.filter(
-      (n) => n.type === "boundaryFrame" && n.data.boundaryKind === kind,
+  const legacyUnused = new Set(canvas.nodes.filter((n) => {
+    if (n.type !== "boundaryFrame" || n.data.explicit === true) return false;
+    const ports = canvas.nodes.filter((p) => p.parentId === n.id);
+    return ports.every((p) =>
+      !canvas.edges.some((e) => e.source === p.id || e.target === p.id) &&
+      canvas.forcedPortRates[p.id] === undefined,
     );
-    const available = frames.some((n) =>
-      nodes.some(
-        (p) =>
-          p.parentId === n.id &&
-          !canvas.edges.some((e) => e.source === p.id || e.target === p.id),
-      ),
-    );
-    if (available) continue;
-    const index =
-      Math.max(-1, ...frames.map((n) => Number(n.data.boundaryIndex) || 0)) + 1;
-    nodes = [
-      ...nodes,
-      ...buildBoundaryNodes(kind, index, {
-        x: kind === "in" ? 32 : 704,
-        y: 64 + index * 96,
-      }),
-    ];
-  }
-  return nodes === canvas.nodes ? canvas : { ...canvas, nodes };
+  }).map((n) => n.id));
+  const nodes = resetDisconnectedBoundaries(
+    canvas.nodes.filter((n) => !legacyUnused.has(n.id) && !legacyUnused.has(n.parentId ?? "")),
+    canvas.edges,
+  );
+  if (nodes === canvas.nodes) return canvas;
+  const validPorts = new Set(nodes.filter((n) => n.type === "itemPort").map((n) => n.id));
+  return {
+    ...canvas,
+    nodes,
+    routeGraph: canvas.routeGraph
+      ? pruneRouteGraph(canvas.routeGraph, validPorts, new Set(canvas.edges.map((e) => e.id)))
+      : undefined,
+  };
 }
 
 export function resetDisconnectedBoundaries(

@@ -34,6 +34,14 @@ export function CanvasNavDropdown() {
   );
 
   const isWorld = activeCanvasId === WORLD_CANVAS_ID;
+  const parentId = canvasMap[activeCanvasId]?.parent?.canvasId;
+  const nameColor = (id: string) => id === WORLD_CANVAS_ID
+    ? "text-slate-600 dark:text-slate-400"
+    : canvasMap[id]?.kind === "blueprint"
+      ? "text-emerald-700 dark:text-emerald-400"
+      : "text-sky-700 dark:text-sky-400";
+  const canGoBack = Boolean(parentId) && (!tutorialActive ||
+    (tutorialGates.allowCanvasNav && tutorialGates.allowNavigateToCanvas(parentId!)));
 
   useEffect(() => {
     if (!open) return;
@@ -72,10 +80,26 @@ export function CanvasNavDropdown() {
 
   return (
     <>
-      <div ref={rootRef} className="relative min-w-0">
+      <div ref={rootRef} className="relative flex min-w-0 items-center gap-1.5">
+        {!isWorld && (
+          <button
+            type="button"
+            aria-label={t("backToParentCanvas")}
+            title={t("backToParentCanvas")}
+            disabled={!canGoBack}
+            className="rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)] hover:border-[var(--accent)]/40 disabled:opacity-40"
+            onClick={() => {
+              if (!parentId || !canGoBack) return;
+              setOpen(false);
+              void navigateToCanvas(parentId).then(() =>
+                useTutorialStore.getState().onNavigatedTo(parentId),
+              );
+            }}
+          >←</button>
+        )}
         <button
           type="button"
-          className="flex max-w-[min(240px,40vw)] items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent)]/40"
+          className={`flex max-w-[min(240px,40vw)] items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-xs font-medium hover:border-[var(--accent)]/40 ${nameColor(activeCanvasId)}`}
           aria-expanded={open}
           aria-haspopup="menu"
           onClick={() => {
@@ -113,8 +137,8 @@ export function CanvasNavDropdown() {
                         : "hover:bg-[var(--bg)]"
                     } ${
                       item.canvasId === activeCanvasId
-                        ? "bg-[var(--accent)]/10 font-semibold text-[var(--text)]"
-                        : "text-[var(--muted)]"
+                        ? "bg-[var(--accent)]/10 font-semibold"
+                        : ""
                     }`}
                     style={{ paddingLeft: `${8 + item.depth * 12}px` }}
                     onClick={() => {
@@ -130,7 +154,7 @@ export function CanvasNavDropdown() {
                       setOpen(false);
                     }}
                   >
-                    {item.name}
+                    <span className={nameColor(item.canvasId)}>{item.name}</span>
                   </button>
                 );
               })}
