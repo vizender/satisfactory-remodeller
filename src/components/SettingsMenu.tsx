@@ -55,7 +55,7 @@ export function SettingsMenu() {
   const navHint = (v: InputModalityPreference) => {
     if (v === "auto") return t("navHintAuto");
     if (v === "trackpad") return t("navHintTrackpad");
-    return t("navMouse");
+    return t("navHintMouse");
   };
 
   const menuBtn =
@@ -205,6 +205,9 @@ export function SettingsMenu() {
                 )
               </p>
             ) : null}
+            <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
+              {navHint(preference)}
+            </p>
           </section>
 
           <section className="mb-4">

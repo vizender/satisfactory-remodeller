@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -49,8 +48,8 @@ export function InputModalityProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<InputModalityPreference>(
     readStoredPreference,
   );
+  // Mouse-style panning is the default until a scroll gesture identifies the device.
   const [detected, setDetected] = useState<InputModality>("mouse");
-  const wheelSamples = useRef(0);
 
   const setPreference = useCallback((value: InputModalityPreference) => {
     setPreferenceState(value);
@@ -60,20 +59,14 @@ export function InputModalityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (preference !== "auto") return;
 
-    wheelSamples.current = 0;
-
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return;
-      if (Math.abs(e.deltaY) >= TRACKPAD_WHEEL_MAX_DELTA) {
-        setDetected("mouse");
-        return;
-      }
-      if (e.deltaMode !== 0) return;
-
-      wheelSamples.current += 1;
-      if (wheelSamples.current >= 2) {
-        setDetected("trackpad");
-      }
+      // Browsers do not expose a wheel device type. Fine pixel movement and
+      // horizontal scroll indicate a trackpad; coarse steps indicate a wheel.
+      const trackpad =
+        e.deltaMode === WheelEvent.DOM_DELTA_PIXEL &&
+        (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < TRACKPAD_WHEEL_MAX_DELTA);
+      setDetected(trackpad ? "trackpad" : "mouse");
     };
 
     window.addEventListener("wheel", onWheel, { passive: true });

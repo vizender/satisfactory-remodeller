@@ -675,6 +675,11 @@ function FlowCanvasInner() {
         nodeDragThreshold={6}
         elevateNodesOnSelect
         multiSelectionKeyCode="Shift"
+        selectionOnDrag={inputModality === "trackpad"}
+        selectionKeyCode="Shift"
+        panOnDrag={inputModality === "mouse" ? true : [1]}
+        panActivationKeyCode="Space"
+        minZoom={0.02}
         onNodeClick={(event, node) => {
           if (isPortForceInputTarget(event.target)) return;
           setSelectedSegmentIds([]);

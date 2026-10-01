@@ -38,11 +38,11 @@ export const messages = {
     navTrackpad: "Trackpad",
     navMouse: "Souris",
     navHintAuto:
-      "Détection automatique : molette fine = trackpad, gros pas = souris.",
+      "Détection selon le défilement. Souris : glisser = déplacer, Maj + glisser = sélectionner. Trackpad : glisser = sélectionner, deux doigts = déplacer.",
     navHintTrackpad:
-      "Défilement à deux doigts = déplacer le plan ; pincer ou Ctrl+défiler = zoom.",
+      "Glisser = sélectionner ; deux doigts = déplacer ; pincer ou Cmd/Ctrl + défiler = zoom. Espace + glisser déplace aussi le plan.",
     navHintMouse:
-      "Molette = zoom ; clic-glisser sur le fond = déplacer le plan.",
+      "Glisser = déplacer ; Maj + glisser = sélectionner ; molette = zoom. Espace + glisser fonctionne aussi pour déplacer.",
     navDetectedTrackpad: "trackpad",
     navDetectedMouse: "souris",
     exportJson: "Exporter JSON",
@@ -269,9 +269,12 @@ export const messages = {
     navAuto: "Auto",
     navTrackpad: "Trackpad",
     navMouse: "Mouse",
-    navHintAuto: "Auto-detect: fine scroll = trackpad, large steps = mouse.",
-    navHintTrackpad: "Two-finger scroll pans; pinch or Ctrl+scroll zooms.",
-    navHintMouse: "Wheel zooms; drag the background to pan.",
+    navHintAuto:
+      "Auto-detect from scrolling. Mouse: drag pans, Shift + drag selects. Trackpad: drag selects, two-finger scroll pans.",
+    navHintTrackpad:
+      "Drag selects; two-finger scroll pans; pinch or Cmd/Ctrl+scroll zooms. Space + drag also pans.",
+    navHintMouse:
+      "Drag pans; Shift + drag selects; the wheel zooms. Space + drag also pans.",
     navDetectedTrackpad: "trackpad",
     navDetectedMouse: "mouse",
     exportJson: "Export JSON",
