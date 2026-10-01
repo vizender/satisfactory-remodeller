@@ -3,8 +3,19 @@
  * Clés : `Desc_*_C`, valeurs : nom de fichier dans `Assets/icons/items/`.
  */
 export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
-  /** Packaged turbofuel keeps its red canister artwork after the label correction. */
-  Desc_TurboFuel_C: "Turbofuel.png",
+  /** Package products have distinct artwork from their fluid counterparts. */
+  Desc_Fuel_C: "Packaged_Fuel.png",
+  Desc_TurboFuel_C: "Packaged_Turbofuel.png",
+  Desc_PackagedAlumina_C: "Packaged_Alumina_Solution.png",
+  Desc_PackagedBiofuel_C: "Packaged_Liquid_Biofuel.png",
+  Desc_PackagedIonizedFuel_C: "Packaged_Ionized_Fuel.png",
+  Desc_PackagedNitricAcid_C: "Packaged_Nitric_Acid.png",
+  Desc_PackagedNitrogenGas_C: "Packaged_Nitrogen_Gas.png",
+  Desc_PackagedOilResidue_C: "Packaged_Heavy_Oil_Residue.png",
+  Desc_PackagedOil_C: "Packaged_Oil.png",
+  Desc_PackagedRocketFuel_C: "Packaged_Rocket_Fuel.png",
+  Desc_PackagedSulfuricAcid_C: "Packaged_Sulfuric_Acid.png",
+  Desc_PackagedWater_C: "Packaged_Water.png",
   /** Wiki / recettes : `Screws.png`, pas « Iron_Screw ». */
   Desc_IronScrew_C: "Screws.png",
   /** Fluide wiki `Dark_Matter_Residue.png` (classe `Desc_DarkEnergy_C`). */
@@ -35,4 +46,10 @@ export const ITEM_ICON_FILE_OVERRIDES: Record<string, string> = {
   Desc_Rebar_Stunshot_C: "Stun_Rebar.png",
   /** Wiki `High-Speed_Connector.png` (tiret), pas `High_Speed_Connector`. */
   Desc_HighSpeedConnector_C: "High-Speed_Connector.png",
+};
+
+/** Retain the previous canister icons if the dedicated package files are unavailable. */
+export const ITEM_ICON_FILE_FALLBACKS: Record<string, string> = {
+  Desc_Fuel_C: "Fuel.png",
+  Desc_TurboFuel_C: "Turbofuel.png",
 };

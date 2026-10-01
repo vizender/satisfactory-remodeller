@@ -1,6 +1,6 @@
 import { formatMachineGroupLabel } from "@/lib/recipeFilters";
 import { BUILDING_ICON_FILE_OVERRIDES } from "@/lib/buildingIconOverrides";
-import { ITEM_ICON_FILE_OVERRIDES } from "@/lib/iconFileOverrides";
+import { ITEM_ICON_FILE_FALLBACKS, ITEM_ICON_FILE_OVERRIDES } from "@/lib/iconFileOverrides";
 import { formatItemClassId } from "@/types/graph";
 import itemManifest from "../../Assets/icons/items/_manifest.json";
 import buildingManifest from "../../Assets/icons/buildings/_manifest.json";
@@ -185,15 +185,13 @@ export function listAllItemIconCandidateFilenames(
   itemId: string,
   hint?: ItemIconHint,
 ): string[] {
-  // These item labels were clarified for the UI. Keep the pre-existing icon
-  // lookup names so a display-only rename cannot change their artwork.
-  const display = itemId === "Desc_Fuel_C" ? "Fuel"
-    : itemId === "Desc_TurboFuel_C" ? "Turbo Fuel"
-    : formatItemClassId(itemId);
+  const display = formatItemClassId(itemId);
   const out: string[] = [];
 
   const forced = ITEM_ICON_FILE_OVERRIDES[itemId];
   if (forced) out.push(forced);
+  const fallback = ITEM_ICON_FILE_FALLBACKS[itemId];
+  if (fallback) out.push(fallback);
 
   const mapped = firstFilename(itemManifest as FileMap, [itemId, display]);
   if (mapped) out.push(mapped);

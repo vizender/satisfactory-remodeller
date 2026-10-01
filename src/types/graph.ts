@@ -107,8 +107,13 @@ export function splitPascalTokens(s: string): string {
 
 /** Surcharges d’affichage (l’id jeu reste inchangé, ex. export / edges). */
 const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
+  /** Legacy item IDs for packaged fuel; the liquid versions have separate IDs. */
   Desc_Fuel_C: "Packaged Fuel",
   Desc_TurboFuel_C: "Packaged Turbofuel",
+  /** The IDs below omit part of the names used by their packaging recipes. */
+  Desc_PackagedAlumina_C: "Packaged Alumina Solution",
+  Desc_PackagedBiofuel_C: "Packaged Liquid Biofuel",
+  Desc_PackagedOilResidue_C: "Packaged Heavy Oil Residue",
   /** Le jeu utilise `Desc_Stone_C` ; on affiche « Limestone » partout en UI. */
   Desc_Stone_C: "Limestone",
   /** Classe `IronScrew` → libellé wiki / recettes « Screws ». */
