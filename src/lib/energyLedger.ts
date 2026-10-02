@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import { generatorSpec, nominalConsumerMw } from "@/data/buildingPower";
 import { clampClockPercent } from "@/lib/clockSpeed";
 import { findRecipeByKey } from "@/lib/recipeLookup";
+import { machineClassForFrame } from "@/lib/minerModifiers";
 import { solveFlow } from "@/lib/flowSolver";
 import { consumerPowerMwAtClock } from "@/lib/powerCalculations";
 import type { MachineFrameData } from "@/types/graph";
@@ -46,7 +47,7 @@ export function computeEnergyLedger(
     if (n.type !== "machineFrame") continue;
     const d = n.data as MachineFrameData;
     const recipe = findRecipeByKey(d.recipeKey);
-    const mid = recipe?.producedIn?.[0];
+    const mid = machineClassForFrame(recipe, d);
     if (!mid) continue;
 
     const nom = nominalConsumerMw(mid);

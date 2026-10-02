@@ -34,8 +34,9 @@ import { defaultMachineInstanceLabel } from "@/lib/recipeFilters";
 import { loadFactoryDocument } from "@/lib/factoryDocument";
 import { relayoutPortFrames } from "@/lib/relayoutPortFrames";
 import { findRecipeByKey } from "@/lib/recipeLookup";
+import { isMinerRecipe, minerRateMultiplier, type MinerMk, type MinerPurity } from "@/lib/minerModifiers";
 import type { FactoryDocumentV2 } from "@/types/factoryDocument";
-import type { ItemPortData, MachineFrameData } from "@/types/graph";
+import { itemRatesForRecipe, type ItemPortData, type MachineFrameData } from "@/types/graph";
 import { isPortItemAssigned, portItemsCompatible } from "@/types/graph";
 import { isItemEdgeData } from "@/types/edgeData";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
@@ -75,6 +76,31 @@ function rebuildRouteGraph(nodes: Node[], edges: Edge[]): RouteGraph {
     portHandlesFromNodes(nodes),
     topologyEdgesFromFlow(edges),
   );
+}
+
+function withMinerModifier(
+  nodes: Node[],
+  machineFrameId: string,
+  patch: Pick<MachineFrameData, "minerMk" | "minerPurity">,
+): Node[] {
+  const frame = nodes.find((n) => n.id === machineFrameId && n.type === "machineFrame");
+  if (!frame) return nodes;
+  const recipe = findRecipeByKey((frame.data as MachineFrameData).recipeKey);
+  if (!recipe || !isMinerRecipe(recipe)) return nodes;
+  const data = { ...frame.data, ...patch } as MachineFrameData;
+  const rates = itemRatesForRecipe(recipe);
+  const multiplier = minerRateMultiplier(data);
+  return nodes.map((node) => {
+    if (node.id === machineFrameId) return { ...node, data };
+    if (node.parentId !== machineFrameId || node.type !== "itemPort") return node;
+    const port = node.data as ItemPortData;
+    if (port.kind !== "out") return node;
+    const nominal = rates.outputs[port.portIndex]?.perMinute;
+    return nominal === undefined ? node : {
+      ...node,
+      data: { ...port, perMinute: nominal * multiplier },
+    };
+  });
 }
 
 function patchNewEdges(
@@ -117,6 +143,8 @@ export interface DocumentState {
   /** Delete a visual segment; cascade dangling geometry and drop broken topology edges. */
   deleteRouteSegment: (segmentId: string) => void;
   setMachineCount: (machineFrameId: string, count: number) => void;
+  setMinerMk: (machineFrameId: string, mk: MinerMk) => void;
+  setMinerPurity: (machineFrameId: string, purity: MinerPurity) => void;
   disconnectPort: (portId: string) => void;
   setForcedPortRate: (portId: string, ratePerMin: number | undefined) => void;
   /** Retire tous les overrides sur les ports d’une machine (cadre). */
@@ -841,6 +869,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       ),
     });
   },
+  setMinerMk: (machineFrameId, mk) => {
+    if (mk !== 1 && mk !== 2 && mk !== 3) return;
+    set((s) => ({ nodes: withMinerModifier(s.nodes, machineFrameId, { minerMk: mk }) }));
+  },
+  setMinerPurity: (machineFrameId, purity) => {
+    if (purity !== "impure" && purity !== "normal" && purity !== "pure") return;
+    set((s) => ({ nodes: withMinerModifier(s.nodes, machineFrameId, { minerPurity: purity }) }));
+  },
   disconnectPort: (portId) => {
     const state = get();
     const edges = state.edges.filter(
@@ -883,6 +919,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         (result.machineClockPercent[machineFrameId] ?? 100)) /
       100;
     const v = clampClockPercent(clockPercent);
+    const frame = state.nodes.find((n) => n.id === machineFrameId && n.type === "machineFrame");
+    const miner = frame && isMinerRecipe(findRecipeByKey((frame.data as MachineFrameData).recipeKey));
+    const priorClock = result.machineClockPercent[machineFrameId] ?? 100;
+    const priorCount = result.machineMultiplier[machineFrameId] ||
+      ((frame?.data.referenceThroughput as number | undefined) ?? 1) / (priorClock / 100 || 1);
     set({
       nodes: state.nodes.map((n) =>
         n.id === machineFrameId && n.type === "machineFrame"
@@ -893,10 +934,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
                 operatingMode: "clock",
                 machineCount: undefined,
                 clockPercent: v,
-                referenceThroughput:
-                  throughput ||
-                  (n.data.referenceThroughput as number | undefined) ||
-                  1,
+                referenceThroughput: miner
+                  ? v > 0 ? priorCount * v / 100 : priorCount
+                  : throughput ||
+                    (n.data.referenceThroughput as number | undefined) || 1,
               },
             }
           : n,

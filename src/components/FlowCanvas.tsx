@@ -463,6 +463,10 @@ function FlowCanvasInner() {
       });
     const screenPosition = findFreeBoundaryScreenPosition(
       kind, rect, canvasRect, occupied, zoom,
+      (screenY) => {
+        const flowY = flow.screenToFlowPosition({ x: rect.left, y: screenY }).y;
+        return flow.flowToScreenPosition({ x: 0, y: Math.ceil(flowY / MACHINE_SNAP_GRID) * MACHINE_SNAP_GRID }).y;
+      },
     );
     const position = flow.screenToFlowPosition(screenPosition);
     if (machinePortId) addConnectedBoundaryPort(kind, position, machinePortId);

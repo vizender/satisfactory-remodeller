@@ -71,17 +71,37 @@ it("places a new boundary below occupied rows before moving to the next column",
   const button = { left: 16, top: 8, right: 160, bottom: 44 };
   const canvas = { left: 0, top: 0, right: 960, bottom: 450 };
   const occupied = [60, 168, 276].map((top) => ({
-    left: 16, top, right: 160, bottom: top + 92,
+    left: 16, top, right: 160, bottom: top + 96,
   }));
   expect(findFreeBoundaryScreenPosition("in", button, canvas, occupied.slice(0, 2), 1))
-    .toEqual({ x: 16, y: 276 });
+    .toEqual({ x: 16, y: 284 });
   expect(findFreeBoundaryScreenPosition("in", button, canvas, occupied, 1))
     .toEqual({ x: 176, y: 60 });
   expect(findFreeBoundaryScreenPosition("out", { ...button, left: 800, right: 944 }, canvas, [], 1))
     .toEqual({ x: 800, y: 60 });
   expect(findFreeBoundaryScreenPosition("in", button, canvas, [
     { left: 16, top: 120, right: 144, bottom: 184 },
-  ], 1)).toEqual({ x: 16, y: 276 });
+  ], 1)).toEqual({ x: 16, y: 284 });
+});
+
+it("aligns new and saved boundary handles to the machine grid", () => {
+  const canvas = {
+    id: "f1", name: "Factory", parent: { canvasId: "world", factoryNodeId: "f1" },
+    nodes: [
+      { id: "boundary-in-0", type: "boundaryFrame", position: { x: 32, y: 74 }, style: { height: 92 }, data: { boundaryKind: "in", boundaryIndex: 0, explicit: true } },
+      { id: "boundary-in-0-out-0", type: "itemPort", parentId: "boundary-in-0", position: { x: 8, y: 28 }, data: { itemId: "" } },
+    ],
+    edges: [], forcedPortRates: {},
+  };
+  const aligned = ensureBoundaryNodes(canvas);
+  expect(aligned.nodes[0].position.y).toBe(80);
+  expect(aligned.nodes[0].style?.height).toBe(96);
+  expect(aligned.nodes[1].position.y).toBe(32);
+  expect((aligned.nodes[0].position.y + aligned.nodes[1].position.y + 32) % 16).toBe(0);
+  const button = { left: 16, top: 8, right: 160, bottom: 44 };
+  const bounds = { left: 0, top: 0, right: 960, bottom: 450 };
+  expect(findFreeBoundaryScreenPosition("in", button, bounds, [], 1, (y) => Math.ceil(y / 16) * 16))
+    .toEqual({ x: 16, y: 64 });
 });
 
 it("deleting a port removes its parent view and does not auto-create a replacement", () => {

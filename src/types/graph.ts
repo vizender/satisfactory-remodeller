@@ -4,6 +4,9 @@ import type { RecipeIndexEntry } from "./satisfactory";
 export interface MachineFrameData extends Record<string, unknown> {
   label: string;
   recipeKey: string;
+  /** Miner tier and resource-node purity; omitted values mean Mk.1 and Normal. */
+  minerMk?: 1 | 2 | 3;
+  minerPurity?: "impure" | "normal" | "pure";
   /**
    * Surclock / underclock (%), 0–250. Absent = 100 %.
    * Les débits nominaux des ports sont à 100 % ; le solveur applique ce facteur.

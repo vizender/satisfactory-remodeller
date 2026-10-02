@@ -84,3 +84,36 @@ describe("machine count and clock controls", () => {
     expect(result.machineClockPercent.m1).toBeCloseTo(1000 / 7);
   });
 });
+
+describe("miner modifiers", () => {
+  it("combines tier, purity, and overclock on one miner", () => {
+    useDocumentStore.setState({
+      nodes: buildMachineNodes({
+        id: "miner",
+        recipeKey: "Synthetic_MinerMk1_IronOre_C",
+        label: "Miner",
+        position: { x: 0, y: 0 },
+      }),
+      edges: [],
+      forcedPortRates: {},
+      routeGraph: emptyRouteGraph(),
+    });
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(60);
+    useDocumentStore.getState().setMinerPurity("miner", "impure");
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(30);
+    useDocumentStore.getState().setMinerPurity("miner", "pure");
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(120);
+    useDocumentStore.getState().setMinerMk("miner", 2);
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(240);
+    useDocumentStore.getState().setMachineClockPercent("miner", 200);
+    const result = solve();
+    expect(result.machineMultiplier.miner).toBeCloseTo(1);
+    expect(result.effectiveRate["miner-out-0"]).toBeCloseTo(480);
+    useDocumentStore.getState().setMinerMk("miner", 3);
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(960);
+    useDocumentStore.getState().setMachineClockPercent("miner", 0);
+    expect(solve().effectiveRate["miner-out-0"]).toBe(0);
+    useDocumentStore.getState().setMachineClockPercent("miner", 200);
+    expect(solve().effectiveRate["miner-out-0"]).toBeCloseTo(960);
+  });
+});

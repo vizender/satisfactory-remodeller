@@ -13,6 +13,7 @@ import {
 } from "@/types/canvas";
 import { isItemEdgeData } from "@/types/edgeData";
 import { relayoutPortFrames } from "@/lib/relayoutPortFrames";
+import { ensureBoundaryNodes } from "@/lib/factoryBoundaries";
 import {
   formatItemClassId,
   isPortItemAssigned,
@@ -179,7 +180,7 @@ function repairCanvasRecord(raw: unknown, fallbackId: CanvasId): CanvasRecord {
     }
   }
 
-  return record;
+  return ensureBoundaryNodes(record);
 }
 
 /** Normalise un document v2 chargé depuis une version antérieure ou partiellement invalide. */

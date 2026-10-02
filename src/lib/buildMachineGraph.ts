@@ -6,6 +6,7 @@ import {
 } from "@/lib/machinePortLayout";
 import { findRecipeByKey } from "@/lib/recipeLookup";
 import { clampClockPercent } from "@/lib/clockSpeed";
+import { isMinerRecipe, minerMk, minerPurity, minerRateMultiplier } from "@/lib/minerModifiers";
 import type { ItemPortData, MachineFrameData } from "@/types/graph";
 import { itemRatesForRecipe } from "@/types/graph";
 
@@ -38,6 +39,8 @@ export function machineBlueprintFromFrame(frame: Node): MachineBlueprint {
     machineCount: d.machineCount,
     operatingMode: d.operatingMode,
     referenceThroughput: d.referenceThroughput,
+    minerMk: d.minerMk,
+    minerPurity: d.minerPurity,
     inputSlotByRecipeIndex: d.inputSlotByRecipeIndex,
     outputSlotByRecipeIndex: d.outputSlotByRecipeIndex,
   };
@@ -52,6 +55,8 @@ export interface MachineBlueprint {
   machineCount?: number;
   operatingMode?: "count" | "clock";
   referenceThroughput?: number;
+  minerMk?: MachineFrameData["minerMk"];
+  minerPurity?: MachineFrameData["minerPurity"];
   inputSlotByRecipeIndex?: number[];
   outputSlotByRecipeIndex?: number[];
 }
@@ -174,6 +179,8 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
           machineCount: bp.machineCount,
           operatingMode: bp.operatingMode,
           referenceThroughput: bp.referenceThroughput,
+          minerMk: bp.minerMk,
+          minerPurity: bp.minerPurity,
           missingRecipe: true,
         } satisfies MachineFrameData & { missingRecipe?: boolean },
       },
@@ -201,6 +208,10 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
     operatingMode: bp.operatingMode,
     referenceThroughput: bp.referenceThroughput,
   };
+  if (isMinerRecipe(recipe)) {
+    frameData.minerMk = minerMk(bp);
+    frameData.minerPurity = minerPurity(bp);
+  }
   if (inN > 1) frameData.inputSlotByRecipeIndex = inPerm;
   if (outN > 1) frameData.outputSlotByRecipeIndex = outPerm;
 
@@ -255,7 +266,7 @@ export function buildMachineNodes(bp: MachineBlueprint): Node[] {
       portIndex: recipeIdx,
       itemId: row.itemId,
       displayName: row.displayName,
-      perMinute: row.perMinute,
+      perMinute: row.perMinute * (isMinerRecipe(recipe) ? minerRateMultiplier(frameData) : 1),
       amountPerCraft: row.amountPerCraft,
       slotsOnSide: outN,
     };

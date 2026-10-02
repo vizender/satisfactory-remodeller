@@ -3,6 +3,9 @@
  * Clés : `Desc_*_C` (comme `producedIn[0]`), valeurs : nom de fichier dans `Assets/icons/buildings/`.
  */
 export const BUILDING_ICON_FILE_OVERRIDES: Record<string, string> = {
+  Desc_MinerMk1_C: "Miner_Mk.1.png",
+  Desc_MinerMk2_C: "Miner_Mk.2.png",
+  Desc_MinerMk3_C: "Miner_Mk.3.png",
   /** Fichier wiki « Refinery.png », pas « Oil_Refinery.png ». */
   Desc_OilRefinery_C: "Refinery.png",
   /** Fichier local aligné sur le wiki (accélérateur de particules / Hadron). */

@@ -7,6 +7,7 @@ import { nominalConsumerMw } from "@/data/buildingPower";
 import { useFlowSolve } from "@/hooks/useFlowSolve";
 import { useI18n } from "@/i18n/I18nProvider";
 import { findRecipeByKey } from "@/lib/recipeLookup";
+import { isMinerRecipe, machineClassForFrame, minerMk, minerPurity, minerRateMultiplier } from "@/lib/minerModifiers";
 import { consumerPowerMwAtClock } from "@/lib/powerCalculations";
 import { useDocumentStore } from "@/store/useDocumentStore";
 import { itemRatesForRecipe, type MachineFrameData } from "@/types/graph";
@@ -28,7 +29,13 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
   const clock = machineClockPercent[id] ?? d.clockPercent ?? 100;
   const setCount = useDocumentStore((s) => s.setMachineCount);
   const setClock = useDocumentStore((s) => s.setMachineClockPercent);
-  const machineClassId = recipe?.producedIn?.[0];
+  const setMinerMk = useDocumentStore((s) => s.setMinerMk);
+  const setMinerPurity = useDocumentStore((s) => s.setMinerPurity);
+  const miner = isMinerRecipe(recipe);
+  const recipeDisplayName = miner
+    ? recipe!.name.replace(/^Miner Mk\.1\s*[—-]\s*/, "").replace(/\s*\(60\/min\)$/, "")
+    : recipe?.name;
+  const machineClassId = machineClassForFrame(recipe, d);
   const nominal = machineClassId
     ? nominalConsumerMw(machineClassId)
     : undefined;
@@ -54,9 +61,9 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
           <>
             <div
               className="mt-1 truncate text-[10px] text-[var(--muted)]"
-              title={recipe.name}
+              title={recipeDisplayName}
             >
-              {recipe.name}
+              {recipeDisplayName}
             </div>
             <div className="mt-3 grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-auto border-t border-[var(--border)] pt-2">
               {(
@@ -98,6 +105,22 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
               ))}
             </div>
             <div className="mt-2 shrink-0 space-y-1.5 border-t border-[var(--border)] pt-2">
+              {miner && (
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <label className="flex items-center justify-between gap-1">
+                    <span>{t("minerMk")}</span>
+                    <select className="nodrag min-w-0 rounded border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5" value={minerMk(d)} onChange={(e) => setMinerMk(id, Number(e.target.value) as 1 | 2 | 3)}>
+                      <option value={1}>Mk.1</option><option value={2}>Mk.2</option><option value={3}>Mk.3</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between gap-1">
+                    <span>{t("minerPurity")}</span>
+                    <select className="nodrag min-w-0 rounded border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5" value={minerPurity(d)} onChange={(e) => setMinerPurity(id, e.target.value as "impure" | "normal" | "pure")}>
+                      <option value="impure">{t("minerImpure")}</option><option value="normal">{t("minerNormal")}</option><option value="pure">{t("minerPure")}</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               <RateControl
                 label={t("machineCountControl")}
                 value={count}
@@ -123,7 +146,7 @@ export function MachineFrameNode({ id, selected, data }: NodeProps) {
               <div className="text-[10px] text-[var(--muted)]">
                 {t("machineCraftsLine", {
                   rate: (
-                    ((rates.craftsPerMinute * clock) / 100) *
+                    ((rates.craftsPerMinute * (miner ? minerRateMultiplier(d) : 1) * clock) / 100) *
                     count
                   ).toFixed(1),
                   duration: String(recipe.duration),

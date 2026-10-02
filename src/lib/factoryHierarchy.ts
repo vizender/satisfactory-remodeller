@@ -12,6 +12,7 @@ import { MACHINE_LAYOUT as L } from "@/constants/machineLayout";
 import { alignFrameHeight, computeVerticalSlotYs } from "./machinePortLayout";
 import { computeFlowSolveSnapshot } from "./flowSolveSnapshot";
 import { findRecipeByKey } from "./recipeLookup";
+import { machineClassForFrame } from "./minerModifiers";
 import { computeEnergyLedger, type EnergyLedger } from "./energyLedger";
 import {
   followPortVertices,
@@ -179,7 +180,7 @@ export function computeFactoryHierarchy(
         const count = result.machineMultiplier[n.id] ?? 1;
         total.machines += count;
         const recipeKey = (n.data as MachineFrameData).recipeKey;
-        const machineType = findRecipeByKey(recipeKey)?.producedIn?.[0] ?? "Unknown";
+        const machineType = machineClassForFrame(findRecipeByKey(recipeKey), n.data as MachineFrameData) ?? "Unknown";
         total.machinesByType[machineType] =
           (total.machinesByType[machineType] ?? 0) + count;
         total.shardLoads.push({

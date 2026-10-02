@@ -103,6 +103,11 @@ export const messages = {
     machineOutputsShort: "Sorties /min",
     machineCountControl: "Machines",
     machineClockControl: "Overclock %",
+    minerMk: "Mk",
+    minerPurity: "Pureté",
+    minerImpure: "Impur",
+    minerNormal: "Normal",
+    minerPure: "Pur",
     portForceShort: "Forcer",
     portFreeHelp: "Débit libre — vous pouvez définir une cible.",
     portDerivedHelp:
@@ -350,6 +355,11 @@ export const messages = {
     machineOutputsShort: "Outputs /min",
     machineCountControl: "Machines",
     machineClockControl: "Overclock %",
+    minerMk: "Mk",
+    minerPurity: "Purity",
+    minerImpure: "Impure",
+    minerNormal: "Normal",
+    minerPure: "Pure",
     portForceShort: "Force",
     portFreeHelp: "Unconstrained rate — you can set a target.",
     portDerivedHelp:

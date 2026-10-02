@@ -161,7 +161,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     );
     const canvasMap = reconcileFactoryHierarchy(
       {
-        ...structuredClone(doc.canvases),
+        ...Object.fromEntries(Object.entries(doc.canvases).map(([id, canvas]) => [
+          id, ensureBoundaryNodes(structuredClone(canvas)),
+        ])),
         [WORLD_CANVAS_ID]: structuredClone(
           doc.canvases[WORLD_CANVAS_ID] ?? createEmptyWorldCanvas(),
         ),

@@ -1,10 +1,11 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasRecord } from "@/types/canvas";
 import { MACHINE_LAYOUT as L } from "@/constants/machineLayout";
-import { pruneRouteGraph } from "@/lib/routing";
+import { MACHINE_SNAP_GRID, snapToGrid } from "@/constants/flowGrid";
+import { followPortVertices, portHandlesFromNodes, pruneRouteGraph } from "@/lib/routing";
 
 export const BOUNDARY_FRAME_WIDTH = L.PORT_W + 16;
-export const BOUNDARY_FRAME_HEIGHT = L.PORT_ROW + 28;
+export const BOUNDARY_FRAME_HEIGHT = L.PORT_ROW + 32;
 
 type ScreenRect = { left: number; top: number; right: number; bottom: number };
 
@@ -14,6 +15,7 @@ export function findFreeBoundaryScreenPosition(
   canvas: ScreenRect,
   occupied: ScreenRect[],
   zoom: number,
+  snapScreenY: (y: number) => number = (y) => y,
 ): { x: number; y: number } {
   const gap = 16;
   const width = BOUNDARY_FRAME_WIDTH * zoom;
@@ -28,7 +30,7 @@ export function findFreeBoundaryScreenPosition(
       ? button.left + column * (width + gap)
       : button.right - width - column * (width + gap);
     for (let row = 0; row < rows; row++) {
-      const y = startY + row * (height + gap);
+      const y = snapScreenY(startY + row * (height + gap));
       const clear = occupied.every((rect) =>
         x >= rect.right + 8 || x + width + 8 <= rect.left ||
         y >= rect.bottom + 8 || y + height + 8 <= rect.top,
@@ -49,7 +51,7 @@ export function buildBoundaryNodes(
     {
       id,
       type: "boundaryFrame",
-      position,
+      position: { x: position.x, y: snapToGrid(position.y, MACHINE_SNAP_GRID) },
       style: { width: BOUNDARY_FRAME_WIDTH, height: BOUNDARY_FRAME_HEIGHT },
       data: {
         boundaryKind: kind,
@@ -64,7 +66,7 @@ export function buildBoundaryNodes(
       id: `${id}-${portKind}-0`,
       parentId: id,
       type: "itemPort",
-      position: { x: 8, y: 28 },
+      position: { x: 8, y: 32 },
       draggable: false,
       selectable: false,
       data: {
@@ -91,17 +93,30 @@ export function ensureBoundaryNodes(canvas: CanvasRecord): CanvasRecord {
       canvas.forcedPortRates[p.id] === undefined,
     );
   }).map((n) => n.id));
-  const nodes = resetDisconnectedBoundaries(
+  const retained = resetDisconnectedBoundaries(
     canvas.nodes.filter((n) => !legacyUnused.has(n.id) && !legacyUnused.has(n.parentId ?? "")),
     canvas.edges,
   );
-  if (nodes === canvas.nodes) return canvas;
+  const boundaryIds = new Set(retained.filter((n) => n.type === "boundaryFrame").map((n) => n.id));
+  let aligned = false;
+  const nodes = retained.map((n) => {
+    if (n.type === "boundaryFrame") {
+      const y = snapToGrid(n.position.y, MACHINE_SNAP_GRID);
+      if (n.position.y === y && n.style?.height === BOUNDARY_FRAME_HEIGHT) return n;
+      aligned = true;
+      return { ...n, position: { ...n.position, y }, style: { ...n.style, height: BOUNDARY_FRAME_HEIGHT } };
+    }
+    if (n.type !== "itemPort" || !boundaryIds.has(n.parentId ?? "") || n.position.y === 32) return n;
+    aligned = true;
+    return { ...n, position: { ...n.position, y: 32 } };
+  });
+  if (!aligned && retained === canvas.nodes) return canvas;
   const validPorts = new Set(nodes.filter((n) => n.type === "itemPort").map((n) => n.id));
   return {
     ...canvas,
     nodes,
     routeGraph: canvas.routeGraph
-      ? pruneRouteGraph(canvas.routeGraph, validPorts, new Set(canvas.edges.map((e) => e.id)))
+      ? followPortVertices(pruneRouteGraph(canvas.routeGraph, validPorts, new Set(canvas.edges.map((e) => e.id))), portHandlesFromNodes(nodes))
       : undefined,
   };
 }
