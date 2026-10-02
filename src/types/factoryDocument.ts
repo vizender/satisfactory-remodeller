@@ -27,6 +27,7 @@ export interface FactoryDocumentV2 {
   blueprintLibrary?: import("./blueprint").BlueprintLibrary;
   schemaVersion: typeof FACTORY_DOCUMENT_SCHEMA_VERSION_V2;
   rootCanvasId: typeof WORLD_CANVAS_ID;
+  activeCanvasId?: CanvasId;
   canvases: Record<CanvasId, CanvasRecord>;
   meta: FactoryDocumentMetaV2;
   /** Highest factory number used for auto-increment naming. */

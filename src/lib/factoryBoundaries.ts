@@ -6,6 +6,38 @@ import { pruneRouteGraph } from "@/lib/routing";
 export const BOUNDARY_FRAME_WIDTH = L.PORT_W + 16;
 export const BOUNDARY_FRAME_HEIGHT = L.PORT_ROW + 28;
 
+type ScreenRect = { left: number; top: number; right: number; bottom: number };
+
+export function findFreeBoundaryScreenPosition(
+  kind: "in" | "out",
+  button: ScreenRect,
+  canvas: ScreenRect,
+  occupied: ScreenRect[],
+  zoom: number,
+): { x: number; y: number } {
+  const gap = 16;
+  const width = BOUNDARY_FRAME_WIDTH * zoom;
+  const height = BOUNDARY_FRAME_HEIGHT * zoom;
+  const startY = button.bottom + gap;
+  const rows = Math.max(
+    1,
+    Math.floor((canvas.bottom - startY - height) / (height + gap)) + 1,
+  );
+  for (let column = 0; ; column++) {
+    const x = kind === "in"
+      ? button.left + column * (width + gap)
+      : button.right - width - column * (width + gap);
+    for (let row = 0; row < rows; row++) {
+      const y = startY + row * (height + gap);
+      const clear = occupied.every((rect) =>
+        x >= rect.right + 8 || x + width + 8 <= rect.left ||
+        y >= rect.bottom + 8 || y + height + 8 <= rect.top,
+      );
+      if (clear) return { x, y };
+    }
+  }
+}
+
 export function buildBoundaryNodes(
   kind: "in" | "out",
   index: number,

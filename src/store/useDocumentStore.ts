@@ -106,6 +106,11 @@ export interface DocumentState {
   forcedPortRates: Record<string, number | undefined>;
   onNodesChange: (changes: NodeChange[]) => void;
   addBoundaryPort: (kind: "in" | "out", position: { x: number; y: number }) => string;
+  addConnectedBoundaryPort: (
+    kind: "in" | "out",
+    position: { x: number; y: number },
+    machinePortId: string,
+  ) => string | null;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdgeById: (edgeId: string) => void;
@@ -305,6 +310,44 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const index = Math.max(-1, ...frames.map((n) => Number(n.data.boundaryIndex) || 0)) + 1;
     const built = buildBoundaryNodes(kind, index, position);
     set((s) => ({ nodes: [...s.nodes, ...built] }));
+    return built[0].id;
+  },
+  addConnectedBoundaryPort: (kind, position, machinePortId) => {
+    const state = get();
+    const machinePort = state.nodes.find(
+      (node) => node.id === machinePortId && node.type === "itemPort",
+    );
+    const machine = state.nodes.find(
+      (node) => node.id === machinePort?.parentId && node.type === "machineFrame",
+    );
+    if (!machinePort || !machine) return null;
+    const portData = machinePort.data as ItemPortData;
+    if (portData.kind !== kind || !isPortItemAssigned(portData.itemId)) return null;
+
+    const frames = state.nodes.filter(
+      (node) => node.type === "boundaryFrame" && node.data.boundaryKind === kind,
+    );
+    const index = Math.max(-1, ...frames.map((node) => Number(node.data.boundaryIndex) || 0)) + 1;
+    const built = buildBoundaryNodes(kind, index, position);
+    const boundaryPortId = built[1].id;
+    const source = kind === "in" ? boundaryPortId : machinePortId;
+    const target = kind === "in" ? machinePortId : boundaryPortId;
+    const edge = makeItemEdge(source, target, portData.itemId);
+    const nodes = applyContainerItemAssignment(
+      [...state.nodes, ...built],
+      source,
+      target,
+      portData.itemId,
+    );
+    set({
+      nodes,
+      edges: [...state.edges, edge],
+      routeGraph: addTopologyEdge(
+        state.routeGraph,
+        portHandlesFromNodes(nodes),
+        { id: edge.id, source, target, itemId: portData.itemId },
+      ),
+    });
     return built[0].id;
   },
   onEdgesChange: (changes) => {

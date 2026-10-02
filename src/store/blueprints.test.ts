@@ -88,6 +88,15 @@ it("preserves independent instances, library revisions, fractional rates and und
   expect(D.getState().forcedPortRates["m1-out-0"]).toBeUndefined();
 });
 
+it("shows a new empty blueprint instance compactly", () => {
+  const original = W.getState().createBlueprint({ x: 0, y: 0 }, "Empty")!;
+  const blueprintId = W.getState().canvasMap[original].blueprintId!;
+  const copy = W.getState().addBlueprint(blueprintId, { x: 800, y: 0 })!;
+  const frame = D.getState().nodes.find((n) => n.id === copy)!;
+  expect(frame.style?.width).toBe(200);
+  expect(frame.style?.height).toBe(72);
+});
+
 it("retains blueprint definitions and instance versions through a world JSON round trip", () => {
   const id = makeBlueprint();
   const bp = W.getState().canvasMap[id].blueprintId!;
@@ -101,6 +110,20 @@ it("retains blueprint definitions and instance versions through a world JSON rou
   expect(
     D.getState().nodes.find((n) => n.id === `${id}-out-0`)?.data.perMinute,
   ).toBeCloseTo(30);
+});
+
+it("restores the active canvas when reopening a world and falls back if it was removed", () => {
+  const id = W.getState().addFactory({ x: 0, y: 0 })!;
+  enter(id);
+  const saved = W.getState().toWorldDocument();
+  expect(saved.activeCanvasId).toBe(id);
+  W.getState().replaceWorldDocument(parseFactoryDocumentJson(JSON.stringify(saved)));
+  expect(W.getState().activeCanvasId).toBe(id);
+  expect(D.getState().nodes).toEqual(W.getState().canvasMap[id].nodes);
+
+  delete saved.canvases[id];
+  W.getState().replaceWorldDocument(parseFactoryDocumentJson(JSON.stringify(saved)));
+  expect(W.getState().activeCanvasId).toBe("world");
 });
 
 it("duplicates and imports factories with connected nested ports and routed wires", () => {

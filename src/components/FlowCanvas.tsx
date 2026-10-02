@@ -35,6 +35,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { BACKGROUND_GRID_GAP, MACHINE_SNAP_GRID } from "@/constants/flowGrid";
+import { MACHINE_LAYOUT } from "@/constants/machineLayout";
 import { EdgeContextMenu } from "@/components/EdgeContextMenu";
 import { CanvasTransitionOverlay } from "@/components/CanvasTransitionOverlay";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
@@ -91,7 +92,11 @@ import {
 } from "@/store/useDocumentStore";
 import { useCanvasUiStore } from "@/store/useCanvasUiStore";
 import { boxFromPoints, coreIsInBox } from "@/lib/coreBoxSelection";
-import { BOUNDARY_FRAME_WIDTH } from "@/lib/factoryBoundaries";
+import {
+  BOUNDARY_FRAME_HEIGHT,
+  BOUNDARY_FRAME_WIDTH,
+  findFreeBoundaryScreenPosition,
+} from "@/lib/factoryBoundaries";
 import { useWorldStore } from "@/store/useWorldStore";
 import type {
   ContainerFrameData,
@@ -199,6 +204,8 @@ function FlowCanvasInner() {
   const { effective: inputModality } = useInputModality();
   const flowInteraction = reactFlowInteractionProps(inputModality);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const inputBoundaryButtonRef = useRef<HTMLButtonElement>(null);
+  const outputBoundaryButtonRef = useRef<HTMLButtonElement>(null);
   const selectionBeforeClick = useRef<Set<string>>(new Set());
   const selectionStartPoint = useRef<{ x: number; y: number } | null>(null);
   const rfRef = useRef<ReactFlowInstance | null>(null);
@@ -214,6 +221,7 @@ function FlowCanvasInner() {
   const applyEdgesChange = useDocumentStore((s) => s.onEdgesChange);
   const storeOnConnect = useDocumentStore((s) => s.onConnect);
   const addBoundaryPort = useDocumentStore((s) => s.addBoundaryPort);
+  const addConnectedBoundaryPort = useDocumentStore((s) => s.addConnectedBoundaryPort);
 
   const [connectionPreview, setConnectionPreview] =
     useState<ConnectionDragPreview | null>(null);
@@ -415,26 +423,51 @@ function FlowCanvasInner() {
   const addBoundaryAtButton = useCallback((
     kind: "in" | "out",
     button: HTMLButtonElement,
+    machinePortId?: string,
   ) => {
     const flow = rfRef.current;
     const canvas = canvasRef.current;
     if (!flow || !canvas) return;
     const rect = button.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
-    const occupied = new Set(useDocumentStore.getState().nodes.filter((n) =>
-      n.type === "boundaryFrame" && n.data.boundaryKind === kind,
-    ).map((n) => Number(n.data.boundaryIndex)));
-    let slot = 0;
-    while (occupied.has(slot)) slot++;
-    const rows = Math.max(1, Math.floor((canvasRect.bottom - rect.bottom - 24) / 112));
-    const column = Math.floor(slot / rows);
-    const row = slot % rows;
-    const x = kind === "in"
-      ? rect.left + column * 160
-      : rect.right - BOUNDARY_FRAME_WIDTH - column * 160;
-    const y = rect.bottom + 16 + row * 112;
-    addBoundaryPort(kind, flow.screenToFlowPosition({ x, y }));
-  }, [addBoundaryPort]);
+    const zoom = flow.getViewport().zoom;
+    const canvasNodes = useDocumentStore.getState().nodes;
+    const nodesById = new Map(canvasNodes.map((node) => [node.id, node]));
+    const occupied = canvasNodes
+      .filter((node) =>
+        node.type === "boundaryFrame" ||
+        (node.type === "itemPort" &&
+          nodesById.get(node.parentId ?? "")?.type !== "boundaryFrame"),
+      )
+      .map((node) => {
+        const position = { ...node.position };
+        let parent = nodesById.get(node.parentId ?? "");
+        while (parent) {
+          position.x += parent.position.x;
+          position.y += parent.position.y;
+          parent = nodesById.get(parent.parentId ?? "");
+        }
+        const point = flow.flowToScreenPosition(position);
+        const width = node.type === "boundaryFrame"
+          ? BOUNDARY_FRAME_WIDTH
+          : MACHINE_LAYOUT.PORT_W;
+        const height = node.type === "boundaryFrame"
+          ? BOUNDARY_FRAME_HEIGHT
+          : MACHINE_LAYOUT.PORT_ROW;
+        return {
+          left: point.x,
+          top: point.y,
+          right: point.x + width * zoom,
+          bottom: point.y + height * zoom,
+        };
+      });
+    const screenPosition = findFreeBoundaryScreenPosition(
+      kind, rect, canvasRect, occupied, zoom,
+    );
+    const position = flow.screenToFlowPosition(screenPosition);
+    if (machinePortId) addConnectedBoundaryPort(kind, position, machinePortId);
+    else addBoundaryPort(kind, position);
+  }, [addBoundaryPort, addConnectedBoundaryPort]);
   const setMachineRecipe = useDocumentStore((s) => s.setMachineRecipe);
   const setMachineClockPercent = useDocumentStore(
     (s) => s.setMachineClockPercent,
@@ -1058,6 +1091,20 @@ function FlowCanvasInner() {
           if (!n || n.type !== "itemPort") return;
           const d = n.data as ItemPortData;
           const { x: cx, y: cy } = clientXY(event);
+          const hitButton = ([inputBoundaryButtonRef.current, outputBoundaryButtonRef.current]
+            .filter((button): button is HTMLButtonElement => Boolean(button))
+            .find((button) => {
+              const rect = button.getBoundingClientRect();
+              return cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom;
+            }));
+          if (hitButton) {
+            const kind = hitButton === inputBoundaryButtonRef.current ? "in" : "out";
+            const machine = useDocumentStore.getState().nodes.find((node) =>
+              node.id === n.parentId && node.type === "machineFrame",
+            );
+            if (machine && d.kind === kind) addBoundaryAtButton(kind, hitButton, fromId);
+            return;
+          }
           const flow = rfRef.current?.screenToFlowPosition({
             x: cx,
             y: cy,
@@ -1106,8 +1153,9 @@ function FlowCanvasInner() {
         {activeCanvasId !== WORLD_CANVAS_ID && !tutorialActive && (
           <Panel position="top-left">
             <button
+              ref={inputBoundaryButtonRef}
               type="button"
-              className="rounded-lg border border-cyan-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-cyan-700 shadow-lg hover:bg-cyan-500/15 dark:text-cyan-300"
+              className={`rounded-lg border border-cyan-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-cyan-700 shadow-lg hover:bg-cyan-500/15 dark:text-cyan-300 ${connectionPreview && !connectionPreview.fromOutput ? "ring-2 ring-cyan-400" : ""}`}
               onClick={(event) => addBoundaryAtButton("in", event.currentTarget)}
             >
               + {t("addFactoryInput")}
@@ -1118,8 +1166,9 @@ function FlowCanvasInner() {
           <div className="flex flex-col items-end gap-1 text-right">
             {activeCanvasId !== WORLD_CANVAS_ID && !tutorialActive && (
               <button
+                ref={outputBoundaryButtonRef}
                 type="button"
-                className="rounded-lg border border-violet-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-violet-700 shadow-lg hover:bg-violet-500/15 dark:text-violet-300"
+                className={`rounded-lg border border-violet-400/60 bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-violet-700 shadow-lg hover:bg-violet-500/15 dark:text-violet-300 ${connectionPreview?.fromOutput ? "ring-2 ring-violet-400" : ""}`}
                 onClick={(event) => addBoundaryAtButton("out", event.currentTarget)}
               >
                 + {t("addFactoryOutput")}

@@ -248,6 +248,10 @@ export function repairFactoryDocumentV2(
   return {
     schemaVersion: FACTORY_DOCUMENT_SCHEMA_VERSION_V2,
     rootCanvasId: WORLD_CANVAS_ID,
+    activeCanvasId:
+      typeof doc.activeCanvasId === "string" && canvases[doc.activeCanvasId]
+        ? doc.activeCanvasId
+        : WORLD_CANVAS_ID,
     canvases,
     blueprintLibrary,
     meta,

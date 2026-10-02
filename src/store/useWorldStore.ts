@@ -168,17 +168,20 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       },
       blueprintLibrary,
     );
+    const activeCanvasId = doc.activeCanvasId && canvasMap[doc.activeCanvasId]
+      ? doc.activeCanvasId
+      : WORLD_CANVAS_ID;
     set({
       canvasMap,
       blueprintLibrary,
-      activeCanvasId: WORLD_CANVAS_ID,
+      activeCanvasId,
       factoryNameCounter: doc.factoryNameCounter ?? 0,
       isNavigating: false,
       navigationTargetId: null,
     });
     useDocumentStore
       .getState()
-      .replaceActiveCanvas(sliceActiveCanvas(canvasMap[WORLD_CANVAS_ID]));
+      .replaceActiveCanvas(sliceActiveCanvas(canvasMap[activeCanvasId]));
   },
 
   toWorldDocument: () => {
@@ -189,6 +192,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
         updatedAt: new Date().toISOString(),
         exportTitle: "world",
       }),
+      activeCanvasId: get().activeCanvasId,
       blueprintLibrary: structuredClone(get().blueprintLibrary),
     };
   },
@@ -268,7 +272,6 @@ export const useWorldStore = create<WorldState>((set, get) => ({
         [factoryId]: childCanvas,
       },
     }));
-
     return factoryId;
   },
 

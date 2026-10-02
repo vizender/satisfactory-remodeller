@@ -6,10 +6,12 @@ import type {
   BoundaryPortDef,
   FactoryFrameData,
   ItemPortData,
+  MachineFrameData,
 } from "@/types/graph";
 import { MACHINE_LAYOUT as L } from "@/constants/machineLayout";
 import { alignFrameHeight, computeVerticalSlotYs } from "./machinePortLayout";
 import { computeFlowSolveSnapshot } from "./flowSolveSnapshot";
+import { findRecipeByKey } from "./recipeLookup";
 import { computeEnergyLedger, type EnergyLedger } from "./energyLedger";
 import {
   followPortVertices,
@@ -24,6 +26,7 @@ export type FactoryTotals = EnergyLedger & {
   shards: number;
   shardLoads: { clock: number; count: number }[];
   machines: number;
+  machinesByType: Record<string, number>;
   nestedFactoryCount: number;
 };
 export function powerShards(clock: number, count: number): number {
@@ -86,7 +89,9 @@ export function computeFactoryHierarchy(
         boundary.outputs.length,
         1,
       );
-      const height = alignFrameHeight(L.FRAME_MIN_H, count);
+      const height = hasPorts
+        ? alignFrameHeight(L.FRAME_MIN_H, count)
+        : FACTORY_LAYOUT.HEIGHT;
       const data: FactoryFrameData = {
         ...(frame.data as FactoryFrameData),
         boundary: { version: 1, ...boundary },
@@ -166,12 +171,17 @@ export function computeFactoryHierarchy(
       shards: 0,
       shardLoads: [],
       machines: 0,
+      machinesByType: {},
       nestedFactoryCount: 0,
     };
     for (const n of nodes) {
       if (n.type === "machineFrame") {
         const count = result.machineMultiplier[n.id] ?? 1;
         total.machines += count;
+        const recipeKey = (n.data as MachineFrameData).recipeKey;
+        const machineType = findRecipeByKey(recipeKey)?.producedIn?.[0] ?? "Unknown";
+        total.machinesByType[machineType] =
+          (total.machinesByType[machineType] ?? 0) + count;
         total.shardLoads.push({
           clock: result.machineClockPercent[n.id] ?? 100,
           count,
@@ -197,6 +207,10 @@ export function computeFactoryHierarchy(
             count: load.count * scale,
           })),
         );
+        for (const [machineType, count] of Object.entries(child.machinesByType)) {
+          total.machinesByType[machineType] =
+            (total.machinesByType[machineType] ?? 0) + count * scale;
+        }
         total.nestedFactoryCount += child.nestedFactoryCount + 1;
       }
     }

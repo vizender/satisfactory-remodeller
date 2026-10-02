@@ -48,23 +48,31 @@ export function useLocalDraft(): boolean {
 
   useEffect(() => {
     let saving = false;
-    const save = debounce(() => {
+    const persist = () => {
+      if (saving) return;
       saving = true;
       try {
         writeLocalDraft(useWorldStore.getState().toWorldDocument());
       } finally {
         saving = false;
       }
-    }, SAVE_DEBOUNCE_MS);
+    };
+    const save = debounce(persist, SAVE_DEBOUNCE_MS);
     const schedule = () => {
       if (!saving) save();
     };
     const unsubDoc = useDocumentStore.subscribe(schedule);
     const unsubWorld = useWorldStore.subscribe(schedule);
+    const onPageHide = () => {
+      save.cancel();
+      persist();
+    };
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       save.cancel();
       unsubDoc();
       unsubWorld();
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, []);
 

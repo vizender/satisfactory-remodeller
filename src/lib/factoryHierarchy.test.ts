@@ -92,6 +92,7 @@ it("exposes connected factory inputs and outputs and keeps factory rates driven 
   expect(result.results.world.effectiveRate["f1-out-0"]).toBeCloseTo(90);
   expect(result.results.world.machineMultiplier.f1).toBeCloseTo(1);
   expect(result.totals.world.machines).toBeCloseTo(2);
+  expect(result.totals.world.machinesByType.Desc_SmelterMk1_C).toBeCloseTo(2);
   expect(result.totals.world.shards).toBe(2);
   expect(result.totals.world.consumerTotalMw).toBeGreaterThan(8);
   expect(
@@ -110,10 +111,21 @@ it("scales fractional blueprint copies from outside without changing internal ma
   expect(result.totals.world.consumerTotalMw).toBeCloseTo(
     result.totals.f1.consumerTotalMw * 2.5,
   );
+  expect(result.totals.world.machinesByType.Desc_SmelterMk1_C).toBeCloseTo(2.5);
   map.world.nodes[0].data.blueprintCount = 0.5;
   expect(
     computeFactoryHierarchy(map).results.world.machineMultiplier.f1,
   ).toBeCloseTo(0.5);
+});
+
+it("groups different machine types through nested factories", () => {
+  const map = fixture();
+  map.f1.nodes.push(node("m2", "machineFrame", { recipeKey: "Recipe_IronPlate_C" }));
+  const result = computeFactoryHierarchy(map);
+  expect(result.totals.world.machinesByType).toMatchObject({
+    Desc_SmelterMk1_C: 1,
+    Desc_ConstructorMk1_C: 1,
+  });
 });
 
 it("counts every nested canvas independently even when machine ids are reused", () => {
