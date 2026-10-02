@@ -38,7 +38,7 @@ export function FactoryFrameNode({ id, selected, data }: NodeProps) {
   if (!expanded) {
     return (
       <div
-        className={`relative flex h-full w-full cursor-grab items-center justify-center rounded-lg border-2 border-dashed px-2 py-1.5 shadow-sm active:cursor-grabbing ${selected ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,var(--surface))]" : "border-[var(--border)] bg-[var(--surface)]"}`}
+        className={`rf-factory-body relative flex h-full w-full cursor-grab items-center justify-center rounded-lg border-2 border-dashed px-2 py-1.5 shadow-sm active:cursor-grabbing ${selected ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,var(--surface))]" : "border-[var(--border)] bg-[var(--surface)]"}`}
         title={d.label}
       >
         <div className="flex items-center gap-2">
